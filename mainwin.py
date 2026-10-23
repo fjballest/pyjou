@@ -8,17 +8,19 @@ import subprocess
 import sys
 
 from PySide6.QtCore import QDate, QFileSystemWatcher, QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCharFormat
+from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat
 from PySide6.QtWidgets import (
-	QCalendarWidget, QCheckBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+	QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
 	QProgressBar, QSplitter, QStyle, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget
 )
 
-from journal import Journal, defaultjournals, groupkeys
+from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture
+from journal import Journal, defaultjournals, drawtext, groupkeys
 from ocrworker import startocr
 from search import Search
+from drawbar import DrawBar
 from viewer import ImageView
 
 RECENTMAX = 10
@@ -69,13 +71,17 @@ class MainWindow(QMainWindow):
 		self.watcher = QFileSystemWatcher(self)
 		self.watcher.directoryChanged.connect(lambda _: self.reloadtimer.start())
 
+		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
+		self.mkwidgets()
 		self.mktoolbar()
 		self.mkmenus()
-		self.mkwidgets()
-		self.mkshortcuts()
 		self.resize(1500, 950)
 		self.updatetitle()
+		# captures dropped anywhere on the window are added
+		self.setAcceptDrops(True)
+		for w in (self.view, self.view.viewport(), self.notes):
+			w.setAcceptDrops(False)
 
 		if path is None:
 			path = self.startjournal()
@@ -99,6 +105,12 @@ class MainWindow(QMainWindow):
 		S = QStyle.StandardPixmap
 		self.openact = self.mkaction("&Open Journal…", self.choosejournal, S.SP_DirOpenIcon,
 			QKeySequence.StandardKey.Open, "open a journal directory")
+		self.saveact = self.mkaction("&Save Drawings", self.savedrawings, S.SP_DialogSaveButton,
+			QKeySequence.StandardKey.Save, "save the drawings made")
+		self.saveact.setIconText("Save")
+		self.saveact.setEnabled(False)
+		self.addact = self.mkaction("&Add Capture…", self.choosecaptures, None, "Ctrl+I",
+			"add a capture to the journal; you can also drop it on the window")
 		self.reloadact = self.mkaction("&Reload", self.reload, S.SP_BrowserReload,
 			QKeySequence.StandardKey.Refresh, "look for new images and notes")
 		self.prevact = self.mkaction("Previous", lambda: self.step(-1), S.SP_ArrowBack,
@@ -145,6 +157,7 @@ class MainWindow(QMainWindow):
 		ob.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 		ob.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
 		tb.addWidget(ob)
+		tb.addAction(self.saveact)
 		tb.addAction(self.reloadact)
 		tb.addSeparator()
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact):
@@ -159,10 +172,16 @@ class MainWindow(QMainWindow):
 		f = mb.addMenu("&File")
 		f.addAction(self.openact)
 		f.addMenu(self.recentmenu)
+		f.addAction(self.saveact)
+		f.addAction(self.addact)
 		f.addAction(self.reloadact)
 		f.addSeparator()
 		f.addAction(self.quitact)
 		e = mb.addMenu("&Edit")
+		e.addAction(self.undoact)
+		e.addAction(self.redoact)
+		e.addAction(self.delact)
+		e.addSeparator()
 		e.addAction(self.findact)
 		e.addAction(self.notesact)
 		e.addSeparator()
@@ -174,6 +193,10 @@ class MainWindow(QMainWindow):
 		v = mb.addMenu("&View")
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
+		v.addSeparator()
+		tools = v.addMenu("&Draw")
+		for a in self.toolacts.values():
+			tools.addAction(a)
 		v.addSeparator()
 		v.addAction(self.osviewact)
 		h = mb.addMenu("&Help")
@@ -235,6 +258,9 @@ class MainWindow(QMainWindow):
 		f.setPointSizeF(f.pointSizeF() * 1.2)
 		self.titlelabel.setFont(f)
 		self.view = ImageView()
+		self.view.navigate.connect(self.navigate)
+		self.view.drawchanged.connect(self.drawchanged)
+		drawbar = self.mkdrawbar()
 		self.tagslabel = QLabel()
 		self.tagslabel.setWordWrap(True)
 		self.tagslabel.setTextFormat(Qt.TextFormat.RichText)
@@ -258,7 +284,10 @@ class MainWindow(QMainWindow):
 		right = QWidget()
 		rl = QVBoxLayout(right)
 		rl.setContentsMargins(4, 4, 4, 4)
-		rl.addWidget(self.titlelabel)
+		top = QHBoxLayout()
+		top.addWidget(self.titlelabel, 1)
+		top.addWidget(drawbar)
+		rl.addLayout(top)
 		rl.addWidget(vsplit, 1)
 
 		split = QSplitter(Qt.Orientation.Horizontal)
@@ -275,16 +304,147 @@ class MainWindow(QMainWindow):
 		self.statusBar().addPermanentWidget(self.ocrlabel)
 		self.statusBar().addPermanentWidget(self.ocrbar)
 
-	def mkshortcuts(self):
-		# arrows move through the images while the image has the focus
-		ctx = Qt.ShortcutContext.WidgetWithChildrenShortcut
-		for key, fn in ((Qt.Key.Key_Left, lambda: self.step(-1)), (Qt.Key.Key_Right, lambda: self.step(1)),
-				(Qt.Key.Key_Up, lambda: self.step(-1)), (Qt.Key.Key_Down, lambda: self.step(1)),
-				(Qt.Key.Key_Home, lambda: self.jump(False)), (Qt.Key.Key_End, lambda: self.jump(True)),
-				(Qt.Key.Key_W, self.toggleweek)):
-			s = QShortcut(QKeySequence(key), self.view, fn)
-			s.setContext(ctx)
-		self.view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+	def mkdrawbar(self):
+		"""the tools for drawing on the image"""
+		tb = DrawBar(self.view, self)
+		self.drawbar = tb
+		self.toolacts = tb.toolacts
+		self.undoact, self.redoact, self.delact = tb.undoact, tb.redoact, tb.delact
+		self.setcolor = tb.setcolor
+		return tb
+
+	def navigate(self, what):
+		{"prev": lambda: self.step(-1), "next": lambda: self.step(1),
+			"first": lambda: self.jump(False), "last": lambda: self.jump(True),
+			"week": self.toggleweek}[what]()
+
+	def drawchanged(self):
+		"""the drawing of the image shown changed: it is pending until saved"""
+		e = self.current
+		if self.view.loading or e is None or self.journal is None or not self.view.hasimage():
+			return
+		data = self.view.drawingdata()
+		if data == self.journal.readdrawing(e):
+			self.pending.pop(e.name, None)	# back as saved
+		else:
+			self.pending[e.name] = data
+		e.drawtext = drawtext(data)
+		self.updatetitle()
+
+	def drawingof(self, e):
+		"""the drawing of e: the one not saved yet, or the one in its file"""
+		if e.name in self.pending:
+			return self.pending[e.name]
+		return self.journal.readdrawing(e)
+
+	def savedrawings(self):
+		"""write the drawings not saved yet; False if one could not be"""
+		self.view.commitedit()
+		ok = True
+		for name, data in list(self.pending.items()):
+			e = self.journal.find(name) if self.journal else None
+			if e is None:
+				self.pending.pop(name)
+				continue
+			try:
+				self.journal.savedrawing(e, data)
+				self.pending.pop(name)
+			except OSError as x:
+				ok = False
+				self.statusBar().showMessage(f"Can't save the drawing of {name}: {x}", 5000)
+		if ok:
+			self.statusBar().showMessage("Drawings saved", 1500)
+		self.updatetitle()
+		return ok
+
+	def keepdrawings(self, why):
+		"""ask what to do with the drawings not saved, before why.
+		False if the user cancels"""
+		self.view.commitedit()
+		if not self.pending:
+			return True
+		n = len(self.pending)
+		qm = QMessageBox
+		r = qm.question(self, "Unsaved drawings",
+			f"The drawings of {n} image{'s' if n > 1 else ''} are not saved. Save them before {why}?",
+			qm.StandardButton.Save | qm.StandardButton.Discard | qm.StandardButton.Cancel, qm.StandardButton.Save)
+		if r == qm.StandardButton.Cancel:
+			return False
+		if r == qm.StandardButton.Save:
+			return self.savedrawings()
+		self.pending = {}
+		self.updatetitle()
+		return True
+
+	# ---- adding captures ----
+	def droppedimages(self, ev):
+		md = ev.mimeData()
+		if not md.hasUrls():
+			return []
+		return [u.toLocalFile() for u in md.urls() if u.isLocalFile() and isimage(u.toLocalFile())]
+
+	def dragEnterEvent(self, ev):
+		if self.journal is not None and self.droppedimages(ev):
+			ev.acceptProposedAction()
+		else:
+			ev.ignore()
+
+	def dragMoveEvent(self, ev):
+		self.dragEnterEvent(ev)
+
+	def dropEvent(self, ev):
+		paths = self.droppedimages(ev)
+		if not paths:
+			ev.ignore()
+			return
+		ev.acceptProposedAction()
+		# after the drop is over, so the dialog doesn't hold the program it came from
+		QTimer.singleShot(0, lambda: self.addcaptures(paths))
+
+	def choosecaptures(self):
+		if self.journal is None:
+			return
+		exts = " ".join("*" + x for x in IMAGEEXTS)
+		paths, _ = QFileDialog.getOpenFileNames(self, "Add Capture", os.path.expanduser("~/Desktop"),
+			f"Images ({exts})")
+		self.addcaptures(paths)
+
+	def addcaptures(self, paths):
+		"""add the images at paths to the journal, asking the date of each"""
+		if self.journal is None:
+			return
+		added = None
+		for p in paths:
+			if injournal(self.journal, p):
+				QMessageBox.information(self, "Add Capture", f"{os.path.basename(p)} is already in the journal.")
+				continue
+			self.journal.load()	# the names in use now
+			dlg = CaptureDialog(self.journal, p, self)
+			if dlg.exec() != QDialog.DialogCode.Accepted:
+				continue
+			name = dlg.name()
+			try:
+				savecapture(self.journal, p, name)
+			except OSError as x:
+				QMessageBox.warning(self, "Add Capture", f"Can't add {os.path.basename(p)}: {x}")
+				continue
+			self.journal.load()
+			e = self.journal.find(name)
+			if e is not None and dlg.raw is not None:
+				self.journal.settext(e, dlg.raw)	# no need to read it again
+				self.savecache()
+			added = name
+			self.statusBar().showMessage(f"Added {name}", 3000)
+		if added is not None:
+			self.reload()
+			e = self.journal.find(added)
+			if e is not None and e not in self.shown:	# make sure the list shows it
+				(self.daysbox if not e.week else self.weeksbox).setChecked(True)
+				if e not in self.shown:
+					self.searchbox.clear()
+					self.applysearch()
+			if e is not None:
+				self.show_(e)
 
 	# ---- journals ----
 	def startjournal(self):
@@ -318,6 +478,8 @@ class MainWindow(QMainWindow):
 
 	def openjournal(self, path):
 		self.savenotes()
+		if not self.keepdrawings("opening another journal"):
+			return
 		self.stopocr()
 		try:
 			j = Journal(path)
@@ -341,10 +503,16 @@ class MainWindow(QMainWindow):
 			return
 		self.savenotes()
 		cur = self.current.name if self.current else None
+		before = self.journal.mtime(self.current) if self.current else None
 		self.journal.load()
+		for name, data in self.pending.items():
+			e = self.journal.find(name)
+			if e is not None:
+				e.drawtext = drawtext(data)
 		self.current = self.journal.find(cur) if cur else None
 		self.applysearch()
-		if self.current is not None:
+		if self.current is not None and self.journal.mtime(self.current) != before:
+			# the image shown changed on disk; otherwise keep its drawing and undo
 			self.show_(self.current, force=True)
 		self.startocr()
 
@@ -353,7 +521,9 @@ class MainWindow(QMainWindow):
 			self.setWindowTitle("DayJournal")
 			return
 		n = len(self.journal.entries)
-		self.setWindowTitle(f"DayJournal — {os.path.basename(self.journal.dir)} ({n} images)")
+		unsaved = " (unsaved)" if self.pending else ""
+		self.setWindowTitle(f"DayJournal — {os.path.basename(self.journal.dir)} ({n} images){unsaved}")
+		self.saveact.setEnabled(bool(self.pending))
 
 	# ---- search and list ----
 	def searchchanged(self, text):
@@ -572,6 +742,7 @@ class MainWindow(QMainWindow):
 			self.selectitem(e)
 			return
 		self.savenotes()
+		self.view.commitedit()	# a text being written goes into the drawing
 		self.current = e
 		self.notes.blockSignals(True)
 		if e is None:
@@ -581,7 +752,7 @@ class MainWindow(QMainWindow):
 			self.notes.setPlainText("")
 			self.notes.setEnabled(False)
 		else:
-			self.view.setimage(self.journal.path(e))
+			self.view.setimage(self.journal.path(e), self.drawingof(e))
 			self.titlelabel.setText(e.label())
 			self.titlelabel.setToolTip(self.journal.path(e))
 			self.showtags(e)
@@ -794,6 +965,9 @@ class MainWindow(QMainWindow):
 
 	def closeEvent(self, ev):
 		self.savenotes()
+		if not self.keepdrawings("quitting"):
+			ev.ignore()
+			return
 		self.stopocr()
 		self.savecache()
 		super().closeEvent(ev)

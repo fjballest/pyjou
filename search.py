@@ -1,7 +1,8 @@
 #
 # search expressions, as in pylg's text filter: words one after another
 # must all match, ! is not, | is or, and parentheses group: "(a b) | !(c d)".
-# A word matches, ignoring case, a tag or a whole word of the notes. A final
+# A word matches, ignoring case, a tag or a whole word of the notes or
+# of the text boxes drawn on the image. A final
 # lowercase s is optional (EQL finds EQLs) and * matches any letters within
 # a word (EQ*). An empty search matches everything.
 #
@@ -78,7 +79,7 @@ class Search:
 	def match(self, entry):
 		if self.expr is None:
 			return True
-		return self.eval(self.expr, list(entry.tags) + [entry.notes or ""])
+		return self.eval(self.expr, list(entry.tags) + [entry.notes or "", entry.drawtext or ""])
 
 	@staticmethod
 	def error(text):

@@ -1,9 +1,11 @@
 #
 # a day journal: a directory of chart snapshots named dayYYMMDD.png (a day)
-# and dayYYMMDDweekprof.png (the week profile, dated the Sunday the week
-# starts). A letter after the date (day260916b.png) is another snapshot of
+# and dayYYMMDDweekprof.png (the week profile). Weeks start on Monday; a
+# week profile dated a Sunday is for the week that starts the day after,
+# otherwise it is for the week of its date. A letter after the date (day260916b.png) is another snapshot of
 # the same day. Each image may have notes in a .txt file with its name, and
-# the words read from it by OCR are its tags, cached in TAGSFILE.
+# the words read from it by OCR are its tags, cached in TAGSFILE. What is
+# drawn on it (see drawing.py) is kept in a DRAWEXT file with its name.
 #
 import json
 import os
@@ -16,6 +18,7 @@ from tags import cleantags
 NAMERE = re.compile(r"^day(\d{2})(\d{2})(\d{2})(weekprof)?([a-z]?)\.png$", re.IGNORECASE)
 TAGSFILE = ".pyjou-tags.json"
 TAGSVERSION = 1		# bump when the cache layout changes
+DRAWEXT = ".drw"
 
 @dataclass
 class Entry:
@@ -26,6 +29,7 @@ class Entry:
 	extra: str = ""		# the letter of a second snapshot of the day
 	tags: list[str] = field(default_factory=list)
 	notes: str = ""
+	drawtext: str = ""	# what is written in its text boxes
 
 	def base(self):
 		return os.path.splitext(self.name)[0]
@@ -33,16 +37,36 @@ class Entry:
 	def notesname(self):
 		return self.base() + ".txt"
 
+	def drawname(self):
+		return self.base() + DRAWEXT
+
+	def weekmonday(self):
+		"""the Monday of the week this entry is about"""
+		if self.week and self.day.weekday() == 6:
+			return weekstart(self.day + timedelta(days=1))	# a Sunday: the next week
+		return weekstart(self.day)
+
+	def groupday(self):
+		"""the date used to place the entry: a week profile goes with
+		the Monday of its week"""
+		return self.weekmonday() if self.week else self.day
+
 	def sortkey(self):
 		# the week profile comes before the days of its week
-		return (self.day, 0 if self.week else 1, self.extra)
+		return (self.groupday(), 0 if self.week else 1, self.extra)
 
 	def label(self):
 		if self.week:
-			end = self.day + timedelta(days=6)
-			return f"Week {self.day.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
+			start = self.weekmonday()
+			end = start + timedelta(days=6)
+			return f"Week {start.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
 		s = self.day.strftime("%a %d %b %Y")
 		return f"{s} ({self.extra})" if self.extra else s
+
+def drawtext(data):
+	"""the words written in the text boxes of a drawing"""
+	return " ".join(str(s.get("text", "")) for s in (data or {}).get("shapes", [])
+		if isinstance(s, dict) and s.get("kind") == "text")
 
 def parsename(name):
 	"""the Entry for a file name, or None when it isn't a journal image"""
@@ -54,6 +78,10 @@ def parsename(name):
 	except ValueError:
 		return None
 	return Entry(name, d, week=m.group(4) is not None, extra=m.group(5).lower())
+
+def capturename(d, week=False, letter=""):
+	"""the file name of a capture: day261014.png, day261011weekprof.png, day261014b.png"""
+	return f"day{d:%y%m%d}{'weekprof' if week else ''}{letter}.png"
 
 class Journal:
 	def __init__(self, dir):
@@ -74,10 +102,24 @@ class Journal:
 			if e is None:
 				continue
 			e.notes = self.readnotes(e)
+			e.drawtext = drawtext(self.readdrawing(e))
 			e.tags = self.tagsof(e)
 			entries.append(e)
 		entries.sort(key=Entry.sortkey)
 		self.entries = entries
+
+	def newname(self, d, week=False):
+		"""the name for one more capture of day d (or the week profile dated d):
+		the plain name for the first one, then the letters after the last
+		one there (day261014.png, day261014b.png, day261014c.png...).
+		None when the letters run out."""
+		used = [x.extra or "a" for x in self.entries if x.day == d and x.week == week]
+		if not used:
+			return capturename(d, week)
+		last = max(used)
+		if last >= "z":
+			return None
+		return capturename(d, week, chr(ord(last) + 1))
 
 	# ---- notes ----
 	def readnotes(self, e):
@@ -99,6 +141,29 @@ class Journal:
 				f.write(text)
 			os.replace(tmp, p)
 		e.notes = text
+
+	# ---- drawings ----
+	def readdrawing(self, e):
+		"""the drawing of e as saved, or None"""
+		try:
+			with open(os.path.join(self.dir, e.drawname()), encoding="utf-8") as f:
+				d = json.load(f)
+			return d if isinstance(d, dict) else None
+		except (FileNotFoundError, ValueError):
+			return None
+
+	def savedrawing(self, e, data):
+		"""write the drawing of e; None or no shapes removes the file"""
+		p = os.path.join(self.dir, e.drawname())
+		if not data or not data.get("shapes"):
+			if os.path.exists(p):
+				os.remove(p)
+		else:
+			tmp = p + ".tmp"
+			with open(tmp, "w", encoding="utf-8") as f:
+				json.dump(data, f, ensure_ascii=False, indent=1)
+			os.replace(tmp, p)
+		e.drawtext = drawtext(data)
 
 	# ---- tags ----
 	def loadcache(self):
@@ -170,29 +235,31 @@ class Journal:
 		"""the week profile for the week of day entry e, or None"""
 		start = weekstart(e.day)
 		for x in self.entries:
-			if x.week and start - timedelta(days=1) <= x.day <= start + timedelta(days=1):
+			if x.week and x.weekmonday() == start:
 				return x
 		return None
 
 	def daysof(self, w):
 		"""the days of week profile w"""
-		return [x for x in self.entries if not x.week and w.day <= x.day < w.day + timedelta(days=7)]
+		start = w.weekmonday()
+		return [x for x in self.entries if not x.week and weekstart(x.day) == start]
 
 	def days(self):
 		return {x.day for x in self.entries}
 
 def weekstart(d):
-	"""the Sunday that starts the week of d, as the week profiles"""
-	return d - timedelta(days=(d.weekday() + 1) % 7)
+	"""the Monday that starts the week of d"""
+	return d - timedelta(days=d.weekday())
 
 def groupkeys(e):
 	"""the year, month and week groups of entry e, as [(key, label)...].
-	A week profile goes in the week it starts, and a week that spans two
-	months is shown in both, with the days of each."""
-	y, mo = e.day.year, e.day.month
-	w = weekstart(e.day)
+	A week profile goes in the week it is for, in the month of its Monday,
+	and a week that spans two months is shown in both, with the days of each."""
+	d = e.groupday()
+	y, mo = d.year, d.month
+	w = weekstart(d)
 	return [(("y", y), str(y)),
-		(("m", y, mo), e.day.strftime("%B")),
+		(("m", y, mo), d.strftime("%B")),
 		(("w", y, mo, w), f"Week {w.strftime('%d %b')}")]
 
 def defaultjournals():

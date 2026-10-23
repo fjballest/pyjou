@@ -15,6 +15,7 @@ pylg, and uses easyocr for the OCR.
 | `tags.py` | `cleantags`: from OCR text to tags |
 | `ocr.py` | `readimage` with easyocr, and `serve`, the loop of the OCR process |
 | `ocrworker.py` | `OCRWorker`: runs the OCR process with `QProcess` and reads its answers |
+| `capture.py` | adding a capture: `guess` (its date from the OCR, its file name and date), `CaptureDialog`, `savecapture` |
 | `search.py` | `Search`: parses and evaluates search expressions |
 | `viewer.py` | `ImageView`: a `QGraphicsView` with the image, the zoom and the drawing tools |
 | `drawing.py` | the shapes (`LineShape`, `PencilShape`, `CircleShape`, `TextShape`), their JSON form and the undo commands |
@@ -114,6 +115,29 @@ names, short Spanish and English words, chart chrome (`NOISE`), lowercase
 runs without vowels and misread capitals (`PtHOG`), and keeps time frames
 such as `m15`.
 
+## Adding captures
+
+`MainWindow` accepts drops of image files (the view and the notes don't,
+so they reach the window) and **Add Capture…** picks them with a file dialog;
+both end in `addcaptures`. For each file, `CaptureDialog` starts its own
+`OCRWorker` on it and shows `capture.guess` at once with the file's date,
+then again when the OCR answers, unless the user changed the date or the
+week box meanwhile.
+
+`guess` takes the dates in the OCR text (`datesin`: `YY-MM-DD` as the charts
+write them, `YYYY-MM-DD`, `D/M/Y`, `14 oct 2026`, `Oct 14`; `mar` is not
+taken as March before a number, since it is Tuesday in Spanish) and keeps the
+last one not after the day the file was made plus one (two on Saturday), so
+the days before shown in a chart, and a week profile's next Monday, work.
+A file made on a weekend, or named with *week* or *prof*, is a week
+profile, named on its Sunday (`weekname`).
+
+`Journal.newname` gives the name: the plain one for the first capture of a
+day (or week profile), then the letter after the last one there, counting
+the plain one as `a`. `savecapture` copies through a temporary file, or
+converts to PNG with `QImage`, and never replaces a file. The OCR results
+are stored in the tags cache for the new name, so it is not read again.
+
 ## Search
 
 `search.Search` is a small recursive descent parser:
@@ -163,6 +187,7 @@ and per visit.
 ```
 QT_QPA_PLATFORM=offscreen python3 tests/test_journal.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_drawing.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_capture.py
 ```
 
 They run without a display and without easyocr: `ocrworker.ocrcommand` is
@@ -183,7 +208,8 @@ The PDFs next to these documents are made with `docs/mkpdf.sh`.
 
 | To | Change |
 |----|--------|
-| accept other image names | `NAMERE` and `parsename` in `journal.py` |
+| accept other image names | `NAMERE` and `parsename` in `journal.py`, `capturename` |
+| find other ways of writing dates | `datesin` in `capture.py` |
 | keep or drop other words as tags | `tags.py` (`NOISE`, `STOP`, `isword`) |
 | change how searches match | `search.py` (`wordpattern`, the parser) |
 | add a kind of drawing | a shape class with `todict`, `setend`, `small` and `setstyle` in `drawing.py`, `fromdict`, the tool in `ImageView.mousePressEvent` and `drawbar.TOOLS` |

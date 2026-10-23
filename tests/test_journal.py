@@ -31,7 +31,8 @@ def check(cond, what):
 e = journal.parsename("day261014.png")
 check(e and e.day == date(2026, 10, 14) and not e.week, "day name")
 e = journal.parsename("day261011weekprof.png")
-check(e and e.week and e.day == date(2026, 10, 11), "week profile name")
+check(e and e.week and e.day == date(2026, 10, 11) and e.weekmonday() == date(2026, 10, 12), "a Sunday week profile is for the next week")
+check(journal.parsename("day261014weekprof.png").weekmonday() == date(2026, 10, 12), "other week profiles are for their own week")
 e = journal.parsename("day260916b.png")
 check(e and e.extra == "b", "second snapshot name")
 check(journal.parsename("day261399.png") is None and journal.parsename("x.png") is None, "not journal names")
@@ -157,24 +158,24 @@ check(w.current.name == "day261019.png", "calendar goes to the next day with an 
 def isopen(*key):
 	return w.groups[key].isExpanded()
 check(sorted(k[0] for k in w.groups) == ["m", "w", "w", "y"], "a year, a month and two weeks")
-check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 18)), "last week open")
-check(isopen("w", 2026, 10, date(2026, 10, 11)), "the week before open too, as the last has one day")
-check(w.groups[("w", 2026, 10, date(2026, 10, 11))].childCount() == 5, "week profile and days in their week")
+check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 19)), "last week open")
+check(isopen("w", 2026, 10, date(2026, 10, 12)), "the week before open too, as the last has one day")
+check(w.groups[("w", 2026, 10, date(2026, 10, 12))].childCount() == 5, "week profile and days in their week")
 w.toggleall()
 check(not any(g.isExpanded() for g in w.groups.values()) and w.allbtn.text() == "▸", "collapse all")
 w.jump(False)
-check(isopen("w", 2026, 10, date(2026, 10, 11)) and isopen("y", 2026) and w.list.currentItem() is w.items[w.current.name],
+check(isopen("w", 2026, 10, date(2026, 10, 12)) and isopen("y", 2026) and w.list.currentItem() is w.items[w.current.name],
 	"moving opens the group of the image")
 w.toggleall()
 check(w.allbtn.text() == "▸", "the triangle says some groups are still closed")
 w.toggleall()
 check(all(g.isExpanded() for g in w.groups.values()) and w.allbtn.text() == "▾", "expand all")
-g = w.groups[("w", 2026, 10, date(2026, 10, 18))]
+g = w.groups[("w", 2026, 10, date(2026, 10, 19))]
 w.groupclicked(g, 0)
 check(not g.isExpanded(), "clicking a group closes it")
 w.applysearch()
-check(not w.groups[("w", 2026, 10, date(2026, 10, 18))].isExpanded(), "groups stay as they were")
-w.groupclicked(w.groups[("w", 2026, 10, date(2026, 10, 18))], 0)
+check(not w.groups[("w", 2026, 10, date(2026, 10, 19))].isExpanded(), "groups stay as they were")
+w.groupclicked(w.groups[("w", 2026, 10, date(2026, 10, 19))], 0)
 w.jump(True)
 
 # notes are saved
