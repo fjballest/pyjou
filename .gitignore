@@ -1,0 +1,8 @@
+*~
+*.exe
+*.app
+.DS_Store
+__pycache__
+dist
+build
+.idea
