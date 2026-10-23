@@ -153,6 +153,30 @@ check(w.current.name == "day261013.png" and "rebote" in w.notes.toPlainText(), "
 w.calendarclicked(mainwin.QDate(2026, 10, 16))
 check(w.current.name == "day261019.png", "calendar goes to the next day with an image")
 
+# groups
+def isopen(*key):
+	return w.groups[key].isExpanded()
+check(sorted(k[0] for k in w.groups) == ["m", "w", "w", "y"], "a year, a month and two weeks")
+check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 18)), "last week open")
+check(isopen("w", 2026, 10, date(2026, 10, 11)), "the week before open too, as the last has one day")
+check(w.groups[("w", 2026, 10, date(2026, 10, 11))].childCount() == 5, "week profile and days in their week")
+w.toggleall()
+check(not any(g.isExpanded() for g in w.groups.values()) and w.allbtn.text() == "▸", "collapse all")
+w.jump(False)
+check(isopen("w", 2026, 10, date(2026, 10, 11)) and isopen("y", 2026) and w.list.currentItem() is w.items[w.current.name],
+	"moving opens the group of the image")
+w.toggleall()
+check(w.allbtn.text() == "▸", "the triangle says some groups are still closed")
+w.toggleall()
+check(all(g.isExpanded() for g in w.groups.values()) and w.allbtn.text() == "▾", "expand all")
+g = w.groups[("w", 2026, 10, date(2026, 10, 18))]
+w.groupclicked(g, 0)
+check(not g.isExpanded(), "clicking a group closes it")
+w.applysearch()
+check(not w.groups[("w", 2026, 10, date(2026, 10, 18))].isExpanded(), "groups stay as they were")
+w.groupclicked(w.groups[("w", 2026, 10, date(2026, 10, 18))], 0)
+w.jump(True)
+
 # notes are saved
 w.jump(False)
 w.notes.setPlainText("a classic week")
@@ -170,7 +194,7 @@ check(not os.path.exists(p), "empty notes remove the file")
 # search box
 w.searchbox.setText("silver")
 QTest.qWait(400)
-check([x.name for x in w.shown] == ["day261013.png", "day261019.png"] and w.list.count() == 2, "search filters the list")
+check([x.name for x in w.shown] == ["day261013.png", "day261019.png"] and len(w.items) == 2, "search filters the list")
 check(w.current.name in ("day261013.png", "day261019.png"), "the image shown is one found")
 w.searchbox.setText("(silver")
 QTest.qWait(400)

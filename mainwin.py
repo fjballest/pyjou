@@ -11,11 +11,12 @@ from PySide6.QtCore import QDate, QFileSystemWatcher, QSettings, QSize, Qt, QTim
 from PySide6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCharFormat
 from PySide6.QtWidgets import (
 	QCalendarWidget, QCheckBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-	QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-	QProgressBar, QSplitter, QStyle, QToolBar, QToolButton, QVBoxLayout, QWidget
+	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+	QProgressBar, QSplitter, QStyle, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+	QVBoxLayout, QWidget
 )
 
-from journal import Journal, defaultjournals
+from journal import Journal, defaultjournals, groupkeys
 from ocrworker import startocr
 from search import Search
 from viewer import ImageView
@@ -194,13 +195,26 @@ class MainWindow(QMainWindow):
 			b.setChecked(True)
 			b.toggled.connect(self.applysearch)
 		self.countlabel = QLabel()
+		self.allbtn = QToolButton()
+		self.allbtn.setAutoRaise(True)
+		self.allbtn.clicked.connect(self.toggleall)
 		kinds = QHBoxLayout()
+		kinds.addWidget(self.allbtn)
 		kinds.addWidget(self.daysbox)
 		kinds.addWidget(self.weeksbox)
 		kinds.addStretch()
 		kinds.addWidget(self.countlabel)
-		self.list = QListWidget()
+		self.list = QTreeWidget()
+		self.list.setHeaderHidden(True)
+		self.list.setIndentation(14)
+		self.list.setUniformRowHeights(True)
 		self.list.currentItemChanged.connect(self.listchanged)
+		self.list.itemClicked.connect(self.groupclicked)
+		self.list.itemExpanded.connect(lambda it: self.groupexpanded(it, True))
+		self.list.itemCollapsed.connect(lambda it: self.groupexpanded(it, False))
+		self.items = {}			# entry name -> its tree item
+		self.groups = {}		# group key -> its tree item
+		self.expanded = set()	# keys of the groups open
 		self.calendar = QCalendarWidget()
 		self.calendar.setGridVisible(False)
 		self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
@@ -316,6 +330,7 @@ class MainWindow(QMainWindow):
 		self.watcher.addPath(j.dir)
 		addrecent(j.dir)
 		self.current = None
+		self.initialgroups()
 		self.applysearch(keep=False)
 		self.jump(True)
 		self.updatetitle()
@@ -361,6 +376,10 @@ class MainWindow(QMainWindow):
 		days, weeks = self.daysbox.isChecked(), self.weeksbox.isChecked()
 		self.shown = [e for e in self.journal.entries
 			if (weeks if e.week else days) and self.search.match(e)]
+		if self.search.expr is not None:
+			# show what was found
+			for e in self.shown:
+				self.expanded.update(k for k, _ in groupkeys(e))
 		self.fillist()
 		if keep and self.current is not None and self.current in self.shown:
 			self.selectitem(self.current)
@@ -372,37 +391,153 @@ class MainWindow(QMainWindow):
 		self.markcalendar()
 
 	def fillist(self):
+		"""the entries shown, in year, month and week groups"""
 		self.list.blockSignals(True)
 		self.list.clear()
+		self.items = {}
+		self.groups = {}
 		bold = QFont(self.list.font())
 		bold.setBold(True)
 		for e in self.shown:
-			it = QListWidgetItem(e.label())
-			it.setData(Qt.ItemDataRole.UserRole, e.name)
+			parent = None
+			for key, label in groupkeys(e):
+				g = self.groups.get(key)
+				if g is None:
+					g = QTreeWidgetItem([label])
+					g.setData(0, Qt.ItemDataRole.UserRole, None)
+					g.setFont(0, bold)
+					g.setData(0, Qt.ItemDataRole.UserRole + 1, label)
+					g.setData(0, Qt.ItemDataRole.UserRole + 2, 0)
+					if parent is None:
+						self.list.addTopLevelItem(g)
+					else:
+						parent.addChild(g)
+					self.groups[key] = g
+				g.setData(0, Qt.ItemDataRole.UserRole + 2, g.data(0, Qt.ItemDataRole.UserRole + 2) + 1)
+				parent = g
+			it = QTreeWidgetItem([self.itemtext(e)])
+			it.setData(0, Qt.ItemDataRole.UserRole, e.name)
 			if e.week:
-				it.setFont(bold)
-			tip = " ".join(e.tags[:30])
-			if e.notes.strip():
-				it.setText(e.label() + "  ✎")
-				tip = e.notes.strip()[:300] + ("\n\n" + tip if tip else "")
-			it.setToolTip(tip)
-			self.list.addItem(it)
+				it.setFont(0, bold)
+			it.setToolTip(0, self.itemtip(e))
+			parent.addChild(it)
+			self.items[e.name] = it
+		for key, g in self.groups.items():
+			n = g.data(0, Qt.ItemDataRole.UserRole + 2)
+			g.setText(0, f"{g.data(0, Qt.ItemDataRole.UserRole + 1)}   ({n})")
+			g.setExpanded(key in self.expanded)
 		self.list.blockSignals(False)
+		self.updateallbtn()
 		total = len(self.journal.entries) if self.journal else 0
 		self.countlabel.setText(f"{len(self.shown)} of {total}")
 
-	def selectitem(self, e):
-		i = self.shown.index(e) if e in self.shown else -1
+	@staticmethod
+	def itemtext(e):
+		if e.week:
+			s = "Week profile"
+		else:
+			s = e.day.strftime("%a %d")
+			if e.extra:
+				s += f" ({e.extra})"
+		return s + ("  ✎" if e.notes.strip() else "")
+
+	@staticmethod
+	def itemtip(e):
+		tip = " ".join(e.tags[:30])
+		if e.notes.strip():
+			tip = e.notes.strip()[:300] + ("\n\n" + tip if tip else "")
+		return tip
+
+	def groupkey(self, g):
+		for k, x in self.groups.items():
+			if x is g:
+				return k
+		return None
+
+	def groupexpanded(self, g, open):
+		k = self.groupkey(g)
+		if k is None:
+			return
+		if open:
+			self.expanded.add(k)
+		else:
+			self.expanded.discard(k)
+		self.updateallbtn()
+
+	def groupclicked(self, item, _col):
+		if item.data(0, Qt.ItemDataRole.UserRole) is None:
+			item.setExpanded(not item.isExpanded())
+
+	def initialgroups(self):
+		"""open only the last year, month and week, and the week before
+		when the last one has less than two days"""
+		self.expanded = set()
+		days = [e for e in self.journal.entries if not e.week] if self.journal else []
+		if not days:
+			days = list(self.journal.entries) if self.journal else []
+		if not days:
+			return
+		weeks = []
+		for e in reversed(days):
+			k = groupkeys(e)[-1][0]
+			if k not in weeks:
+				weeks.append(k)
+		last = [e for e in days if groupkeys(e)[-1][0] == weeks[0]]
+		open = [last[-1]]
+		if len(last) < 2 and len(weeks) > 1:
+			open.append([e for e in days if groupkeys(e)[-1][0] == weeks[1]][-1])
+		for e in open:
+			for k, _ in groupkeys(e):
+				self.expanded.add(k)
+			if self.journal:
+				w = self.journal.weekof(e)
+				if w is not None:
+					self.expanded.update(k for k, _ in groupkeys(w))
+
+	def allcollapsed(self):
+		return not any(g.isExpanded() for g in self.groups.values())
+
+	def updateallbtn(self):
+		c = self.allcollapsed()
+		self.allbtn.setText("▸" if c else "▾")
+		self.allbtn.setToolTip("expand all" if c else "collapse all")
+
+	def toggleall(self):
+		expand = self.allcollapsed()
 		self.list.blockSignals(True)
-		self.list.setCurrentRow(i)
+		for k, g in self.groups.items():
+			g.setExpanded(expand)
 		self.list.blockSignals(False)
-		if i >= 0:
-			self.list.scrollToItem(self.list.item(i))
+		self.expanded = set(self.groups) if expand else set()
+		self.updateallbtn()
+		if expand and self.current is not None:
+			self.selectitem(self.current)
+
+	def selectitem(self, e):
+		it = self.items.get(e.name) if e is not None else None
+		self.list.blockSignals(True)
+		if it is None:
+			self.list.setCurrentItem(None)
+		else:
+			p = it.parent()
+			while p is not None:	# open its groups
+				p.setExpanded(True)
+				k = self.groupkey(p)
+				if k is not None:
+					self.expanded.add(k)
+				p = p.parent()
+			self.list.setCurrentItem(it)
+			self.list.scrollToItem(it)
+		self.list.blockSignals(False)
+		self.updateallbtn()
 
 	def listchanged(self, item, _prev):
 		if item is None or self.journal is None:
 			return
-		e = self.journal.find(item.data(Qt.ItemDataRole.UserRole))
+		name = item.data(0, Qt.ItemDataRole.UserRole)
+		if name is None:
+			return	# a group
+		e = self.journal.find(name)
 		if e is not None:
 			self.show_(e)
 
@@ -549,10 +684,10 @@ class MainWindow(QMainWindow):
 		except OSError as x:
 			self.statusBar().showMessage(f"Can't save the notes: {x}", 5000)
 			return
-		i = self.shown.index(e) if e in self.shown else -1
-		if i >= 0:
-			it = self.list.item(i)
-			it.setText(e.label() + ("  ✎" if text.strip() else ""))
+		it = self.items.get(e.name)
+		if it is not None:
+			it.setText(0, self.itemtext(e))
+			it.setToolTip(0, self.itemtip(e))
 		self.statusBar().showMessage("Notes saved", 1500)
 
 	# ---- tags ----
@@ -597,9 +732,9 @@ class MainWindow(QMainWindow):
 		if self.search.expr is not None:
 			self.applysearch()
 		else:
-			i = self.shown.index(e) if e in self.shown else -1
-			if i >= 0:
-				self.list.item(i).setToolTip(" ".join(e.tags[:30]))
+			it = self.items.get(e.name)
+			if it is not None:
+				it.setToolTip(0, self.itemtip(e))
 
 	def ocrdone(self):
 		if self.ocrworker is not None:

@@ -168,7 +168,7 @@ class Journal:
 
 	def weekof(self, e):
 		"""the week profile for the week of day entry e, or None"""
-		start = e.day - timedelta(days=(e.day.weekday() + 1) % 7)	# its Sunday
+		start = weekstart(e.day)
 		for x in self.entries:
 			if x.week and start - timedelta(days=1) <= x.day <= start + timedelta(days=1):
 				return x
@@ -180,6 +180,20 @@ class Journal:
 
 	def days(self):
 		return {x.day for x in self.entries}
+
+def weekstart(d):
+	"""the Sunday that starts the week of d, as the week profiles"""
+	return d - timedelta(days=(d.weekday() + 1) % 7)
+
+def groupkeys(e):
+	"""the year, month and week groups of entry e, as [(key, label)...].
+	A week profile goes in the week it starts, and a week that spans two
+	months is shown in both, with the days of each."""
+	y, mo = e.day.year, e.day.month
+	w = weekstart(e.day)
+	return [(("y", y), str(y)),
+		(("m", y, mo), e.day.strftime("%B")),
+		(("w", y, mo, w), f"Week {w.strftime('%d %b')}")]
 
 def defaultjournals():
 	"""journal directories found where they usually are: /u/trade/DayJournal*

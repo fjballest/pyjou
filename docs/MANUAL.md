@@ -47,6 +47,16 @@ finds *EQL*, *EQH* and *EQLs*. A wrong search turns red and its tooltip
 says why. Esc empties the box. **Days** and **Weeks** choose which kind of
 image is listed.
 
+## The list
+
+The list groups the images by year, month and week (weeks start on Sunday,
+as the week profiles do). Click a group, or use ←/→ on it, to open or close
+it. The small triangle above the list opens all the groups, or closes them
+all when some are open. At start only the last year, month and week are
+open, and the week before too when the last one has a single day. Moving to
+an image opens its groups, and a search opens the groups of what it finds.
+A week that spans two months shows up in both, with the days of each.
+
 ## Moving around
 
 - Click an image in the list, or use ↑/↓ there.
