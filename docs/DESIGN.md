@@ -132,6 +132,13 @@ the days before shown in a chart, and a week profile's next Monday, work.
 A file made on a weekend, or named with *week* or *prof*, is a week
 profile, named on its Sunday (`weekname`).
 
+A double click on an image of the list opens the same dialog with
+`entry` (`MainWindow.changedate`): it starts with the entry's date and kind,
+takes the OCR text from the cache instead of reading the image, and
+`newname(..., keep=entry)` keeps the entry's own name when its date and kind
+don't change. `Journal.rename` moves the image, its `.txt` and `.drw`
+files and its cache entry, refusing to replace any file.
+
 `Journal.newname` gives the name: the plain one for the first capture of a
 day (or week profile), then the letter after the last one there, counting
 the plain one as `a`. `savecapture` copies through a temporary file, or

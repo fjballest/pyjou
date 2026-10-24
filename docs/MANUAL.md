@@ -91,6 +91,12 @@ open, and the week before too when the last one has a single day. Moving to
 an image opens its groups, and a search opens the groups of what it finds.
 A week that spans two months shows up in both, with the days of each.
 
+Double click an image in the list to change its date, or whether it is a
+week profile. The window is the one used when adding captures, titled
+*Change Date*, with the dates read in the image. **Change** renames the
+image, with its notes, drawings and tags, to the name shown in **Saved
+as**; keeping the date keeps the name.
+
 ## Moving around
 
 - Click an image in the list, or use ↑/↓ there.

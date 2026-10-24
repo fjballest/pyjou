@@ -135,5 +135,43 @@ md2 = QMimeData()
 md2.setUrls([QUrl.fromLocalFile(os.path.join(jd, "notes.txt"))])
 check(w.droppedimages(QDropEvent(QPointF(1, 1), Qt.DropAction.CopyAction, md2,
 	Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)) == [], "only images")
+# a double click on a capture of the list changes its date, with its notes and drawing
+e = w.journal.find("day261014b.png")
+w.journal.savenotes(e, "some notes")
+w.journal.savedrawing(e, {"version": 1, "shapes": [{"kind": "text", "pos": [10, 10], "text": "EQH", "color": "#000000", "size": 22}]})
+w.journal.settext(e, raw("vie 26-10-16", "SIBI"))
+w.reload()
+def answer2():
+	dl = QApplication.activeModalWidget()
+	if not isinstance(dl, capture.CaptureDialog):
+		QTimer.singleShot(50, answer2)
+		return
+	dlgs.append((dl.windowTitle(), dl.date(), dl.week(), dl.name(), [c for c, _ in dl.candlist]))
+	dl.candpicked(0)	# the day found in the image
+	dlgs.append(dl.name())
+	dl.accept()
+dlgs.clear()
+QTimer.singleShot(50, answer2)
+it = w.items["day261014b.png"]
+w.list.itemDoubleClicked.emit(it, 0)
+for _ in range(100):
+	QTest.qWait(50)
+	if w.journal.find("day261016.png"):
+		break
+check(dlgs[0][:4] == ("Change Date", date(2026, 10, 14), False, "day261014b.png"), f"opens with its date {dlgs}")
+check(date(2026, 10, 16) in dlgs[0][4], "offers the dates read before")
+check(dlgs[1] == "day261016.png", "a date with no capture gets the plain name")
+n = w.journal.find("day261016.png")
+check(n is not None and w.journal.find("day261014b.png") is None and w.current is n, "renamed and shown")
+check(os.path.exists(os.path.join(jd, "day261016.txt")) and os.path.exists(os.path.join(jd, "day261016.drw"))
+	and not os.path.exists(os.path.join(jd, "day261014b.txt")), "notes and drawing go with it")
+check(n.notes == "some notes" and "SIBI" in n.tags and not w.journal.needsocr(n), "keeps its notes and tags")
+# keeping its date keeps its name; turning it into a week profile renames it
+dl = capture.CaptureDialog(w.journal, w.journal.path(n), entry=n)
+check(dl.name() == "day261016.png", "same date, same name")
+dl.dateedit.setDate(dl.dateedit.date().addDays(2))
+dl.weekbox.setChecked(True)
+check(dl.name() == "day261018weekprof.png", "now a week profile")
+dl.reject()
 w.close()
 print("ALL OK")

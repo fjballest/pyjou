@@ -133,15 +133,18 @@ def injournal(journal, src):
 
 class CaptureDialog(QDialog):
 	"""asks for the date of a capture being added; the OCR reads the dates
-	written in it meanwhile. raw has what it read, if it finished."""
-	def __init__(self, journal, src, parent=None):
+	written in it meanwhile. raw has what it read, if it finished.
+	With entry, it changes the date of that capture of the journal instead,
+	using the text read before."""
+	def __init__(self, journal, src, parent=None, entry=None):
 		super().__init__(parent)
 		self.journal = journal
 		self.src = src
+		self.entry = entry
 		self.raw = None
-		self.touched = False	# the user changed the date or kind
+		self.touched = entry is not None	# the user changed the date or kind
 		self.setting = False
-		self.setWindowTitle("Add Capture")
+		self.setWindowTitle("Add Capture" if entry is None else "Change Date")
 		lay = QVBoxLayout(self)
 		pv = QLabel()
 		pm = QPixmap(src)
@@ -174,10 +177,25 @@ class CaptureDialog(QDialog):
 		self.status.setStyleSheet("color: gray")
 		lay.addWidget(self.status)
 		self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-		self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Add")
+		self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Add" if entry is None else "Change")
 		self.buttons.accepted.connect(self.accept)
 		self.buttons.rejected.connect(self.reject)
 		lay.addWidget(self.buttons)
+		self.ocr = None
+		if entry is not None:
+			d = entry.day
+			self.weekbox.setChecked(entry.week)
+			self.dateedit.setDate(QDate(d.year, d.month, d.day))
+			c = journal.cache.get(entry.name)
+			if c is not None:
+				self.raw = c["raw"]
+				n = len(datesin([t for t, _ in self.raw]))
+				self.status.setText(f"{n} date{'s' if n != 1 else ''} found in the image." if n
+					else "No dates found in the image.")
+			else:
+				self.status.setText("The image has not been read yet.")
+			self.setguess()
+			return
 		self.setguess()
 		self.ocr = OCRWorker("", [(src, src)], self)
 		self.ocr.tagged.connect(self.tagged)
@@ -249,7 +267,7 @@ class CaptureDialog(QDialog):
 		return self.weekbox.isChecked()
 
 	def name(self):
-		return self.journal.newname(self.date(), self.week())
+		return self.journal.newname(self.date(), self.week(), self.entry)
 
 	def updatename(self):
 		n = self.name()
@@ -257,5 +275,6 @@ class CaptureDialog(QDialog):
 		self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(n is not None)
 
 	def done(self, r):
-		self.ocr.stop()
+		if self.ocr is not None:
+			self.ocr.stop()
 		super().done(r)

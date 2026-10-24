@@ -233,6 +233,7 @@ class MainWindow(QMainWindow):
 		self.list.setUniformRowHeights(True)
 		self.list.currentItemChanged.connect(self.listchanged)
 		self.list.itemClicked.connect(self.groupclicked)
+		self.list.itemDoubleClicked.connect(self.itemdoubleclicked)
 		self.list.itemExpanded.connect(lambda it: self.groupexpanded(it, True))
 		self.list.itemCollapsed.connect(lambda it: self.groupexpanded(it, False))
 		self.items = {}			# entry name -> its tree item
@@ -445,6 +446,45 @@ class MainWindow(QMainWindow):
 					self.applysearch()
 			if e is not None:
 				self.show_(e)
+
+	def itemdoubleclicked(self, item, _col):
+		name = item.data(0, Qt.ItemDataRole.UserRole)
+		e = self.journal.find(name) if name and self.journal else None
+		if e is not None:
+			QTimer.singleShot(0, lambda: self.changedate(e))	# after the click is over
+
+	def changedate(self, e):
+		"""ask for another date or kind for capture e, and rename it"""
+		self.savenotes()
+		self.journal.load()
+		e = self.journal.find(e.name)
+		if e is None:
+			return
+		dlg = CaptureDialog(self.journal, self.journal.path(e), self, entry=e)
+		if dlg.exec() != QDialog.DialogCode.Accepted:
+			return
+		name = dlg.name()
+		if name is None or name == e.name:
+			return
+		self.view.commitedit()
+		try:
+			self.journal.rename(e, name)
+		except OSError as x:
+			QMessageBox.warning(self, "Change Date", f"Can't rename {e.name}: {x}")
+			return
+		if e.name in self.pending:
+			self.pending[name] = self.pending.pop(e.name)
+		self.statusBar().showMessage(f"{e.name} is now {name}", 3000)
+		n = self.journal.find(name)
+		self.current = None	# its notes were saved; don't save the ones shown into it
+		self.applysearch()
+		if n is not None:
+			if n not in self.shown:	# make sure the list shows it
+				(self.daysbox if not n.week else self.weeksbox).setChecked(True)
+				if n not in self.shown:
+					self.searchbox.clear()
+					self.applysearch()
+			self.show_(n, force=True)
 
 	# ---- journals ----
 	def startjournal(self):

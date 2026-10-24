@@ -108,18 +108,42 @@ class Journal:
 		entries.sort(key=Entry.sortkey)
 		self.entries = entries
 
-	def newname(self, d, week=False):
+	def newname(self, d, week=False, keep=None):
 		"""the name for one more capture of day d (or the week profile dated d):
 		the plain name for the first one, then the letters after the last
 		one there (day261014.png, day261014b.png, day261014c.png...).
-		None when the letters run out."""
-		used = [x.extra or "a" for x in self.entries if x.day == d and x.week == week]
+		None when the letters run out. keep is an entry being moved there:
+		it keeps its name if it is there already, and doesn't count."""
+		if keep is not None and keep.day == d and keep.week == week:
+			return keep.name
+		used = [x.extra or "a" for x in self.entries
+			if x.day == d and x.week == week and (keep is None or x.name != keep.name)]
 		if not used:
 			return capturename(d, week)
 		last = max(used)
 		if last >= "z":
 			return None
 		return capturename(d, week, chr(ord(last) + 1))
+
+	def rename(self, e, name):
+		"""give capture e another name, with its notes, drawing and tags;
+		OSError if one of the new files is there already"""
+		if name == e.name:
+			return
+		n = parsename(name)
+		if n is None:
+			raise OSError(f"{name} is not a capture name")
+		moves = [(e.name, name), (e.notesname(), n.notesname()), (e.drawname(), n.drawname())]
+		moves = [(a, b) for a, b in moves if os.path.exists(os.path.join(self.dir, a))]
+		for _, b in moves:
+			if os.path.exists(os.path.join(self.dir, b)):
+				raise OSError(f"{b} is already there")
+		for a, b in moves:
+			os.rename(os.path.join(self.dir, a), os.path.join(self.dir, b))
+		if e.name in self.cache:
+			self.cache[name] = self.cache.pop(e.name)
+			self.savecache()
+		self.load()
 
 	# ---- notes ----
 	def readnotes(self, e):
@@ -167,12 +191,14 @@ class Journal:
 
 	# ---- tags ----
 	def loadcache(self):
+		"""read the cache file, keeping what was read meanwhile and is not saved yet"""
 		try:
 			with open(os.path.join(self.dir, TAGSFILE), encoding="utf-8") as f:
 				c = json.load(f)
-			self.cache = c.get("images", {}) if c.get("version") == TAGSVERSION else {}
+			disk = c.get("images", {}) if c.get("version") == TAGSVERSION else {}
 		except (FileNotFoundError, ValueError, AttributeError):
-			self.cache = {}
+			disk = {}
+		self.cache = {**disk, **self.cache}
 
 	def savecache(self):
 		p = os.path.join(self.dir, TAGSFILE)
