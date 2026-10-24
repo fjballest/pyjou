@@ -32,7 +32,9 @@ capture and asks for its date:
   days before too.
 - **Dates found** lists every date considered, those in the image (and how
   many times), one in the file name, and the file's own date. Pick one to
-  use it, or set the date by hand.
+  use it, or set the date by hand. Picking a Saturday or Sunday checks
+  **Week profile** (named on that Sunday), and picking another day unchecks
+  it; you can still change the box afterwards.
 - Captures made on a Saturday or Sunday are taken as week profiles, named on
   that Sunday. Check or uncheck **Week profile** to change it; a week
   profile is named on the Sunday before its week.
@@ -115,11 +117,35 @@ the system viewer.
 ## Drawing
 
 The buttons above the image draw on it: **Pencil** (free hand), **Line**,
-**Arrow**, **Circle** and **Text**. Pick one and drag on the image (for
+**Arrow**, **Circle**, **Rect**, **Text** and **Fib**. Pick one and drag on the image (for
 Text, click where the box goes and type; click elsewhere or press Esc when
 done). Hold Shift while placing the end of a line or an arrow to keep it
-horizontal or vertical. With the image focused the keys S, P, L, A, C and T
-pick the tools too.
+horizontal or vertical. With the image focused the keys S, P, L, A, C, R,
+T and F pick the tools too.
+
+**Rect** draws a rectangle, just its border at first. Double click its
+border (anywhere on it once filled) to set:
+
+- **Fill**, with its color and **Transparency** (0% hides what is under it);
+- **Line across the middle**, dashed;
+- **Label** (FVG, OB...), aligned **Center**, **Left** or **Right**, written
+  inside the top of the rectangle, or above it when it is too low.
+
+
+**Fib** draws Fibonacci levels. Press on the first point (level 1) and drag
+to the second one (level 0), or click one and then the other. Then move the
+mouse and click where the lines end, or double click on the second point to
+take them to the right edge of the image. Esc drops a fib not finished. The
+arrow next to **Fib** picks the levels:
+
+| Set | Levels |
+|-----|--------|
+| OTE (the default) | 0.5, 0.62, 0.705, 0.79 |
+| Quadrants | 0, 0.25, 0.5, 0.75, 1 |
+| PO3 | the quadrants and −0.5, −1, −1.5, −2, −2.5, 1.5, 2, 2.5, 3, 3.5 |
+| Custom… | asks for the levels, starting with all the above; they are remembered |
+
+Picking a set with fibs selected changes their levels instead.
 
 **Select** (the usual tool) clicks a drawing to select it, drags it to move
 it, and Del or **Delete** removes the ones selected. Shift-click selects
@@ -139,7 +165,7 @@ save them. They go in a file with the image's name and a `.drw` extension
 Notes are still saved as you type.
 
 Drawings are kept in image coordinates, so they stay in place when zooming.
-The words in the text boxes are found by the search, as the notes are.
+The words in the text boxes and rectangle labels are found by the search, as the notes are.
 
 ## Notes
 

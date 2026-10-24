@@ -212,12 +212,19 @@ class CaptureDialog(QDialog):
 			self.status.setText("The image could not be read.")
 
 	def candpicked(self, i):
+		"""use date i found: a weekend day is for a week profile (named on its
+		Sunday), any other one for a day; the box can be changed afterwards"""
 		if 0 <= i < len(self.candlist):
 			d = self.candlist[i][0]
-			if self.weekbox.isChecked():
+			week = d.weekday() >= 5
+			if week:
 				d = weekname(d)
 			self.touched = True
+			self.setting = True
+			self.weekbox.setChecked(week)
 			self.dateedit.setDate(QDate(d.year, d.month, d.day))
+			self.setting = False
+			self.updatename()
 
 	def datechanged(self, _qd):
 		if not self.setting:

@@ -112,6 +112,18 @@ check(e is not None and w.current is e, "added and shown")
 check(QImage(os.path.join(jd, "day261014c.png")).width() == 800, "converted to PNG")
 check(os.path.exists(new), "the original is kept")
 check("EQH" in e.tags and not w.journal.needsocr(e), "the OCR is kept as its tags")
+# picking a date found sets the week profile box: on for weekend days
+dl = capture.CaptureDialog(w.journal, new)
+dl.candlist = [(date(2026, 10, 17), "a Saturday"), (date(2026, 10, 14), "a Wednesday"), (date(2026, 10, 18), "a Sunday")]
+dl.candpicked(0)
+check(dl.week() and dl.date() == date(2026, 10, 18) and dl.name() == "day261018weekprof.png", "Saturday: week profile on Sunday")
+dl.candpicked(1)
+check(not dl.week() and dl.date() == date(2026, 10, 14), "Wednesday: a day")
+dl.candpicked(2)
+check(dl.week() and dl.date() == date(2026, 10, 18), "Sunday: week profile")
+dl.weekbox.setChecked(False)
+check(not dl.week() and dl.date() == date(2026, 10, 18), "the box can be changed by hand")
+dl.reject()
 # dropping an image of the journal itself does nothing
 from PySide6.QtWidgets import QMessageBox
 said = []

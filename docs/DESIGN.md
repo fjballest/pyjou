@@ -18,7 +18,7 @@ pylg, and uses easyocr for the OCR.
 | `capture.py` | adding a capture: `guess` (its date from the OCR, its file name and date), `CaptureDialog`, `savecapture` |
 | `search.py` | `Search`: parses and evaluates search expressions |
 | `viewer.py` | `ImageView`: a `QGraphicsView` with the image, the zoom and the drawing tools |
-| `drawing.py` | the shapes (`LineShape`, `PencilShape`, `CircleShape`, `TextShape`), their JSON form and the undo commands |
+| `drawing.py` | the shapes (`LineShape`, `PencilShape`, `CircleShape`, `RectShape`, `TextShape`, `FibShape`), the fib level sets, their JSON form and the undo commands |
 | `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo, delete) |
 | `tests/` | headless tests; the OCR is faked |
 | `dj.spec` | pyinstaller spec: `DayJournal.app` on macOS |
@@ -163,14 +163,24 @@ Zooming changes only the view transform.
 - The tool (`settool`) decides what a mouse press does: with **select** the
   scene handles it (selecting and moving items), and a drag on the image
   pans (`ScrollHandDrag`); with a drawing tool the press creates a shape and
-  the moves call its `setend` until the release.
+  the moves call its `setend` until the release. A fib takes more steps
+  (`fibstep`: `drag`, then `p2` when the first press was a click, then
+  `right`, following the mouse with no button down); the click that sets
+  the right end finishes it after the double click interval
+  (`fibdone`), unless a double click comes, which takes the lines to the
+  image's right edge (`extend`). Its JSON has `p1`, `p2`, `right`, `extend`
+  and `levels`; level 0 is at `p2` and 1 at `p1`. `DrawBar` keeps the
+  custom levels in `QSettings("fjballest", "drawing")`, shared by both
+  programs.
 - Each change is a `QUndoCommand` on the view's `QUndoStack`: `AddCmd`,
   `DeleteCmd`, `MoveCmd` (made on release from the positions at the press),
-  `TextCmd` and `StyleCmd`. Commands made after the fact (the shape is
+  `TextCmd`, `StyleCmd`, `LevelsCmd` (fib levels) and `PropsCmd` (a
+  rectangle's fill, middle line and label, set in `RectDialog`, opened by a
+  double click on it). Commands made after the fact (the shape is
   already drawn) skip their first `redo`.
 - A text box is edited in place; when it loses the focus it calls
   `ImageView.textedited`, which makes the undo step, or removes it if empty.
-- Keys on the view: Del deletes, Esc deselects, S/P/L/A/C/T pick the tool,
+- Keys on the view: Del deletes, Esc deselects, S/P/L/A/C/R/T/F pick the tool,
   and the arrows, Home, End and W (`navkeys`) are sent as `navigate` to the window,
   unless a text box is being edited.
 - `drawchanged` is emitted on every undo stack change. The window then
