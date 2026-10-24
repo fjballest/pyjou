@@ -46,24 +46,30 @@ src = tempfile.mkdtemp()
 def raw(*texts):
 	return [[t, 0.9] for t in texts]
 
-# a day capture: the last day in the image not after the day it was made
+# the last date in the image not after the day the file was changed
 p = mkimage(os.path.join(src, "Captura de pantalla.png"), date(2026, 10, 15))
-best, week, cands = capture.guess(p, raw("mié 26-10-14", "jue 26-10-15", "jue 26-10-15", "lun 26-10-19"))
-check(best == date(2026, 10, 15) and not week, f"day guessed {best} {week}")
+best, week, cands = capture.guess(p, raw("mié 26-10-14", "jue 26-10-15", "jue 26-10-15 mié 26-10-14", "lun 26-10-19"))
+check(best == date(2026, 10, 15) and not week, f"the last day not after the file's {best} {week}")
 check([c for c, _ in cands] == [date(2026, 10, 15), date(2026, 10, 14), date(2026, 10, 19)],
-	"candidates, the best first")
-best, week, _ = capture.guess(p)
-check(best == date(2026, 10, 15) and not week, "no OCR yet: the file date")
-# a week profile made on Sunday shows the next Monday
-p = mkimage(os.path.join(src, "Screenshot.png"), date(2026, 10, 18))
+	f"the guess first, then the others as found {cands}")
+check(list(capture.datesin(["14 Sep 2026 26-09-21"])) == [date(2026, 9, 14), date(2026, 9, 21)], "in the order written")
+best, week, cands = capture.guess(p)
+check(best == date(2026, 10, 15) and not week and len(cands) == 1, "no OCR yet: the file date")
 best, week, _ = capture.guess(p, raw("lun 26-10-19"))
-check(best == date(2026, 10, 18) and week, f"week profile {best} {week}")
-p = mkimage(os.path.join(src, "sat.png"), date(2026, 10, 17))
+check(best == date(2026, 10, 15), "all dates after the file's: the file date")
+# a Sunday and the Friday after: a week profile for that Sunday
+best, week, _ = capture.guess(p, raw("dom 26-10-11", "lun 26-10-12", "vie 26-10-16", "mié 26-10-14"))
+check(best == date(2026, 10, 11) and week, f"Sunday and its Friday: week profile {best} {week}")
+best, week, _ = capture.guess(p, raw("dom 26-10-04", "vie 26-10-16", "mié 26-10-14"))
+check(best == date(2026, 10, 14) and not week, "a Sunday without its Friday doesn't count")
+# a weekend day is a week profile, named on its Sunday
+p = mkimage(os.path.join(src, "sun.png"), date(2026, 10, 18))
 best, week, _ = capture.guess(p, None)
-check(best == date(2026, 10, 18) and week, "made on Saturday: the Sunday after")
-p = mkimage(os.path.join(src, "Screenshot 2026-10-13 at 9.png"), date(2026, 10, 20))
-best, week, cands = capture.guess(p, None)
-check(date(2026, 10, 13) in [c for c, _ in cands], "the date in the file name is offered")
+check(best == date(2026, 10, 18) and week, "changed on Sunday: week profile")
+best, week, _ = capture.guess(p, raw("lun 26-10-19"))
+check(best == date(2026, 10, 18) and week, "a week profile made on Sunday shows the Monday after")
+best, week, _ = capture.guess(p, raw("sáb 26-10-17", "vie 26-10-16"))
+check(best == date(2026, 10, 18) and week, "Saturday found: week profile on the Sunday")
 check(capture.weekname(date(2026, 10, 19)) == date(2026, 10, 18) and
 	capture.weekname(date(2026, 10, 22)) == date(2026, 10, 18), "weekname")
 
@@ -147,7 +153,7 @@ def answer2():
 		QTimer.singleShot(50, answer2)
 		return
 	dlgs.append((dl.windowTitle(), dl.date(), dl.week(), dl.name(), [c for c, _ in dl.candlist]))
-	dl.candpicked(0)	# the day found in the image
+	dl.candpicked([c for c, _ in dl.candlist].index(date(2026, 10, 16)))	# the day found in the image
 	dlgs.append(dl.name())
 	dl.accept()
 dlgs.clear()

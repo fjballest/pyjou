@@ -126,11 +126,13 @@ week box meanwhile.
 
 `guess` takes the dates in the OCR text (`datesin`: `YY-MM-DD` as the charts
 write them, `YYYY-MM-DD`, `D/M/Y`, `14 oct 2026`, `Oct 14`; `mar` is not
-taken as March before a number, since it is Tuesday in Spanish) and keeps the
-last one not after the day the file was made plus one (two on Saturday), so
-the days before shown in a chart, and a week profile's next Monday, work.
-A file made on a weekend, or named with *week* or *prof*, is a week
-profile, named on its Sunday (`weekname`).
+taken as March before a number, since it is Tuesday in Spanish), in the
+order the OCR found them, and adds the day the file was last changed. The
+guess is the last date in the image not after the file's day (charts show
+the days before), or the file's day when there is none; but a Sunday found
+with the Friday after it wins, as a week profile. `kindof` makes a weekend day a week profile, named
+on its Sunday (`weekname`), and any other day a day; picking a date in the
+dialog uses it too.
 
 A double click on an image of the list opens the same dialog with
 `entry` (`MainWindow.changedate`): it starts with the entry's date and kind,

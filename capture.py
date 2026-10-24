@@ -43,63 +43,62 @@ def mkdate(y, m, d):
 	return x if 2000 <= x.year <= 2099 else None
 
 def datesin(texts, year=None):
-	"""the dates written in texts, with how many times each one is there.
-	year is used for dates written without one."""
+	"""the dates written in texts, with how many times each one is there,
+	in the order they are first found. year is used for dates written
+	without one."""
 	year = year or date.today().year
 	found = Counter()
 	for t in texts:
-		ds = []
+		ds = []	# (where in t, date)
 		for m in YMD.finditer(t):
-			ds.append(mkdate(*m.groups()))
+			ds.append((m.start(), mkdate(*m.groups())))
 		for m in YYMMDD.finditer(t):
-			ds.append(mkdate(*m.groups()))
+			ds.append((m.start(), mkdate(*m.groups())))
 		for m in DMY.finditer(t):
-			ds.append(mkdate(m.group(3), m.group(2), m.group(1)))
+			ds.append((m.start(), mkdate(m.group(3), m.group(2), m.group(1))))
 		for m in DMONY.finditer(t):
-			ds.append(mkdate(m.group(3) or year, MONTHS[m.group(2).lower()[:3]], m.group(1)))
+			ds.append((m.start(), mkdate(m.group(3) or year, MONTHS[m.group(2).lower()[:3]], m.group(1))))
 		for m in MONDY.finditer(t):
-			ds.append(mkdate(m.group(3) or year, MONTHS[m.group(1).lower()[:3]], m.group(2)))
-		found.update(d for d in ds if d is not None)
+			ds.append((m.start(), mkdate(m.group(3) or year, MONTHS[m.group(1).lower()[:3]], m.group(2))))
+		found.update(d for _, d in sorted(ds, key=lambda x: x[0]) if d is not None)
 	return found
 
 def filedate(path):
-	"""when the file was made (or last changed, when the system doesn't keep that)"""
-	st = os.stat(path)
-	t = getattr(st, "st_birthtime", None) or st.st_mtime
-	return datetime.fromtimestamp(t).date()
+	"""the day the file was last changed"""
+	return datetime.fromtimestamp(os.stat(path).st_mtime).date()
 
-def guess(path, raw=None, today=None):
+def kindof(d):
+	"""the date and kind for a capture of day d: a weekend day is for a week
+	profile, named on its Sunday; any other day is for that day"""
+	if d.weekday() >= 5:
+		return weekname(d), True
+	return d, False
+
+def guess(path, raw=None):
 	"""the date and kind (week profile or not) of the capture at path, and the
 	dates that were considered: [(date, where)...], best first. raw is what
 	the OCR read in the image, [[text, confidence]...], None if not read yet.
 
-	Charts show the days before the one they are about too, and sometimes the
-	next ones on the axis, so the date taken from the image is the last one
-	not after the day the capture was made (a week profile made on Sunday shows
-	the Monday after). Captures made on a weekend are week profiles."""
-	today = today or date.today()
+	Charts show the days before the one they are about too, so the guess is
+	the last date in the image that isn't after the day the file was last
+	changed, or that day when there is none. But when the image has a Sunday
+	and the Friday after it, it is a week profile and the Sunday is the
+	guess. A weekend day is a week profile, named on its Sunday."""
 	fd = filedate(path)
-	limit = fd + timedelta(days=2 if fd.weekday() == 5 else 1)
 	inimage = datesin([t for t, _ in raw or []], fd.year)
-	inname = datesin([os.path.basename(path)], fd.year)
-	cands = []
-	ok = [d for d in inimage if d <= limit]
-	if ok:
-		n = inimage[max(ok)]
-		cands.append((max(ok), f"in the image ({n} time{'s' if n > 1 else ''}), the last day"))
-	for d, n in inimage.most_common():
-		if d <= today + timedelta(days=7):
-			cands.append((d, f"in the image ({n} time{'s' if n > 1 else ''})"))
-	for d in inname:
-		cands.append((d, "in the file name"))
-	cands.append((fd, "the day the file was made"))
-	seen = set()
-	cands = [(d, w) for d, w in cands if not (d in seen or seen.add(d))]
-	name = os.path.basename(path).lower()
-	week = any(w in name for w in ("week", "prof", "semana")) or fd.weekday() >= 5
-	best = cands[0][0]
-	if week:
-		best = weekname(fd if fd.weekday() >= 5 else best)
+	cands = [(d, f"in the image ({n} time{'s' if n > 1 else ''})") for d, n in inimage.items()]
+	sundays = [d for d in inimage if d.weekday() == 6 and d + timedelta(days=5) in inimage]
+	before = [d for d in inimage if d <= fd]
+	if sundays:
+		best = max(sundays)
+	elif before:
+		best = max(before)
+	else:
+		best = fd
+	if fd not in inimage:
+		cands.append((fd, "the day the file was changed"))
+	cands.sort(key=lambda c: c[0] != best)	# the guess first, the others as found
+	best, week = kindof(best)
 	return best, week, cands
 
 def weekname(d):
@@ -233,10 +232,7 @@ class CaptureDialog(QDialog):
 		"""use date i found: a weekend day is for a week profile (named on its
 		Sunday), any other one for a day; the box can be changed afterwards"""
 		if 0 <= i < len(self.candlist):
-			d = self.candlist[i][0]
-			week = d.weekday() >= 5
-			if week:
-				d = weekname(d)
+			d, week = kindof(self.candlist[i][0])
 			self.touched = True
 			self.setting = True
 			self.weekbox.setChecked(week)

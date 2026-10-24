@@ -25,19 +25,22 @@ Drop a capture (a PNG, JPEG or other image) anywhere on the window, or use
 **File ▸ Add Capture…** (⌘I), to add it to the journal. A window shows the
 capture and asks for its date:
 
-- At first the date is the day the file was made. Meanwhile the OCR reads
-  the dates written in the image (`mié 26-10-14`, `14/10/2026`,
-  `29 sept 2026`...), and when it is done it proposes the last day in the
-  image that is not after the day the file was made: charts show the
-  days before too.
-- **Dates found** lists every date considered, those in the image (and how
-  many times), one in the file name, and the file's own date. Pick one to
-  use it, or set the date by hand. Picking a Saturday or Sunday checks
-  **Week profile** (named on that Sunday), and picking another day unchecks
-  it; you can still change the box afterwards.
-- Captures made on a Saturday or Sunday are taken as week profiles, named on
-  that Sunday. Check or uncheck **Week profile** to change it; a week
-  profile is named on the Sunday before its week.
+- At first the date is the day the file was last changed. Meanwhile the OCR
+  reads the dates written in the image (`mié 26-10-14`, `14/10/2026`,
+  `29 sept 2026`...), and when it is done it proposes the last one that
+  isn't after the day the file was changed (charts show the days before
+  too), or that day when all of them are after it. If the image has a
+  Sunday and the Friday after it, it is taken as the week profile of that
+  Sunday.
+- **Week profile** starts checked when the date proposed is a Saturday or
+  Sunday (the profile is then named on that Sunday), and unchecked for any
+  other day. Check or uncheck it to change it; a week profile is named on
+  the Sunday before its week.
+- **Dates found** lists the date proposed first, then the other dates in
+  the image, in the order they were found (and how many times), and the day
+  the file was changed. Pick
+  one to use it, or set the date by hand. Picking one sets **Week profile**
+  the same way; you can still change the box afterwards.
 - **Saved as** shows the name it gets: the first capture of a day is
   `day261014.png`, and the next ones `day261014b.png`, `day261014c.png`...
   Nothing already in the journal is replaced.
