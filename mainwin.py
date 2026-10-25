@@ -10,7 +10,7 @@ import sys
 from PySide6.QtCore import QDate, QFileSystemWatcher, QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat
 from PySide6.QtWidgets import (
-	QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+	QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
 	QProgressBar, QSplitter, QStyle, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget
@@ -78,6 +78,9 @@ class MainWindow(QMainWindow):
 		self.mkmenus()
 		self.resize(1500, 950)
 		self.updatetitle()
+		for w, a, key in ((self.left, self.listact, "showlist"), (self.bottom, self.notespanelact, "shownotes")):
+			if settings().value(key, True) in (False, "false"):
+				self.showpanel(w, a, False)
 		# captures dropped anywhere on the window are added
 		self.setAcceptDrops(True)
 		for w in (self.view, self.view.viewport(), self.notes):
@@ -135,10 +138,18 @@ class MainWindow(QMainWindow):
 			"read the text of this image again to make its tags")
 		self.retagallact = self.mkaction("Read All Tags Again", self.retagall, None, None,
 			"read the text of every image again")
-		self.findact = self.mkaction("&Search", lambda: (self.searchbox.setFocus(), self.searchbox.selectAll()),
+		self.findact = self.mkaction("&Search", self.find,
 			None, QKeySequence.StandardKey.Find, "search the tags and notes")
-		self.notesact = self.mkaction("Edit &Notes", lambda: self.notes.setFocus(), None, "Ctrl+N",
+		self.notesact = self.mkaction("Edit &Notes", self.editnotes, None, "Ctrl+N",
 			"write notes for this image")
+		self.listact = self.mkaction("Show &List", lambda: self.showpanel(self.left, self.listact), None,
+			"Ctrl+Shift+L", "show or hide the list of images, the search and the calendar")
+		self.notespanelact = self.mkaction("Show N&otes", lambda: self.showpanel(self.bottom, self.notespanelact),
+			None, "Ctrl+Shift+N", "show or hide the tags and notes under the image")
+		for a, text in ((self.listact, "List"), (self.notespanelact, "Notes")):
+			a.setCheckable(True)
+			a.setChecked(True)
+			a.setIconText(text)
 		self.quitact = self.mkaction("&Quit", self.close, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		self.recentmenu = QMenu("Open &Recent", self)
@@ -150,6 +161,10 @@ class MainWindow(QMainWindow):
 		tb.setMovable(False)
 		tb.setIconSize(QSize(18, 18))
 		tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+		# first, so they don't end up hidden under » when the window is narrow
+		tb.addAction(self.listact)
+		tb.addAction(self.notespanelact)
+		tb.addSeparator()
 		ob = QToolButton(tb)
 		ob.setDefaultAction(self.openact)
 		self.openact.setIconText("Open")
@@ -191,6 +206,9 @@ class MainWindow(QMainWindow):
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact):
 			g.addAction(a)
 		v = mb.addMenu("&View")
+		v.addAction(self.listact)
+		v.addAction(self.notespanelact)
+		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
 		v.addSeparator()
@@ -244,7 +262,7 @@ class MainWindow(QMainWindow):
 		self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
 		self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
 		self.calendar.clicked.connect(self.calendarclicked)
-		left = QWidget()
+		left = self.left = QWidget()
 		ll = QVBoxLayout(left)
 		ll.setContentsMargins(4, 4, 4, 4)
 		ll.addWidget(self.searchbox)
@@ -259,6 +277,7 @@ class MainWindow(QMainWindow):
 		f.setPointSizeF(f.pointSizeF() * 1.2)
 		self.titlelabel.setFont(f)
 		self.view = ImageView()
+		self.view.dclickzoom = False	# a double tap zooms; double clicks are for the drawings
 		self.view.navigate.connect(self.navigate)
 		self.view.drawchanged.connect(self.drawchanged)
 		drawbar = self.mkdrawbar()
@@ -271,7 +290,7 @@ class MainWindow(QMainWindow):
 		self.notes.setPlaceholderText("Notes for this image. They are saved as you type, "
 			"in a .txt file next to it.")
 		self.notes.textChanged.connect(self.noteschanged)
-		bottom = QWidget()
+		bottom = self.bottom = QWidget()
 		bl = QVBoxLayout(bottom)
 		bl.setContentsMargins(0, 0, 0, 0)
 		bl.addWidget(self.tagslabel)
@@ -286,8 +305,9 @@ class MainWindow(QMainWindow):
 		rl = QVBoxLayout(right)
 		rl.setContentsMargins(4, 4, 4, 4)
 		top = QHBoxLayout()
-		top.addWidget(self.titlelabel, 1)
 		top.addWidget(drawbar)
+		top.addSpacing(12)
+		top.addWidget(self.titlelabel, 1)
 		rl.addLayout(top)
 		rl.addWidget(vsplit, 1)
 
@@ -446,6 +466,27 @@ class MainWindow(QMainWindow):
 					self.applysearch()
 			if e is not None:
 				self.show_(e)
+
+	def showpanel(self, w, a, on=None):
+		"""show or hide panel w (the list or the notes), as action a says"""
+		on = a.isChecked() if on is None else on
+		a.setChecked(on)
+		w.setVisible(on)
+		settings().setValue("showlist" if w is self.left else "shownotes", on)
+		f = QApplication.focusWidget()
+		if not on and f is not None and w.isAncestorOf(f):
+			self.view.setFocus()
+
+	def find(self):
+		if not self.left.isVisible():
+			self.showpanel(self.left, self.listact, True)
+		self.searchbox.setFocus()
+		self.searchbox.selectAll()
+
+	def editnotes(self):
+		if not self.bottom.isVisible():
+			self.showpanel(self.bottom, self.notespanelact, True)
+		self.notes.setFocus()
 
 	def itemdoubleclicked(self, item, _col):
 		name = item.data(0, Qt.ItemDataRole.UserRole)

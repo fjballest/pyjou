@@ -89,6 +89,9 @@ editing of a text box, and loads the image, its notes, tags and drawing
 `applysearch` recomputes `shown` and refills the list (`fillist`). It runs
 when the search text, the Days/Weeks boxes, or the tags change.
 
+The left panel (`left`) and the tags and notes (`bottom`) are hidden and
+shown by `showpanel`, kept in the settings (`showlist`, `shownotes`).
+
 A `QFileSystemWatcher` on the directory calls `reload` a second after a
 change: it reads the directory again and shows the current image again only
 if its file changed, so saving the notes doesn't reset the drawing or its
@@ -167,7 +170,10 @@ box shows the message and keeps the last good search.
 
 `ImageView` puts the image in a `QGraphicsScene` as a `QGraphicsPixmapItem`
 at z 0, and each drawing as an item above it, all in image coordinates.
-Zooming changes only the view transform.
+Zooming changes only the view transform. `viewportEvent` takes the
+trackpad gestures: a two finger double tap (`SmartZoomNativeGesture`) steps
+the zoom (`zoomstep`: in, in again, fit) and pinching zooms. Double clicks
+on the image step it too when `dclickzoom`, which DayJournal turns off.
 
 - The tool (`settool`) decides what a mouse press does: with **select** the
   scene handles it (selecting and moving items), and a drag on the image
@@ -177,16 +183,38 @@ Zooming changes only the view transform.
   `right`, following the mouse with no button down); the click that sets
   the right end finishes it after the double click interval
   (`fibdone`), unless a double click comes, which takes the lines to the
-  image's right edge (`extend`). Its JSON has `p1`, `p2`, `right`, `extend`
-  and `levels`; level 0 is at `p2` and 1 at `p1`. `DrawBar` keeps the
-  custom levels in `QSettings("fjballest", "drawing")`, shared by both
+  image's right edge (`extend`); the right button or Esc drops it
+  (`cancelfib`). While it is drawn it is `live`, with a dashed line at
+  `p2`. Its JSON has `p1`, `p2`, `right`, `extend`, `diagonal` and
+  `levels`; level 0 is at `p2` and 1 at `p1`. `DrawBar` keeps the 20 rows
+  of the custom form (`FibDialog`: on, text) and its diagonal as JSON in
+  `QSettings("fjballest", "drawing")`, key `customfibrows`, shared by both
   programs.
+- `DrawBar.detach` moves the bar into a `FloatBar`, a tool window that
+  stays on top, remembering where it was (the `QMainWindow` toolbar area,
+  or the layout and index); `attach`, or closing the window, puts it
+  back. Undo and redo are added to the main window so their keys still
+  work.
 - Each change is a `QUndoCommand` on the view's `QUndoStack`: `AddCmd`,
   `DeleteCmd`, `MoveCmd` (made on release from the positions at the press),
   `TextCmd`, `StyleCmd`, `LevelsCmd` (fib levels) and `PropsCmd` (a
-  rectangle's fill, middle line and label, set in `RectDialog`, opened by a
-  double click on it). Commands made after the fact (the shape is
+  rectangle's fill, middle line and label and their colors, set in
+  `RectDialog`, opened by a double click on it, or by a preset of
+  `drawing.RECTSETS`, picked in the Rect menu of `DrawBar` and kept in
+  `ImageView.rectpreset` for the next rectangles). Commands made after the fact (the shape is
   already drawn) skip their first `redo`.
+- Every shape but the text boxes has a `dash` (solid, dash, dot); lines,
+  arrows, circles and rectangles a `label` with its `size` and
+  `labelcolor`, placed by `labelrect` (lines and circles also by `valign`
+  and `align`; a label past the right end is kept on the image by
+  `inscene`, and `clipout` keeps the line from crossing it). `PROPS` lists
+  what `setprops` changes; `PropsCmd` undoes it. A double click on a line,
+  arrow, circle or rectangle calls `ImageView.editshape`, which opens
+  `ShapeDialog` or `RectDialog` and applies their `changed` at once,
+  putting it back on Cancel. The bar's style and text size apply through
+  `setselprops` to what is selected, in one undo step; **Clear** is a
+  `DeleteCmd` of every shape. The fib numbers go past the end of each line,
+  and lines taken to the edge stop short to leave them room (`xs`).
 - A text box is edited in place; when it loses the focus it calls
   `ImageView.textedited`, which makes the undo step, or removes it if empty.
 - Keys on the view: Del deletes, Esc deselects, S/P/L/A/C/R/T/F pick the tool,

@@ -119,50 +119,96 @@ Searching, the arrows and the calendar move through the images listed.
 ## The image
 
 **Fit** fits the image in the window, **Real Size** shows it at its size,
-and **Zoom +**/**Zoom −** zoom. Double clicks zoom in, zoom in again, and
-fit again. Drag to move around. **View ▸ Open in Preview** opens it with
-the system viewer.
+and **Zoom +**/**Zoom −** zoom. On a trackpad, a double tap with two
+fingers zooms in, zooms in again, and fits again, keeping the point tapped
+in place, and pinching zooms in and out. Drag to move around. **View ▸ Open
+in Preview** opens it with the system viewer.
+
+The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
+Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the
+list and the calendar) and the tags and notes under the image, so the image
+gets the room. The window remembers them. **Search** (⌘F) and **Edit
+Notes** (⌘N) show their panel again.
 
 ## Drawing
 
-The buttons above the image draw on it: **Pencil** (free hand), **Line**,
+The buttons above the image, on the left, draw on it: **Pencil** (free hand), **Line**,
 **Arrow**, **Circle**, **Rect**, **Text** and **Fib**. Pick one and drag on the image (for
 Text, click where the box goes and type; click elsewhere or press Esc when
 done). Hold Shift while placing the end of a line or an arrow to keep it
 horizontal or vertical. With the image focused the keys S, P, L, A, C, R,
 T and F pick the tools too.
 
+**Line**, **Arrow** and **Circle** open a window when you double click
+them, to change their **Color**, **Width** and **Style** (solid, dashed,
+dotted) and give them a **Label**, with its **Text size** and **Label
+color**. The label goes **Above**, **Center** (across it; the line stops
+around the label) or **Below**, and **Left** (at its left end), **Center**
+(in its middle) or **Right**. For lines and arrows, **Right** puts the label
+past the right end of the line, kept inside the image.
+
 **Rect** draws a rectangle, just its border at first. Double click its
 border (anywhere on it once filled) to set:
 
 - **Fill**, with its color and **Transparency** (0% hides what is under it);
-- **Line across the middle**, dashed;
+- **Line across the middle**, dashed, with its color;
 - **Label** (FVG, OB...), aligned **Center**, **Left** or **Right**, written
-  inside the top of the rectangle, or above it when it is too low.
+  across the middle of the rectangle (the middle line stops around it), with
+  its **Label color**.
+
+The arrow next to **Rect** picks the kind of rectangle to draw: **Plain**
+(just the border, in the drawing color) or one already set up, with its
+colors, fill, middle line and label:
+
+| Kind | Looks like |
+|------|------------|
+| BRK | green border and fill, green middle line |
+| MB | green border and fill, green middle line |
+| FVG | black border, light orange fill, black middle line |
+| IFVG+ | orange border and fill, red middle line |
+| IFVG- | blue border, light cyan fill, black middle line |
+
+Picking a kind with rectangles selected changes them to it instead.
+
+In these windows the drawing shows each change at once; **Cancel** puts it
+back as it was.
 
 
 **Fib** draws Fibonacci levels. Press on the first point (level 1) and drag
 to the second one (level 0), or click one and then the other. Then move the
 mouse and click where the lines end, or double click on the second point to
-take them to the right edge of the image. Esc drops a fib not finished. The
-arrow next to **Fib** picks the levels:
+take them to the right edge of the image. While you draw it, a dashed line
+shows where the second point (level 0) is. Esc or the right button drops a
+fib not finished. Each level has its number just past the right end of its
+line, centered on it; lines taken to the edge of the image stop short of it
+to leave room for the numbers.
+The arrow next to **Fib** picks the levels:
 
 | Set | Levels |
 |-----|--------|
 | OTE (the default) | 0.5, 0.62, 0.705, 0.79 |
 | Quadrants | 0, 0.25, 0.5, 0.75, 1 |
 | PO3 | the quadrants and −0.5, −1, −1.5, −2, −2.5, 1.5, 2, 2.5, 3, 3.5 |
-| Custom… | asks for the levels, starting with all the above; they are remembered |
+| Custom… | a form with 20 levels in two columns: check the ones to draw and type their values |
 
-Picking a set with fibs selected changes their levels instead.
+The custom form starts with all the levels above, and two blank ones, and
+remembers what you set. Its **Draw the diagonal** box adds the dashed line
+from the first point to the second; the other sets never draw it. Picking a
+set with fibs selected changes their levels instead.
+
+The **⧉** button at the start of the drawing buttons detaches them as a
+small floating bar that stays on top of every window, so you can keep it
+where it suits you. Click **⧉** again, or close the bar, to put it back.
 
 **Select** (the usual tool) clicks a drawing to select it, drags it to move
 it, and Del or **Delete** removes the ones selected. Shift-click selects
 more than one. Double click a text box to change its text; emptying it
 removes it. Dragging the image itself moves around it, as before.
 
-The color button and the width list set how new drawings look, and change
-the ones selected. **Undo** and **Redo** (⌘Z, ⇧⌘Z) undo and redo the
+The color button, the width list, the line style list (solid, dashed,
+dotted) and the text size list (**Aa 16** by default, for text boxes, labels
+and fib numbers) set how new drawings look, and change the ones selected.
+**Clear** deletes every drawing on the image; **Undo** brings them back. **Undo** and **Redo** (⌘Z, ⇧⌘Z) undo and redo the
 drawing changes of the image shown.
 
 Drawings are kept until you **Save** them (⌘S, or the Save button in the
@@ -174,7 +220,7 @@ save them. They go in a file with the image's name and a `.drw` extension
 Notes are still saved as you type.
 
 Drawings are kept in image coordinates, so they stay in place when zooming.
-The words in the text boxes and rectangle labels are found by the search, as the notes are.
+The words in the text boxes and labels are found by the search, as the notes are.
 
 ## Notes
 

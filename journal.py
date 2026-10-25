@@ -64,9 +64,9 @@ class Entry:
 		return f"{s} ({self.extra})" if self.extra else s
 
 def drawtext(data):
-	"""the words written in the text boxes and rectangle labels of a drawing"""
+	"""the words written in the text boxes and the labels of a drawing"""
 	return " ".join(str(s.get("text") or s.get("label") or "") for s in (data or {}).get("shapes", [])
-		if isinstance(s, dict) and s.get("kind") in ("text", "rect"))
+		if isinstance(s, dict) and s.get("kind") in ("text", "rect", "line", "arrow", "circle"))
 
 def parsename(name):
 	"""the Entry for a file name, or None when it isn't a journal image"""
