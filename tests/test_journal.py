@@ -127,6 +127,7 @@ os.remove(os.path.join(d, journal.TAGSFILE))
 
 # the window
 import mainwin
+import sandbox
 app = QApplication(sys.argv)
 w = mainwin.MainWindow(d)
 w.show()

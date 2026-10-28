@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 
 import mainwin
 import ocrworker
+import sandbox
 
 def check(cond, what):
 	if not cond:

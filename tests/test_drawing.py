@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication
 import journal
 import mainwin
 import ocrworker
+import sandbox
 from drawing import CircleShape, LineShape, PencilShape, TextShape
 
 def check(cond, what):

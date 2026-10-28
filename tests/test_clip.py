@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 import journal
 import mainwin
 import ocrworker
+import sandbox
 
 def check(cond, what):
 	if not cond:
@@ -83,4 +84,5 @@ w.clipcapture(False)
 w.pastecapture()
 check(w.journal.find("day261014d.png") is not None and w.clipped() is not None, "a copy can be pasted again")
 w.close()
+QApplication.clipboard().clear()	# a clipboard left set crashes Qt at exit
 print("ALL OK")

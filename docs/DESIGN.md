@@ -247,7 +247,11 @@ QT_QPA_PLATFORM=offscreen python3 tests/test_journal.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_drawing.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_capture.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_clip.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_panels.py
 ```
+
+`tests/sandbox.py` makes them keep their settings in files of their own,
+since on macOS `QSettings` ignores `HOME` and would use the user's.
 
 They run without a display and without easyocr: `ocrworker.ocrcommand` is
 replaced by a small script that answers with made up text. `python3 ocr.py
