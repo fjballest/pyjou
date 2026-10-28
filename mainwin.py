@@ -562,7 +562,7 @@ class MainWindow(QMainWindow):
 			if files:
 				self.addcaptures(files)
 			return
-		same = os.path.realpath(c["dir"]) == self.journal.dir
+		same = os.path.realpath(c["dir"]) == os.path.realpath(self.journal.dir)
 		if same and c.get("cut"):
 			self.statusBar().showMessage(f"{c['name']} is already in this journal", 4000)
 			return
