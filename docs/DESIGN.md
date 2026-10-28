@@ -29,7 +29,11 @@ code used in pylg's graphics window; keep them in step when changing one.
 ## Data on disk
 
 Everything is in the journal directory, so it can be copied, backed up or
-synced as a whole:
+synced as a whole. Journals are looked for as `DayJournal*` in
+`journal.tradedirs()`: `/u/trade`, or `~/u/trade`, and when there is no `u`
+directory (`UDIRS`), `trade` in the system's documents directory
+(`QStandardPaths`) and the documents directory itself. `tradedir()` is where
+**Open** starts when there is no journal yet.
 
 | File | Written by | Contents |
 |------|-----------|----------|

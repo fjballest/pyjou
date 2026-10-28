@@ -43,7 +43,9 @@ The same day with the list and the notes hidden, zoomed on the FVGs:
     python3 dj.py [journaldir]
 
 Without a directory it opens the journal used last, or the first
-`DayJournal*` directory found in `/u/trade` or `~/u/trade`.
+`DayJournal*` directory found in `/u/trade` or `~/u/trade`, or, when there is
+no `u` directory, in `trade` in your documents directory or in the documents
+directory itself (`~/Documents/trade/DayJournalDAX`, for example).
 
 ## Building the app
 

@@ -20,6 +20,7 @@ NAMERE = re.compile(r"^day(\d{2})(\d{2})(\d{2})(weekprof)?([a-z]?)\.png$", re.IG
 TAGSFILE = ".pyjou-tags.json"
 TAGSVERSION = 1		# bump when the cache layout changes
 DRAWEXT = ".drw"
+UDIRS = ("/u", "~/u")	# where the trade directory is, when there is one
 
 @dataclass
 class Entry:
@@ -330,12 +331,35 @@ def groupkeys(e):
 		(("m", y, mo), d.strftime("%B")),
 		(("w", y, mo, w), f"Week {w.strftime('%d %b')}")]
 
+def documents():
+	"""the user's documents directory for this system (~/Documents on macOS,
+	the Documents folder on Windows, the XDG one on Linux)"""
+	from PySide6.QtCore import QStandardPaths
+	return QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation) \
+		or os.path.expanduser("~")
+
+def tradedirs():
+	"""where journals are kept: /u/trade, or ~/u/trade, and when there is no
+	u directory, trade in the documents directory and the documents
+	directory itself"""
+	for u in map(os.path.expanduser, UDIRS):
+		if os.path.isdir(u):
+			return [os.path.join(u, "trade")]
+	return [os.path.join(documents(), "trade"), documents()]
+
+def tradedir():
+	"""the directory to start looking for journals in"""
+	for d in tradedirs():
+		if os.path.isdir(d):
+			return d
+	return documents()
+
 def defaultjournals():
-	"""journal directories found where they usually are: /u/trade/DayJournal*
-	and ~/u/trade/DayJournal*"""
+	"""journal directories found where they usually are: DayJournal* in
+	the tradedirs"""
 	import glob
 	found = []
-	for base in ("/u/trade", os.path.expanduser("~/u/trade")):
+	for base in tradedirs():
 		for d in sorted(glob.glob(os.path.join(base, "DayJournal*"))):
 			d = os.path.realpath(d)
 			if os.path.isdir(d) and d not in found:

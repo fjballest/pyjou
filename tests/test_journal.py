@@ -27,6 +27,22 @@ def check(cond, what):
 		raise AssertionError(what)
 	print("ok", what)
 
+# where journals are looked for
+top = tempfile.mkdtemp()
+docs = os.path.join(top, "Documents")
+journal.documents = lambda: docs
+journal.UDIRS = (os.path.join(top, "u"),)
+os.makedirs(os.path.join(docs, "trade", "DayJournalDAX"))
+os.makedirs(os.path.join(docs, "DayJournalNQ"))
+os.makedirs(os.path.join(docs, "trade", "other"))
+check(journal.tradedir() == os.path.join(docs, "trade"), "no u directory: trade in the documents")
+check([os.path.basename(x) for x in journal.defaultjournals()] == ["DayJournalDAX", "DayJournalNQ"],
+	"journals in the documents")
+os.makedirs(os.path.join(top, "u", "trade", "DayJournalES"))
+check(journal.tradedir() == os.path.join(top, "u", "trade") and
+	[os.path.basename(x) for x in journal.defaultjournals()] == ["DayJournalES"], "u/trade when there is a u")
+journal.UDIRS = ()
+
 # names
 e = journal.parsename("day261014.png")
 check(e and e.day == date(2026, 10, 14) and not e.week, "day name")

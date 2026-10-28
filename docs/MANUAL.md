@@ -8,7 +8,10 @@ search, keeps notes for each image, and lets you draw on them. See
 ## Opening a journal
 
 At start DayJournal opens the journal used last. The first time, it opens
-the first `DayJournal*` directory in `/u/trade` (or `~/u/trade`). **Open**
+the first `DayJournal*` directory in `/u/trade` (or `~/u/trade`). When there
+is no `/u` or `~/u` directory, it looks in `trade` in your documents directory
+(`~/Documents/trade` on macOS, `Documents\trade` on Windows), and in the
+documents directory itself. **Open**
 picks another directory, and its drop down lists the recent journals and
 the ones found there.
 

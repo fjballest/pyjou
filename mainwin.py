@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture
-from journal import Journal, defaultjournals, drawtext, groupkeys
+from journal import Journal, defaultjournals, drawtext, groupkeys, tradedir
 from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
@@ -646,8 +646,8 @@ class MainWindow(QMainWindow):
 		return None
 
 	def choosejournal(self):
-		start = self.journal.dir if self.journal else (defaultjournals() or [os.path.expanduser("~")])[0]
-		d = QFileDialog.getExistingDirectory(self, "Open Journal", os.path.dirname(start))
+		start = self.journal.dir if self.journal else (defaultjournals() or [None])[0]
+		d = QFileDialog.getExistingDirectory(self, "Open Journal", os.path.dirname(start) if start else tradedir())
 		if d:
 			self.openjournal(d)
 
