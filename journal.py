@@ -10,6 +10,7 @@
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -144,6 +145,47 @@ class Journal:
 			self.cache[name] = self.cache.pop(e.name)
 			self.savecache()
 		self.load()
+
+	def paste(self, src, e, move=False):
+		"""copy capture e of journal src (it may be this one) here, with its
+		notes, drawing and tags, keeping its date but with the next name
+		free for it (see newname), so nothing is overwritten. move removes
+		it from src. The new name; OSError if it can't be done."""
+		name = self.newname(e.day, e.week)
+		if name is None:
+			raise OSError(f"no names left for {e.day:%d %b %Y}")
+		n = parsename(name)
+		todo = [(a, b) for a, b in zip((e.name, e.notesname(), e.drawname()), (name, n.notesname(), n.drawname()))
+			if os.path.exists(os.path.join(src.dir, a))]
+		if not todo or todo[0][0] != e.name:
+			raise OSError(f"{e.name} is not in {os.path.basename(src.dir)} any more")
+		for _, b in todo:
+			if os.path.exists(os.path.join(self.dir, b)):
+				raise OSError(f"{b} is already there")
+		done = []
+		try:
+			for a, b in todo:
+				dst = os.path.join(self.dir, b)
+				shutil.copy2(os.path.join(src.dir, a), dst + ".tmp")
+				os.replace(dst + ".tmp", dst)
+				done.append(dst)
+		except OSError:
+			for d in done + [os.path.join(self.dir, b) + ".tmp" for _, b in todo]:
+				if os.path.exists(d):
+					os.remove(d)
+			raise
+		c = src.cache.get(e.name)
+		if c is not None:	# the same text: no need to read it again
+			self.cache[name] = {"mtime": os.path.getmtime(os.path.join(self.dir, name)), "raw": c["raw"]}
+			self.savecache()
+		if move:
+			for a, _ in todo:
+				os.remove(os.path.join(src.dir, a))
+			if src.cache.pop(e.name, None) is not None:
+				src.savecache()
+			src.load()
+		self.load()
+		return name
 
 	# ---- notes ----
 	def readnotes(self, e):

@@ -17,7 +17,8 @@ What it does:
   (or) and parentheses.
 - Adds captures dropped on the window: it guesses their date from the dates
   written in them and the file's date, and names them; double click one in
-  the list to change its date or make it a week profile.
+  the list to change its date or make it a week profile. Right click one to
+  cut or copy it and paste it in another journal, keeping its date.
 - Draws on the captures: pencil, lines, arrows and circles with labels,
   rectangles with FVG, IFVG+, IFVG-, BRK and MB presets, Fibonacci levels
   (OTE, quadrants, PO3 or your own), and text, in solid, dashed or dotted

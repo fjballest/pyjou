@@ -100,6 +100,16 @@ week profile. The window is the one used when adding captures, titled
 image, with its notes, drawings and tags, to the name shown in **Saved
 as**; keeping the date keeps the name.
 
+Right click an image in the list for **Cut**, **Copy** and **Paste**
+(⌘X, ⌘C and ⌘V work too while the list has the focus). Copy an image, open
+another journal (or keep this one) and paste: the image is copied there with
+its notes, drawings and tags, keeping its date. It gets the next name free
+for that date (`day261014b.png` when `day261014.png` is there), so nothing
+is overwritten. Cut works the same, but the image leaves its journal when it
+is pasted, and is shown in gray until then; pasting it in its own journal
+does nothing. Paste also works between two DayJournal windows, and pasting
+image files copied in the Finder adds them as captures.
+
 ## Moving around
 
 - Click an image in the list, or use ↑/↓ there.

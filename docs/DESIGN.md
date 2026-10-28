@@ -150,6 +150,17 @@ the plain one as `a`. `savecapture` copies through a temporary file, or
 converts to PNG with `QImage`, and never replaces a file. The OCR results
 are stored in the tags cache for the new name, so it is not read again.
 
+Cut, copy and paste in the list (`MainWindow.clipcapture` and
+`pastecapture`, in the list's context menu) put the journal directory, the
+image name and whether it was cut on the system clipboard as JSON, with the
+`CLIPMIME` type, so another DayJournal process can paste it too; the
+image's file URL goes with it for other programs. `Journal.paste(src,
+entry, move)` copies the image, its `.txt` and `.drw` and its cache entry
+from journal `src` under `newname` for the entry's date and kind, removing
+them from `src` for a cut. A cut is pasted only once (the clipboard is
+cleared) and never in its own journal. Clipboard files without that type
+go to `addcaptures`.
+
 ## Search
 
 `search.Search` is a small recursive descent parser:
@@ -235,6 +246,7 @@ and per visit.
 QT_QPA_PLATFORM=offscreen python3 tests/test_journal.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_drawing.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_capture.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_clip.py
 ```
 
 They run without a display and without easyocr: `ocrworker.ocrcommand` is

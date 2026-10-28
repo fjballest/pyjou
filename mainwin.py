@@ -3,12 +3,13 @@
 # and a calendar, and the image with its tags and notes on the right
 #
 import html
+import json
 import os
 import subprocess
 import sys
 
-from PySide6.QtCore import QDate, QFileSystemWatcher, QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat
+from PySide6.QtCore import QDate, QFileSystemWatcher, QMimeData, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QBrush, QColor, QFont, QKeySequence, QTextCharFormat
 from PySide6.QtWidgets import (
 	QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
@@ -24,6 +25,7 @@ from drawbar import DrawBar
 from viewer import ImageView
 
 RECENTMAX = 10
+CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
 SAVEDELAY = 800		# ms after the last key before notes are saved
 SEARCHTIP = ("<p>Show the images whose tags or notes have these words, ignoring case.</p>"
 	"<p>Words one after another must all be there, <b>|</b> means or, <b>!</b> means not, "
@@ -152,6 +154,13 @@ class MainWindow(QMainWindow):
 			a.setIconText(text)
 		self.quitact = self.mkaction("&Quit", self.close, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
+		# cut, copy and paste captures in the list, between journals too
+		self.cutact = self.mkaction("Cu&t", lambda: self.clipcapture(True), None,
+			QKeySequence.StandardKey.Cut, "cut this capture, to paste it in another journal")
+		self.copyact = self.mkaction("&Copy", lambda: self.clipcapture(False), None,
+			QKeySequence.StandardKey.Copy, "copy this capture, to paste it in this or another journal")
+		self.pasteact = self.mkaction("&Paste", self.pastecapture, None,
+			QKeySequence.StandardKey.Paste, "paste the capture cut or copied here, keeping its date")
 		self.recentmenu = QMenu("Open &Recent", self)
 		self.recentmenu.aboutToShow.connect(self.fillrecent)
 
@@ -254,6 +263,11 @@ class MainWindow(QMainWindow):
 		self.list.itemDoubleClicked.connect(self.itemdoubleclicked)
 		self.list.itemExpanded.connect(lambda it: self.groupexpanded(it, True))
 		self.list.itemCollapsed.connect(lambda it: self.groupexpanded(it, False))
+		self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+		self.list.customContextMenuRequested.connect(self.listmenu)
+		for a in (self.cutact, self.copyact, self.pasteact):
+			a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)	# not in the notes
+			self.list.addAction(a)
 		self.items = {}			# entry name -> its tree item
 		self.groups = {}		# group key -> its tree item
 		self.expanded = set()	# keys of the groups open
@@ -458,14 +472,116 @@ class MainWindow(QMainWindow):
 			self.statusBar().showMessage(f"Added {name}", 3000)
 		if added is not None:
 			self.reload()
-			e = self.journal.find(added)
-			if e is not None and e not in self.shown:	# make sure the list shows it
-				(self.daysbox if not e.week else self.weeksbox).setChecked(True)
-				if e not in self.shown:
-					self.searchbox.clear()
-					self.applysearch()
-			if e is not None:
-				self.show_(e)
+			self.reveal(self.journal.find(added))
+
+	def reveal(self, e, force=False):
+		"""show entry e, making sure the list shows it"""
+		if e is None:
+			return
+		if e not in self.shown:
+			(self.daysbox if not e.week else self.weeksbox).setChecked(True)
+			if e not in self.shown:
+				self.searchbox.clear()
+				self.applysearch()
+		self.show_(e, force=force)
+
+	# ---- cut, copy and paste ----
+	def listmenu(self, pos):
+		it = self.list.itemAt(pos)
+		if it is not None and it.data(0, Qt.ItemDataRole.UserRole) is not None:
+			self.list.setCurrentItem(it)	# the capture the menu is for
+		self.updateclipacts()
+		m = QMenu(self)
+		for a in (self.cutact, self.copyact, self.pasteact):
+			m.addAction(a)
+		m.exec(self.list.viewport().mapToGlobal(pos))
+
+	def listentry(self):
+		"""the capture selected in the list, or None"""
+		it = self.list.currentItem()
+		name = it.data(0, Qt.ItemDataRole.UserRole) if it is not None else None
+		return self.journal.find(name) if name and self.journal else None
+
+	def clipped(self):
+		"""the capture cut or copied, as {"dir", "name", "cut"}, or None"""
+		md = QApplication.clipboard().mimeData()
+		if md is None or not md.hasFormat(CLIPMIME):
+			return None
+		try:
+			c = json.loads(bytes(md.data(CLIPMIME)).decode())
+			return c if isinstance(c, dict) and c.get("dir") and c.get("name") else None
+		except ValueError:
+			return None
+
+	def clippedfiles(self):
+		"""image files copied elsewhere (in the Finder), to add as captures"""
+		md = QApplication.clipboard().mimeData()
+		if md is None or not md.hasUrls() or md.hasFormat(CLIPMIME):
+			return []
+		return [u.toLocalFile() for u in md.urls() if u.isLocalFile() and isimage(u.toLocalFile())]
+
+	def updateclipacts(self):
+		on = self.listentry() is not None
+		self.cutact.setEnabled(on)
+		self.copyact.setEnabled(on)
+		self.pasteact.setEnabled(self.journal is not None and (self.clipped() is not None or bool(self.clippedfiles())))
+
+	def clipcapture(self, cut):
+		"""put the capture selected on the clipboard; a cut one is moved
+		from its journal when pasted"""
+		e = self.listentry()
+		if e is None:
+			return
+		self.savenotes()
+		if e.name in self.pending and not self.keepdrawings("copying it"):
+			return
+		md = QMimeData()
+		md.setData(CLIPMIME, json.dumps({"dir": self.journal.dir, "name": e.name, "cut": cut}).encode())
+		md.setUrls([QUrl.fromLocalFile(self.journal.path(e))])
+		md.setText(self.journal.path(e))
+		QApplication.clipboard().setMimeData(md)
+		self.markcut()
+		self.statusBar().showMessage(f"{'Cut' if cut else 'Copied'} {e.name}: paste it in "
+			f"{'another' if cut else 'this or another'} journal", 4000)
+
+	def markcut(self):
+		"""show the capture cut in gray until it is pasted"""
+		c = self.clipped()
+		cut = c["name"] if c and c.get("cut") and self.journal and c["dir"] == self.journal.dir else None
+		for name, it in self.items.items():
+			it.setData(0, Qt.ItemDataRole.ForegroundRole, QBrush(QColor("gray")) if name == cut else None)
+
+	def pastecapture(self):
+		"""paste the capture cut or copied in this journal, keeping its date,
+		with the next name free for it; image files copied elsewhere are added"""
+		if self.journal is None:
+			return
+		c = self.clipped()
+		if c is None:
+			files = self.clippedfiles()
+			if files:
+				self.addcaptures(files)
+			return
+		same = os.path.realpath(c["dir"]) == self.journal.dir
+		if same and c.get("cut"):
+			self.statusBar().showMessage(f"{c['name']} is already in this journal", 4000)
+			return
+		self.savenotes()
+		try:
+			src = self.journal if same else Journal(c["dir"])
+			self.journal.load()	# the names in use now
+			e = src.find(c["name"])
+			if e is None:
+				raise OSError(f"{c['name']} is not in {os.path.basename(c['dir'])} any more")
+			name = self.journal.paste(src, e, move=bool(c.get("cut")))
+		except OSError as x:
+			QMessageBox.warning(self, "Paste", f"Can't paste {c['name']}: {x}")
+			return
+		if c.get("cut"):
+			QApplication.clipboard().clear()	# it was moved; it can't be pasted again
+		self.statusBar().showMessage(f"Pasted {c['name']} as {name}", 4000)
+		self.reload()
+		self.reveal(self.journal.find(name))
 
 	def showpanel(self, w, a, on=None):
 		"""show or hide panel w (the list or the notes), as action a says"""
@@ -519,13 +635,7 @@ class MainWindow(QMainWindow):
 		n = self.journal.find(name)
 		self.current = None	# its notes were saved; don't save the ones shown into it
 		self.applysearch()
-		if n is not None:
-			if n not in self.shown:	# make sure the list shows it
-				(self.daysbox if not n.week else self.weeksbox).setChecked(True)
-				if n not in self.shown:
-					self.searchbox.clear()
-					self.applysearch()
-			self.show_(n, force=True)
+		self.reveal(n, force=True)
 
 	# ---- journals ----
 	def startjournal(self):
@@ -678,6 +788,7 @@ class MainWindow(QMainWindow):
 			g.setText(0, f"{g.data(0, Qt.ItemDataRole.UserRole + 1)}   ({n})")
 			g.setExpanded(key in self.expanded)
 		self.list.blockSignals(False)
+		self.markcut()
 		self.updateallbtn()
 		total = len(self.journal.entries) if self.journal else 0
 		self.countlabel.setText(f"{len(self.shown)} of {total}")
