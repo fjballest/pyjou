@@ -57,6 +57,13 @@ check(not os.path.exists(os.path.join(a, "day261011weekprof.png")) and ja.find("
 n = ja.paste(ja, ja.find("day261014.png"))
 check(n == "day261014b.png" and ja.find(n).notes == "FVG at the open", "a copy in the same journal")
 
+# temporary journals are not recent ones
+check(mainwin.istemp(a) and not mainwin.istemp("/Users/me/u/trade/DayJournalDAX"), "temporary directories")
+mainwin.settings().setValue("recent", [a, "/Users/me/u/trade/DayJournalDAX"])
+check(mainwin.recentjournals() == ["/Users/me/u/trade/DayJournalDAX"], "temporary journals left out of the recent ones")
+mainwin.addrecent(b)
+check(mainwin.recentjournals() == ["/Users/me/u/trade/DayJournalDAX"], "temporary journals not added")
+
 # the window
 app = QApplication.instance() or QApplication([])
 w = mainwin.MainWindow(a)

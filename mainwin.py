@@ -36,14 +36,29 @@ SEARCHTIP = ("<p>Show the images whose tags or notes have these words, ignoring 
 def settings():
 	return QSettings("pyjou", "DayJournal")
 
+# where temporary directories are made: /tmp, and /var/folders on macOS
+TEMPDIRS = ("/tmp", "/var/tmp", "/var/folders")
+
+def istemp(path):
+	"""whether path is in a temporary directory, as the tests make"""
+	import tempfile
+	p = os.path.realpath(path)
+	for t in {os.path.realpath(t) for t in TEMPDIRS + (tempfile.gettempdir(),)}:
+		if p == t or p.startswith(t.rstrip(os.sep) + os.sep):
+			return True
+	return False
+
 def recentjournals():
+	"""the journals used last, leaving out those in temporary directories"""
 	v = settings().value("recent", [])
 	if isinstance(v, str):
 		v = [v]
-	return [p for p in (v or []) if p]
+	return [p for p in (v or []) if p and not istemp(p)]
 
 def addrecent(path):
 	path = os.path.abspath(path)
+	if istemp(path):
+		return
 	l = [path] + [p for p in recentjournals() if p != path]
 	settings().setValue("recent", l[:RECENTMAX])
 

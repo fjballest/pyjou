@@ -13,7 +13,8 @@ is no `/u` or `~/u` directory, it looks in `trade` in your documents directory
 (`~/Documents/trade` on macOS, `Documents\trade` on Windows), and in the
 documents directory itself. **Open**
 picks another directory, and its drop down lists the recent journals and
-the ones found there.
+the ones found there. Journals in temporary directories (`/tmp`, or
+`/var/folders` on macOS) are not kept as recent ones.
 
 Images are found by their names: `day261014.png` for a day,
 `day261014b.png` for another chart of that day, and `day261011weekprof.png`

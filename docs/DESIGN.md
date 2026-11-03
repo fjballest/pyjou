@@ -33,7 +33,9 @@ synced as a whole. Journals are looked for as `DayJournal*` in
 `journal.tradedirs()`: `/u/trade`, or `~/u/trade`, and when there is no `u`
 directory (`UDIRS`), `trade` in the system's documents directory
 (`QStandardPaths`) and the documents directory itself. `tradedir()` is where
-**Open** starts when there is no journal yet.
+**Open** starts when there is no journal yet. The recent journals
+(`recentjournals`, `addrecent` in `mainwin.py`) leave out the ones in
+temporary directories (`istemp`, `TEMPDIRS`).
 
 | File | Written by | Contents |
 |------|-----------|----------|
