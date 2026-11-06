@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture
-from journal import Journal, defaultjournals, drawtext, groupkeys, tradedir
+from journal import Journal, defaultjournals, drawtext, groupkeys, tradedir, weekno
 from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
@@ -292,8 +292,19 @@ class MainWindow(QMainWindow):
 		self.allbtn = QToolButton()
 		self.allbtn.setAutoRaise(True)
 		self.allbtn.clicked.connect(self.toggleall)
+		self.monthsbtn = QToolButton()
+		self.monthsbtn.setText("m")
+		self.monthsbtn.setToolTip("collapse to months, showing the weeks of the last month and the days of its last week")
+		self.monthsbtn.clicked.connect(lambda: self.collapseto("m"))
+		self.weeksbtn = QToolButton()
+		self.weeksbtn.setText("w")
+		self.weeksbtn.setToolTip("collapse to weeks, showing the days of the last week")
+		self.weeksbtn.clicked.connect(lambda: self.collapseto("w"))
 		kinds = QHBoxLayout()
 		kinds.addWidget(self.allbtn)
+		for b in (self.monthsbtn, self.weeksbtn):
+			b.setAutoRaise(True)
+			kinds.addWidget(b)
 		kinds.addWidget(self.daysbox)
 		kinds.addWidget(self.weeksbox)
 		kinds.addStretch()
@@ -829,11 +840,14 @@ class MainWindow(QMainWindow):
 		self.groups = {}
 		bold = QFont(self.list.font())
 		bold.setBold(True)
+		weeks = self.journal.weeks() if self.journal else []
 		for e in self.shown:
 			parent = None
 			for key, label in groupkeys(e):
 				g = self.groups.get(key)
 				if g is None:
+					if key[0] == "w":	# numbered: 5. Week 26 Oct
+						label = f"{weekno(key[3], weeks[0])}. {label}"
 					g = QTreeWidgetItem([label])
 					g.setData(0, Qt.ItemDataRole.UserRole, None)
 					g.setFont(0, bold)
@@ -861,16 +875,15 @@ class MainWindow(QMainWindow):
 		self.markcut()
 		self.updateallbtn()
 		total = len(self.journal.entries) if self.journal else 0
-		self.countlabel.setText(f"{len(self.shown)} of {total}")
+		self.countlabel.setText(f"{len(self.shown)} of {total}, {len(weeks)} week{'s' if len(weeks) != 1 else ''}")
+		self.countlabel.setToolTip("images shown of all the images, and the weeks with images")
 
 	@staticmethod
 	def itemtext(e):
 		if e.week:
 			s = "Week profile"
 		else:
-			s = e.day.strftime("%a %d")
-			if e.extra:
-				s += f" ({e.extra})"
+			s = e.day.strftime("%a %d") + e.extra	# Tue 26, Tue 26b
 		return s + ("  ✎" if e.notes.strip() else "")
 
 	@staticmethod
@@ -944,6 +957,23 @@ class MainWindow(QMainWindow):
 		self.updateallbtn()
 		if expand and self.current is not None:
 			self.selectitem(self.current)
+
+	def collapseto(self, level):
+		"""collapse the list to months ("m") or weeks ("w"); the last month
+		stays open with its last week, or the last week stays open"""
+		keep = {k for k in self.groups if k[0] == "y" or (level == "w" and k[0] == "m")}
+		if self.shown:
+			keep.update(k for k, _ in groupkeys(self.shown[-1]))
+		self.list.blockSignals(True)
+		for k, g in self.groups.items():
+			g.setExpanded(k in keep)
+		self.list.blockSignals(False)
+		self.expanded = keep
+		self.updateallbtn()
+		if self.current is not None and self.current.name in self.items:
+			it = self.items[self.current.name]
+			if it.parent() is not None and it.parent().isExpanded():
+				self.list.scrollToItem(it)
 
 	def selectitem(self, e):
 		it = self.items.get(e.name) if e is not None else None

@@ -194,6 +194,17 @@ w.applysearch()
 check(not w.groups[("w", 2026, 10, date(2026, 10, 19))].isExpanded(), "groups stay as they were")
 w.groupclicked(w.groups[("w", 2026, 10, date(2026, 10, 19))], 0)
 w.jump(True)
+check(w.groups[("w", 2026, 10, date(2026, 10, 12))].text(0).startswith("1. Week 12 Oct") and
+	w.groups[("w", 2026, 10, date(2026, 10, 19))].text(0).startswith("2. Week 19 Oct"), "weeks numbered")
+check(w.countlabel.text().endswith(", 2 weeks"), "the weeks counted")
+check(w.items["day261014b.png"].text(0).startswith("Wed 14b"), "a second image of a day")
+w.collapseto("w")
+check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 19)) and
+	not isopen("w", 2026, 10, date(2026, 10, 12)), "collapse to weeks, the last one open")
+w.collapseto("m")
+check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 19)) and
+	not isopen("w", 2026, 10, date(2026, 10, 12)), "collapse to months, the last one open with its last week")
+check(journal.weekno(date(2026, 11, 2), date(2026, 10, 12)) == 4, "weeks without images count")
 
 # notes are saved
 w.jump(False)

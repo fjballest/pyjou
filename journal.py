@@ -316,6 +316,15 @@ class Journal:
 	def days(self):
 		return {x.day for x in self.entries}
 
+	def weeks(self):
+		"""the Mondays of the weeks with images, in order"""
+		return sorted({weekstart(x.groupday()) for x in self.entries})
+
+def weekno(monday, first):
+	"""the number of the week of monday, in calendar weeks since the one of
+	first, which is 1"""
+	return (monday - first).days // 7 + 1
+
 def weekstart(d):
 	"""the Monday that starts the week of d"""
 	return d - timedelta(days=d.weekday())

@@ -123,6 +123,16 @@ open, and the week before too when the last one has a single day. Moving to
 an image opens its groups, and a search opens the groups of what it finds.
 A week that spans two months shows up in both, with the days of each.
 
+Weeks are numbered in calendar weeks from the first one in the journal,
+which is 1: `5. Week 26 Oct` is the fifth week since then, counting weeks
+without images too. Another image of a day shows with its letter, as in
+`Tue 26` and `Tue 26b`. Above the list, the count says how many images are
+shown, of how many, and how many weeks have images (`12 of 40, 9 weeks`).
+
+Beside the triangle, **m** closes the list down to the months, keeping the
+last month open with its weeks and the days of its last week, and **w**
+closes it down to the weeks, keeping the days of the last week.
+
 Double click an image in the list to change its date, or whether it is a
 week profile. The window is the one used when adding captures, titled
 *Change Date*, with the dates read in the image. **Change** renames the

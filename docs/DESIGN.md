@@ -74,7 +74,11 @@ dated a Sunday is for the week starting the next day; any other one is for
 the week of its date (`Entry.weekmonday`). `Entry.groupday` is the date an
 entry is placed at: its own date for a day, the Monday of its week for a
 profile. `sortkey`, `groupkeys` (year, month and week groups of the list),
-`Journal.weekof` and `Journal.daysof` all build on these.
+`Journal.weekof` and `Journal.daysof` all build on these. `Journal.weeks`
+are the Mondays of the weeks with images, and `weekno(monday, first)`
+numbers a week in calendar weeks from the first one (1); `fillist` uses
+them for the week labels and the count. `MainWindow.collapseto` is the
+**m** and **w** buttons.
 
 ## The window
 
