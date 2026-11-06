@@ -189,6 +189,20 @@ matches when the expression is true over its tags, notes and the text of its
 drawing (`Entry.drawtext`). A bad expression raises `ValueError`; the search
 box shows the message and keeps the last good search.
 
+## Windows
+
+`winlayout.py` (the same file in RoadBook and DayJournal; keep them the
+same) makes the Window menu (`windowmenu`). `windows()` are the visible
+top level windows of kind Window or Dialog (not tool windows, so not the
+floating draw bar or docks), sorted by their place on the screen with the
+active one first. The layouts in `ALL` take the screen rectangle and the
+number of windows and return a rectangle for each (`grid`, `split`,
+`mainleft`, `maintop`, `cascade`); those in `ONE` place the active window
+alone. `place` sets a window's frame on its rectangle and moves it back on
+the screen when its minimum size is larger. `narrow` lets push buttons
+shrink to their text, so the windows fit those rectangles.
+`MainWindow.mkmenus` adds it, and `dupicon` paints the New Window icon.
+
 ## Drawing
 
 `ImageView` puts the image in a `QGraphicsScene` as a `QGraphicsPixmapItem`
@@ -261,6 +275,7 @@ QT_QPA_PLATFORM=offscreen python3 tests/test_capture.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_clip.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_panels.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_window.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_layout.py
 ```
 
 `tests/sandbox.py` makes them keep their settings in files of their own,

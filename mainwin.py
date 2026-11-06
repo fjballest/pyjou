@@ -8,8 +8,10 @@ import os
 import subprocess
 import sys
 
-from PySide6.QtCore import QDate, QFileSystemWatcher, QMimeData, QPoint, QSettings, QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QBrush, QColor, QFont, QKeySequence, QTextCharFormat
+from PySide6.QtCore import QDate, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import (
+	QAction, QBrush, QColor, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
+)
 from PySide6.QtWidgets import (
 	QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
@@ -23,6 +25,7 @@ from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
 from viewer import ImageView
+from winlayout import windowmenu
 
 RECENTMAX = 10
 CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
@@ -123,6 +126,23 @@ class MainWindow(QMainWindow):
 		a.triggered.connect(lambda _=False: fn())
 		return a
 
+	def dupicon(self):
+		"""two windows, one over the other, for New Window"""
+		pm = QPixmap(36, 36)
+		pm.fill(Qt.GlobalColor.transparent)
+		p = QPainter(pm)
+		p.setRenderHint(QPainter.RenderHint.Antialiasing)
+		fg = self.palette().color(QPalette.ColorRole.WindowText)
+		pen = QPen(fg, 2.5)
+		p.setPen(pen)
+		p.drawRoundedRect(QRectF(3, 3, 21, 17), 2, 2)
+		p.fillRect(QRectF(3, 3, 21, 4), fg)
+		p.setBrush(self.palette().color(QPalette.ColorRole.Window))
+		p.drawRoundedRect(QRectF(12, 15, 21, 17), 2, 2)
+		p.fillRect(QRectF(12, 15, 21, 4), fg)
+		p.end()
+		return QIcon(pm)
+
 	def mkactions(self):
 		S = QStyle.StandardPixmap
 		self.openact = self.mkaction("&Open Journal…", self.choosejournal, S.SP_DirOpenIcon,
@@ -171,6 +191,8 @@ class MainWindow(QMainWindow):
 			a.setIconText(text)
 		self.newwinact = self.mkaction("&New Window", self.newwindow, None, "Ctrl+Alt+N",
 			"open another window on this journal and image, to browse it or open another journal")
+		self.newwinact.setIcon(self.dupicon())
+		self.newwinact.setIconText("Window")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -202,6 +224,7 @@ class MainWindow(QMainWindow):
 		tb.addWidget(ob)
 		tb.addAction(self.saveact)
 		tb.addAction(self.reloadact)
+		tb.addAction(self.newwinact)
 		tb.addSeparator()
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact):
 			tb.addAction(a)
@@ -246,6 +269,7 @@ class MainWindow(QMainWindow):
 			tools.addAction(a)
 		v.addSeparator()
 		v.addAction(self.osviewact)
+		mb.addMenu(windowmenu(self))
 		h = mb.addMenu("&Help")
 		about = h.addAction("&About DayJournal")
 		about.setMenuRole(QAction.MenuRole.AboutRole)

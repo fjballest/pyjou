@@ -25,7 +25,8 @@ What it does:
   lines, with undo. The drawing buttons can float in a bar of their own.
 - Hides the list and the notes to give the chart the whole window, and
   zooms with a two finger double tap or a pinch.
-- Opens more windows (File ▸ New Window), on the same journal or another one.
+- Opens more windows (File ▸ New Window), on the same journal or another one,
+  and lays them out from the Window menu: tiled, side by side, halves...
 
 Uses PySide6 Qt for widgets and easyocr for the OCR, the same tools as
 [rb](https://github.com/fjballest/rb).

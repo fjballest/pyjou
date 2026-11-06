@@ -36,13 +36,16 @@ jobs:
         run: ls -l dist
 
       - name: Rename executable
+        env:
+          VERSION: ${{ github.event.inputs.version }}
         run: |
+          # the version goes in the names: dj-v1.4-macos
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            mv dist/dj/dj.exe dist/dj-windows
+            mv dist/dj/dj.exe dist/dj-$VERSION-windows
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
-            mv dist/dj/dj dist/dj-linux
+            mv dist/dj/dj dist/dj-$VERSION-linux
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            mv dist/dj/dj dist/dj-macos
+            mv dist/dj/dj dist/dj-$VERSION-macos
           fi
         shell: bash
 
@@ -79,7 +82,4 @@ jobs:
           name: Release ${{ github.event.inputs.version }}
           draft: false
           prerelease: true
-          files: |
-            dj-linux
-            dj-windows
-            dj-macos
+          files: dj-*
