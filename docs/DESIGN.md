@@ -88,6 +88,12 @@ profile. `sortkey`, `groupkeys` (year, month and week groups of the list),
   of the groups open, which survive refilling the list;
 - `pending`, the drawings changed and not saved, by image name.
 
+**New Window** (`newwindow`) makes another `MainWindow` on the same journal,
+showing the same image with the same unsaved drawings; the extra windows
+are kept in `mainwin.windows` until closed. Windows share nothing in memory:
+each has its own `Journal`, and `reload` (run by the directory watcher)
+shows notes and drawings that another window saved for the image shown.
+
 `show_(e)` is the one place an image is shown: it saves the notes, ends the
 editing of a text box, and loads the image, its notes, tags and drawing
 (`drawingof`: the pending one, or the saved one).
@@ -254,6 +260,7 @@ QT_QPA_PLATFORM=offscreen python3 tests/test_drawing.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_capture.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_clip.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_panels.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_window.py
 ```
 
 `tests/sandbox.py` makes them keep their settings in files of their own,

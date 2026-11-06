@@ -16,6 +16,11 @@ picks another directory, and its drop down lists the recent journals and
 the ones found there. Journals in temporary directories (`/tmp`, or
 `/var/folders` on macOS) are not kept as recent ones.
 
+**File ▸ New Window** (⌥⌘N) opens another window on the same journal and
+image. Use it to look at two images at once, or open another journal in it.
+Each window has its own search, list and drawings; notes and drawings saved
+in one show up in the others on the same journal. **Quit** closes them all.
+
 Images are found by their names: `day261014.png` for a day,
 `day261014b.png` for another chart of that day, and `day261011weekprof.png`
 for a week profile. A week profile dated a Sunday (11 Oct) is for the week

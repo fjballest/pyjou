@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-from PySide6.QtCore import QDate, QFileSystemWatcher, QMimeData, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QFileSystemWatcher, QMimeData, QPoint, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QKeySequence, QTextCharFormat
 from PySide6.QtWidgets import (
 	QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -68,6 +68,8 @@ class SearchEdit(QLineEdit):
 			self.clear()
 			return
 		super().keyPressEvent(ev)
+
+windows = []	# the windows made with New Window, so they are kept
 
 class MainWindow(QMainWindow):
 	def __init__(self, path=None):
@@ -167,7 +169,9 @@ class MainWindow(QMainWindow):
 			a.setCheckable(True)
 			a.setChecked(True)
 			a.setIconText(text)
-		self.quitact = self.mkaction("&Quit", self.close, None, QKeySequence.StandardKey.Quit)
+		self.newwinact = self.mkaction("&New Window", self.newwindow, None, "Ctrl+Alt+N",
+			"open another window on this journal and image, to browse it or open another journal")
+		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
 		self.cutact = self.mkaction("Cu&t", lambda: self.clipcapture(True), None,
@@ -209,6 +213,7 @@ class MainWindow(QMainWindow):
 	def mkmenus(self):
 		mb = self.menuBar()
 		f = mb.addMenu("&File")
+		f.addAction(self.newwinact)
 		f.addAction(self.openact)
 		f.addMenu(self.recentmenu)
 		f.addAction(self.saveact)
@@ -717,10 +722,36 @@ class MainWindow(QMainWindow):
 				e.drawtext = drawtext(data)
 		self.current = self.journal.find(cur) if cur else None
 		self.applysearch()
-		if self.current is not None and self.journal.mtime(self.current) != before:
-			# the image shown changed on disk; otherwise keep its drawing and undo
-			self.show_(self.current, force=True)
+		e = self.current
+		if e is not None and (self.journal.mtime(e) != before or
+				(e.name not in self.pending and self.journal.readdrawing(e) != self.view.drawingdata())):
+			# the image or its drawing changed on disk (in another window);
+			# otherwise keep its drawing and undo
+			self.show_(e, force=True)
+		elif e is not None and e.notes != self.notes.toPlainText():
+			self.notes.blockSignals(True)	# written in another window
+			self.notes.setPlainText(e.notes)
+			self.notes.blockSignals(False)
 		self.startocr()
+
+	def newwindow(self):
+		"""another window, on the same journal and image, a bit lower and to
+		the right; it can browse it or open another journal"""
+		self.savenotes()
+		self.view.commitedit()
+		w = MainWindow(self.journal.dir if self.journal else None)
+		w.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+		windows.append(w)
+		w.destroyed.connect(lambda _=None, w=w: windows.remove(w) if w in windows else None)
+		w.resize(self.size())
+		w.move(self.pos() + QPoint(40, 40))
+		if self.journal is not None and w.journal is not None:
+			w.pending = dict(self.pending)	# the drawings as they are now
+			w.updatetitle()
+			if self.current is not None:
+				w.reveal(w.journal.find(self.current.name), force=True)
+		w.show()
+		return w
 
 	def updatetitle(self):
 		if self.journal is None:
