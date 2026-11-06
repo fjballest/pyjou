@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 	QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
 	QProgressBar, QSplitter, QStyle, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
-	QVBoxLayout, QWidget
+	QVBoxLayout, QWidget, QDialogButtonBox
 )
 
 from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture
@@ -34,7 +34,12 @@ SEARCHTIP = ("<p>Show the images whose tags or notes have these words, ignoring 
 	"<p>Words one after another must all be there, <b>|</b> means or, <b>!</b> means not, "
 	"and parentheses group: <code>(a b) | !(c d)</code>.</p>"
 	"<p>A final lowercase s is optional (EQL finds EQLs) and <b>*</b> matches any letters "
-	"within a word (EQ*). Esc empties the search.</p>")
+	"within a word (EQ*). Esc empties the search.</p>"
+	"<p>A word also finds its aliases, kept in the journal's aliases.txt (Edit ▸ Aliases…): "
+	"with <code>news: NFP, PPI, CPI</code>, news also finds NFP, PPI and CPI.</p>")
+
+ALIASHELP = ("One word per line, then : and the words it also finds, separated by commas. "
+	"Case and a final s don't matter. # starts a comment.")
 
 def settings():
 	return QSettings("pyjou", "DayJournal")
@@ -150,6 +155,8 @@ class MainWindow(QMainWindow):
 		self.saveact = self.mkaction("&Save Drawings", self.savedrawings, S.SP_DialogSaveButton,
 			QKeySequence.StandardKey.Save, "save the drawings made")
 		self.saveact.setIconText("Save")
+		self.aliasact = self.mkaction("&Aliases…", self.editaliases, None, None,
+			"words a search word also finds, like news: NFP, PPI, CPI")
 		self.saveact.setEnabled(False)
 		self.addact = self.mkaction("&Add Capture…", self.choosecaptures, None, "Ctrl+I",
 			"add a capture to the journal; you can also drop it on the window")
@@ -250,6 +257,7 @@ class MainWindow(QMainWindow):
 		e.addAction(self.delact)
 		e.addSeparator()
 		e.addAction(self.findact)
+		e.addAction(self.aliasact)
 		e.addAction(self.notesact)
 		e.addSeparator()
 		e.addAction(self.retagact)
@@ -799,7 +807,7 @@ class MainWindow(QMainWindow):
 
 	# ---- search and list ----
 	def searchchanged(self, text):
-		err = Search.error(text)
+		err = Search.error(text, self.aliases())
 		self.searchbox.setStyleSheet("QLineEdit { color: #c62828; }" if err else "")
 		self.searchbox.setToolTip(f"<p><b>{html.escape(err)}</b></p>{SEARCHTIP}" if err else SEARCHTIP)
 		if err is None:
@@ -807,12 +815,48 @@ class MainWindow(QMainWindow):
 		else:
 			self.searchtimer.stop()
 
+	def aliases(self):
+		return self.journal.aliases if self.journal is not None else {}
+
+	def editaliases(self):
+		"""edit the journal's aliases.txt"""
+		if self.journal is None:
+			return
+		self.journal.load()	# edited in another window or by hand
+		dlg = QDialog(self)
+		dlg.setWindowTitle(f"Aliases — {os.path.basename(self.journal.dir)}")
+		l = QVBoxLayout(dlg)
+		help = QLabel(ALIASHELP)
+		help.setWordWrap(True)
+		l.addWidget(help)
+		ed = QPlainTextEdit(self.journal.readaliases())
+		ed.setPlaceholderText("news: NFP, PPI, CPI")
+		ed.setMinimumSize(420, 260)
+		l.addWidget(ed)
+		bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+		bb.accepted.connect(dlg.accept)
+		bb.rejected.connect(dlg.reject)
+		l.addWidget(bb)
+		self.aliasdlg = dlg	# for the tests
+		if dlg.exec() != QDialog.DialogCode.Accepted:
+			return
+		try:
+			self.journal.savealiases(ed.toPlainText())
+		except OSError as x:
+			QMessageBox.warning(self, "Aliases", f"Can't save the aliases: {x}")
+			return
+		if self.journal.badaliases:
+			lines = ", ".join(str(n) for n in self.journal.badaliases)
+			QMessageBox.information(self, "Aliases", f"Lines {lines} were ignored: they need a word, : and its aliases.")
+		self.searchchanged(self.searchbox.text())
+		self.applysearch()
+
 	def applysearch(self, keep=True):
 		if self.journal is None:
 			return
 		text = self.searchbox.text().strip()
 		try:
-			self.search = Search(text)
+			self.search = Search(text, self.aliases())
 		except ValueError:
 			return	# keep the last good search
 		days, weeks = self.daysbox.isChecked(), self.weeksbox.isChecked()

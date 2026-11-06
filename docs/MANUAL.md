@@ -113,6 +113,29 @@ finds *EQL*, *EQH* and *EQLs*. A wrong search turns red and its tooltip
 says why. Esc empties the box. **Days** and **Weeks** choose which kind of
 image is listed.
 
+### Aliases
+
+A word can stand for others too. The file `aliases.txt` in the journal
+directory has a line for each word, the word, `:` and its aliases separated
+by commas:
+
+```
+# news, and the reports that are news
+news: NFP, PPI, CPI
+FVG: IFVG, gap*
+```
+
+Searching `news` then also finds the images with *NFP*, *PPI* or *CPI*;
+`!news` hides them all. The word and its aliases match as any search word
+does: ignoring case, with an optional final `s` (`NEWS` and `new` use the
+same aliases), and `*` within an alias. Aliases go one way only: `CPI`
+finds just *CPI*, and a search word with `*` has no aliases. `#` starts a
+comment, and a word with several lines gets all of them.
+
+**Edit ▸ Aliases…** edits the file and searches again; you can also edit it
+with any text editor, and the window reads it when the journal reloads. All
+the windows of a journal share its aliases.
+
 ## The list
 
 The list groups the images by year, month and week. Weeks start on Monday,

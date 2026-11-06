@@ -43,6 +43,7 @@ temporary directories (`istemp`, `TEMPDIRS`).
 | `<image>.txt` | `Journal.savenotes` | the notes, plain UTF-8 text |
 | `<image>.drw` | `Journal.savedrawing` | the drawings, JSON (below) |
 | `.pyjou-tags.json` | `Journal.savecache` | `{"version": 1, "images": {name: {"mtime", "raw": [[text, confidence]...]}}}` |
+| `aliases.txt` | you, or `Journal.savealiases` | search aliases, `word: alias, alias` per line, `#` comments |
 
 All writes go to a temporary file first and then `os.replace` it, so a
 crash never leaves half a file. An empty notes or drawing file is removed
@@ -192,6 +193,13 @@ an optional lowercase final `s` and `*` as any word characters. An entry
 matches when the expression is true over its tags, notes and the text of its
 drawing (`Entry.drawtext`). A bad expression raises `ValueError`; the search
 box shows the message and keeps the last good search.
+
+Aliases: `Journal.load` reads `aliases.txt` with `search.parsealiases` into
+`Journal.aliases`, `{aliaskey(word): [alias...]}`, where `aliaskey` lowercases
+and drops a final `s`. `Search(text, aliases)` makes each word without `*`
+a single regex alternating the word and its aliases, each built as a word is
+(`wordre`). Lines that don't parse go to `Journal.badaliases`, which the
+Aliases dialog reports.
 
 ## Windows
 

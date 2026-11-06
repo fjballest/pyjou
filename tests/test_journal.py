@@ -15,7 +15,8 @@ os.environ["HOME"] = tempfile.mkdtemp()	# no real recent list or journals
 
 from PySide6.QtGui import QImage, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
 import journal
 import json
@@ -133,6 +134,25 @@ check(found("rebote") == ["261013"], "search the notes")
 check(found("") == [x.name[3:9] + ("w" if x.week else x.extra) for x in j.entries], "empty search")
 for bad in ["(a", "a)", "|", "!", "a |"]:
 	check(Search.error(bad) is not None, f"bad search {bad!r}")
+
+# aliases
+from search import parsealiases
+al, bad = parsealiases("# comment\nEQLs: silver, judas*\n\nno colon here\nseek:\neql: rebote ; silver\n")
+check(al == {"eql": ["silver", "judas*", "rebote"]} and bad == [4, 5], "aliases parsed")
+def foundal(expr, al):
+	s = Search(expr, al)
+	return [x.name[3:9] + ("w" if x.week else x.extra) for x in j.entries if s.match(x)]
+check(foundal("eql", al) == ["261012", "261013", "261019"], "a word finds its aliases")
+check(foundal("Eqls", al) == foundal("eql", al), "aliases ignore case and the final s")
+check(foundal("silver", al) == ["261013", "261019"], "an alias doesn't find its word")
+check(foundal("eql !silver", al) == ["261012"], "aliases with not")
+check(foundal("eq*", al) == found("EQ*"), "no aliases for a word with *")
+check(j.aliases == {}, "no aliases file")
+j.savealiases("eql: rebote")
+check(open(os.path.join(d, journal.ALIASFILE)).read() == "eql: rebote\n", "aliases saved")
+check(journal.Journal(d).aliases == {"eql": ["rebote"]}, "aliases loaded")
+j.savealiases("")
+check(not os.path.exists(os.path.join(d, journal.ALIASFILE)) and j.aliases == {}, "no aliases, no file")
 j.savecache()
 j2 = journal.Journal(d)
 check(j2.find("day261019.png").tags == ["silver", "bullet", "EQL"] and not j2.needsocr(j2.find("day261019.png")),
@@ -235,6 +255,20 @@ check(all(not x.week for x in w.shown), "weeks hidden")
 w.weeksbox.setChecked(True)
 w.tagclicked("judas")
 check([x.name for x in w.shown] == ["day261012.png"], "clicking a tag searches it")
+with open(os.path.join(d, journal.ALIASFILE), "w") as f:
+	f.write("judas: rebote\n")
+w.reload()
+check([x.name for x in w.shown] == ["day261012.png", "day261013.png"], "aliases file read on reload")
+def editdlg():
+	ed = w.aliasdlg.findChild(QPlainTextEdit)
+	check(ed.toPlainText() == "judas: rebote\n", "aliases dialog shows the file")
+	ed.setPlainText("judas: bullet")
+	w.aliasdlg.accept()
+QTimer.singleShot(200, editdlg)
+w.editaliases()
+check([x.name for x in w.shown] == ["day261012.png", "day261013.png", "day261019.png"], "aliases edited")
+os.remove(os.path.join(d, journal.ALIASFILE))
+w.reload()
 w.searchbox.setText("")
 QTest.qWait(400)
 

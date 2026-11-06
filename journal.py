@@ -14,10 +14,12 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+from search import parsealiases
 from tags import cleantags
 
 NAMERE = re.compile(r"^day(\d{2})(\d{2})(\d{2})(weekprof)?([a-z]?)\.png$", re.IGNORECASE)
 TAGSFILE = ".pyjou-tags.json"
+ALIASFILE = "aliases.txt"	# news: NFP, PPI, CPI (see search.parsealiases)
 TAGSVERSION = 1		# bump when the cache layout changes
 DRAWEXT = ".drw"
 UDIRS = ("/u", "~/u")	# where the trade directory is, when there is one
@@ -98,6 +100,7 @@ class Journal:
 	def load(self):
 		"""scan the directory again, keeping the OCR cache"""
 		self.loadcache()
+		self.aliases, self.badaliases = parsealiases(self.readaliases())
 		entries = []
 		for n in os.listdir(self.dir):
 			e = parsename(n)
@@ -187,6 +190,27 @@ class Journal:
 			src.load()
 		self.load()
 		return name
+
+	# ---- aliases ----
+	def readaliases(self):
+		try:
+			with open(os.path.join(self.dir, ALIASFILE), encoding="utf-8") as f:
+				return f.read()
+		except FileNotFoundError:
+			return ""
+
+	def savealiases(self, text):
+		"""write the aliases file; empty text removes it"""
+		p = os.path.join(self.dir, ALIASFILE)
+		if text.strip() == "":
+			if os.path.exists(p):
+				os.remove(p)
+		else:
+			tmp = p + ".tmp"
+			with open(tmp, "w", encoding="utf-8") as f:
+				f.write(text if text.endswith("\n") else text + "\n")
+			os.replace(tmp, p)
+		self.aliases, self.badaliases = parsealiases(text)
 
 	# ---- notes ----
 	def readnotes(self, e):

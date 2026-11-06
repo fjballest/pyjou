@@ -14,7 +14,8 @@ What it does:
 - Lists the captures by year, month and week (each group can be collapsed),
   with a calendar, and goes through them with the arrow keys.
 - Searches the tags, the notes and the drawing labels, with `!` (not), `|`
-  (or) and parentheses.
+  (or) and parentheses, and with aliases kept in the journal's `aliases.txt`
+  (`news: NFP, PPI, CPI` makes `news` find those too).
 - Adds captures dropped on the window: it guesses their date from the dates
   written in them and the file's date, and names them; double click one in
   the list to change its date or make it a week profile. Right click one to

@@ -4,23 +4,58 @@
 # A word matches, ignoring case, a tag or a whole word of the notes or
 # of the text boxes drawn on the image. A final
 # lowercase s is optional (EQL finds EQLs) and * matches any letters within
-# a word (EQ*). An empty search matches everything.
+# a word (EQ*). An empty search matches everything. A word with aliases
+# (see parsealiases) also matches any of them, in the same way.
 #
 import re
 
-def wordpattern(word):
+def wordre(word):
+	"""the regular expression for a word, without the word boundaries"""
 	wild = "*" in word
 	if word.endswith("s") and len(word) > 1:
 		word = word[:-1]
 	p = r"\w*".join(re.escape(x) for x in word.split("*")) if wild else re.escape(word)
 	if not word.endswith("*"):
 		p += "(?-i:s)?"
-	return re.compile(rf"(?<!\w)(?:{p})(?!\w)", re.IGNORECASE)
+	return p
+
+def aliaskey(word):
+	"""how a word is looked up in the aliases: ignoring case and a final s"""
+	w = word.lower()
+	return w[:-1] if w.endswith("s") and len(w) > 1 else w
+
+def wordpattern(word, aliases=None):
+	"""a whole word, or any of its aliases"""
+	words = [word] + list((aliases or {}).get(aliaskey(word), [])) if "*" not in word else [word]
+	alts = "|".join(wordre(w) for w in words)
+	return re.compile(rf"(?<!\w)(?:{alts})(?!\w)", re.IGNORECASE)
+
+def parsealiases(text):
+	"""the aliases in text: lines like "news: NFP, PPI, CPI", where the
+	word before : also matches the ones after it (separated by , or ;).
+	# starts a comment. A word with several lines gets them all.
+	Returns {aliaskey(word): [aliases...]} and the lines it didn't understand."""
+	aliases, bad = {}, []
+	for n, line in enumerate(text.splitlines(), 1):
+		line = line.split("#", 1)[0].strip()
+		if not line:
+			continue
+		word, colon, rest = line.partition(":")
+		word = word.strip()
+		names = [x.strip() for x in re.split(r"[,;]", rest) if x.strip()]
+		if not colon or not word or " " in word or not names:
+			bad.append(n)
+			continue
+		l = aliases.setdefault(aliaskey(word), [])
+		l += [x for x in names if x not in l]
+	return aliases, bad
 
 class Search:
-	"""raises ValueError for a bad expression"""
-	def __init__(self, text):
+	"""raises ValueError for a bad expression. aliases are the words each
+	word also matches, as parsealiases returns them"""
+	def __init__(self, text, aliases=None):
 		self.text = text or ""
+		self.aliases = aliases or {}
 		self.toks = re.findall(r"[!|()]|[^\s!|()]+", self.text)
 		self.pos = 0
 		self.expr = None
@@ -63,7 +98,7 @@ class Search:
 			self.pos += 1
 			return e
 		self.pos += 1
-		return ("word", wordpattern(tok))
+		return ("word", wordpattern(tok, self.aliases))
 
 	@staticmethod
 	def eval(e, texts):
@@ -82,9 +117,9 @@ class Search:
 		return self.eval(self.expr, list(entry.tags) + [entry.notes or "", entry.drawtext or ""])
 
 	@staticmethod
-	def error(text):
+	def error(text, aliases=None):
 		try:
-			Search(text)
+			Search(text, aliases)
 		except ValueError as e:
 			return str(e)
 		return None
