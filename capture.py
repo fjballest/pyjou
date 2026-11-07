@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 	QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 )
 
-from journal import parsename
+from journal import capturename, parsename
 from ocrworker import OCRWorker
 
 IMAGEEXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff")
@@ -110,19 +110,33 @@ def weekname(d):
 		return d + timedelta(days=1)
 	return d - timedelta(days=d.weekday() + 1)
 
-def savecapture(journal, src, name):
-	"""copy the image at src into the journal as name, as a PNG"""
+def savecapture(journal, src, name, replace=()):
+	"""copy the image at src into the journal as name, as a PNG. replace
+	are captures removed first, once the copy is made, with their drawings
+	and tags; their notes are kept for the new one. The path saved."""
 	dst = os.path.join(journal.dir, name)
-	if os.path.exists(dst):
+	replaced = [e.name for e in replace]
+	if os.path.exists(dst) and name not in replaced:
 		raise OSError(f"{name} is already there")
 	tmp = dst + ".tmp"
-	if src.lower().endswith(".png"):
-		shutil.copy2(src, tmp)
-	else:
-		img = QImage(src)
-		if img.isNull() or not img.save(tmp, "PNG"):
-			raise OSError(f"can't convert {os.path.basename(src)} to PNG")
+	try:
+		if src.lower().endswith(".png"):
+			shutil.copy2(src, tmp)
+		else:
+			img = QImage(src)
+			if img.isNull() or not img.save(tmp, "PNG"):
+				raise OSError(f"can't convert {os.path.basename(src)} to PNG")
+	except OSError:
+		if os.path.exists(tmp):
+			os.remove(tmp)
+		raise
+	notes = "\n\n".join(e.notes.strip() for e in replace if e.notes and e.notes.strip())
+	for e in replace:
+		journal.delete(e)
 	os.replace(tmp, dst)
+	journal.load()
+	if notes:
+		journal.savenotes(journal.find(name), notes + "\n")
 	return dst
 
 def injournal(journal, src):
@@ -171,6 +185,12 @@ class CaptureDialog(QDialog):
 		form.addRow("", self.weekbox)
 		self.namel = QLabel()
 		form.addRow("Saved as:", self.namel)
+		self.replacebox = QCheckBox("Replace the capture there")
+		self.replacebox.setToolTip("remove the captures of that day (or week) and their drawings, "
+			"and save this one instead; their notes are kept")
+		self.replacebox.toggled.connect(lambda _: self.updatename())
+		if entry is None:
+			form.addRow("", self.replacebox)
 		lay.addLayout(form)
 		self.status = QLabel("Reading the dates in the image…")
 		self.status.setStyleSheet("color: gray")
@@ -262,10 +282,28 @@ class CaptureDialog(QDialog):
 	def week(self):
 		return self.weekbox.isChecked()
 
+	def there(self):
+		"""the captures already there for the date and kind chosen"""
+		if self.entry is not None:
+			return []
+		return self.journal.capturesof(self.date(), self.week())
+
+	def replaced(self):
+		"""the captures this one replaces"""
+		return self.there() if self.replacebox.isChecked() else []
+
 	def name(self):
+		if self.replaced():
+			return capturename(self.date(), self.week())
 		return self.journal.newname(self.date(), self.week(), self.entry)
 
 	def updatename(self):
+		there = self.there()
+		self.replacebox.setEnabled(bool(there))
+		if len(there) > 1:
+			self.replacebox.setText(f"Replace the {len(there)} captures there")
+		else:
+			self.replacebox.setText(f"Replace {there[0].name}" if there else "Replace the capture there")
 		n = self.name()
 		self.namel.setText(n or "no more letters left for that day")
 		self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(n is not None)

@@ -150,6 +150,20 @@ class Journal:
 			self.savecache()
 		self.load()
 
+	def capturesof(self, d, week=False):
+		"""the captures of day d (or the week profiles dated d)"""
+		return [x for x in self.entries if x.day == d and x.week == week]
+
+	def delete(self, e):
+		"""remove capture e, with its notes, drawing and tags"""
+		for n in (e.name, e.notesname(), e.drawname()):
+			p = os.path.join(self.dir, n)
+			if os.path.exists(p):
+				os.remove(p)
+		if self.cache.pop(e.name, None) is not None:
+			self.savecache()
+		self.load()
+
 	def paste(self, src, e, move=False):
 		"""copy capture e of journal src (it may be this one) here, with its
 		notes, drawing and tags, keeping its date but with the next name

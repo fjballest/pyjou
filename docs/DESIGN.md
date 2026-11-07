@@ -178,6 +178,15 @@ them from `src` for a cut. A cut is pasted only once (the clipboard is
 cleared) and never in its own journal. Clipboard files without that type
 go to `addcaptures`.
 
+`MainWindow.deletecapture` (Del in the list, the context menu, Edit) asks
+unless the `askdelete` setting is false, then `Journal.delete(entry)`
+removes the image, `.txt`, `.drw` and cache entry; `forget` drops its
+unsaved drawing and clears the clipboard if it holds it. The Add Capture
+dialog's Replace box makes `savecapture(journal, src, name, replace)` copy
+the new image to a temporary file, delete the captures of that day and
+kind (`Journal.capturesof`), keeping their notes for the new one, and then
+put it in place as the plain name.
+
 ## Search
 
 `search.Search` is a small recursive descent parser:

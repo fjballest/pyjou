@@ -72,7 +72,13 @@ capture and asks for its date:
   the same way; you can still change the box afterwards.
 - **Saved as** shows the name it gets: the first capture of a day is
   `day261014.png`, and the next ones `day261014b.png`, `day261014c.png`...
-  Nothing already in the journal is replaced.
+  Nothing already in the journal is replaced, unless you check the box
+  below.
+- **Replace** (unchecked at first, and only there when the day or week
+  already has captures) saves this one as the only capture of that day or
+  week profile, `day261014.png`, instead of adding another. The captures
+  replaced are deleted with their drawings and tags; their notes go to the
+  new one.
 
 **Add** copies the capture into the journal with that name (as PNG if it was
 another format), keeps what the OCR read as its tags, and shows it. The
@@ -171,6 +177,13 @@ is overwritten. Cut works the same, but the image leaves its journal when it
 is pasted, and is shown in gray until then; pasting it in its own journal
 does nothing. Paste also works between two DayJournal windows, and pasting
 image files copied in the Finder adds them as captures.
+
+**Delete Capture…** in the same menu (or Del, or ⌫, while the list has the
+focus, or **Edit ▸ Delete Capture…**) deletes the image selected with its
+notes, drawings and tags, and shows the one after it. It asks first; check
+**Don't ask again** to delete without asking from then on, and turn **Edit ▸
+Ask Before Deleting** back on to be asked again. A deleted capture can't be
+recovered from DayJournal.
 
 ## Moving around
 

@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
 os.environ["HOME"] = tempfile.mkdtemp()
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
@@ -90,6 +91,45 @@ w.reveal(w.journal.find("day261014.png"))
 w.clipcapture(False)
 w.pastecapture()
 check(w.journal.find("day261014d.png") is not None and w.clipped() is not None, "a copy can be pasted again")
+
+# delete, asking first
+from PySide6.QtCore import QTimer
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QMessageBox
+def answer(button, dontask=False):
+	def f():
+		dl = getattr(w, "deldlg", None)
+		if dl is None or not dl.isVisible():
+			QTimer.singleShot(50, f)
+			return
+		dl.checkBox().setChecked(dontask)
+		dl.button(button).click()
+	QTimer.singleShot(50, f)
+e = w.journal.find("day261014d.png")
+w.journal.savenotes(e, "notes")
+w.reveal(e)
+w.clipcapture(False)
+w.list.setFocus()
+QTest.qWaitForWindowExposed(w)
+answer(QMessageBox.StandardButton.Cancel)
+QTest.keyClick(w.list, Qt.Key.Key_Delete)
+check(w.journal.find("day261014d.png") is not None, "Del in the list asks, and cancel keeps it")
+w.deldlg = None
+answer(QMessageBox.StandardButton.Yes, dontask=True)
+w.activateWindow()
+w.list.setFocus()
+QTest.qWait(100)
+QTest.keyClick(w.list, Qt.Key.Key_Delete)
+check(w.journal.find("day261014d.png") is None and not os.path.exists(os.path.join(b, "day261014d.png"))
+	and not os.path.exists(os.path.join(b, "day261014d.txt")), "deleted with its notes")
+check(w.clipped() is None, "the clipboard forgets it")
+check(w.current is not None and w.current.name == "day261014c.png", "shows the one before it")
+check(mainwin.settings().value("askdelete") in (False, "false"), "don't ask again remembered")
+w.deldlg = None
+w.reveal(w.journal.find("day261014c.png"))
+w.deletecapture()
+check(w.journal.find("day261014c.png") is None and w.deldlg is None, "deleted without asking")
+mainwin.settings().setValue("askdelete", True)
 w.close()
 QApplication.clipboard().clear()	# a clipboard left set crashes Qt at exit
 print("ALL OK")

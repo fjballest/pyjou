@@ -209,6 +209,12 @@ class MainWindow(QMainWindow):
 			QKeySequence.StandardKey.Copy, "copy this capture, to paste it in this or another journal")
 		self.pasteact = self.mkaction("&Paste", self.pastecapture, None,
 			QKeySequence.StandardKey.Paste, "paste the capture cut or copied here, keeping its date")
+		self.delcapact = self.mkaction("&Delete Capture…", self.deletecapture, None, None,
+			"delete this capture, with its notes and drawings (Del in the list)")
+		self.delcapact.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
+		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
+			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
+		self.askdelact.setCheckable(True)
 		self.recentmenu = QMenu("Open &Recent", self)
 		self.recentmenu.aboutToShow.connect(self.fillrecent)
 
@@ -255,6 +261,11 @@ class MainWindow(QMainWindow):
 		e.addAction(self.undoact)
 		e.addAction(self.redoact)
 		e.addAction(self.delact)
+		e.addSeparator()
+		e.addAction(self.delcapact)
+		e.addAction(self.askdelact)
+		e.aboutToShow.connect(lambda: (self.updateclipacts(),
+			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
 		e.addAction(self.findact)
 		e.addAction(self.aliasact)
@@ -328,7 +339,7 @@ class MainWindow(QMainWindow):
 		self.list.itemCollapsed.connect(lambda it: self.groupexpanded(it, False))
 		self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 		self.list.customContextMenuRequested.connect(self.listmenu)
-		for a in (self.cutact, self.copyact, self.pasteact):
+		for a in (self.cutact, self.copyact, self.pasteact, self.delcapact):
 			a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)	# not in the notes
 			self.list.addAction(a)
 		self.items = {}			# entry name -> its tree item
@@ -521,8 +532,13 @@ class MainWindow(QMainWindow):
 			if dlg.exec() != QDialog.DialogCode.Accepted:
 				continue
 			name = dlg.name()
+			gone = dlg.replaced()
 			try:
-				savecapture(self.journal, p, name)
+				savecapture(self.journal, p, name, gone)
+				for x in gone:
+					self.forget(x.name)
+					if self.current is not None and self.current.name == x.name:
+						self.current = None
 			except OSError as x:
 				QMessageBox.warning(self, "Add Capture", f"Can't add {os.path.basename(p)}: {x}")
 				continue
@@ -557,6 +573,8 @@ class MainWindow(QMainWindow):
 		m = QMenu(self)
 		for a in (self.cutact, self.copyact, self.pasteact):
 			m.addAction(a)
+		m.addSeparator()
+		m.addAction(self.delcapact)
 		m.exec(self.list.viewport().mapToGlobal(pos))
 
 	def listentry(self):
@@ -587,6 +605,7 @@ class MainWindow(QMainWindow):
 		on = self.listentry() is not None
 		self.cutact.setEnabled(on)
 		self.copyact.setEnabled(on)
+		self.delcapact.setEnabled(on)
 		self.pasteact.setEnabled(self.journal is not None and (self.clipped() is not None or bool(self.clippedfiles())))
 
 	def clipcapture(self, cut):
@@ -645,6 +664,54 @@ class MainWindow(QMainWindow):
 		self.statusBar().showMessage(f"Pasted {c['name']} as {name}", 4000)
 		self.reload()
 		self.reveal(self.journal.find(name))
+
+	def deletecapture(self, e=None):
+		"""delete capture e (the one selected in the list), with its notes
+		and drawings, asking first unless told not to ask again"""
+		e = e or self.listentry()
+		if e is None:
+			return
+		self.savenotes()
+		if settings().value("askdelete", True) not in (False, "false"):
+			qm = QMessageBox(QMessageBox.Icon.Question, "Delete Capture",
+				f"Delete {e.name}, {e.label()}, with its notes and drawings?",
+				QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
+			qm.setDefaultButton(QMessageBox.StandardButton.Cancel)
+			qm.button(QMessageBox.StandardButton.Yes).setText("Delete")
+			dontask = QCheckBox("Don't ask again")
+			qm.setCheckBox(dontask)
+			self.deldlg = qm	# for the tests
+			if qm.exec() != QMessageBox.StandardButton.Yes:
+				return
+			if dontask.isChecked():
+				settings().setValue("askdelete", False)
+		# where to go next: the one after it in the list, or the one before
+		shown = [x.name for x in self.shown]
+		i = shown.index(e.name) if e.name in shown else -1
+		near = [n for n in shown[i + 1:] + shown[:i][::-1] if n != e.name] if i >= 0 else []
+		try:
+			self.journal.delete(e)
+		except OSError as x:
+			QMessageBox.warning(self, "Delete Capture", f"Can't delete {e.name}: {x}")
+			return
+		self.forget(e.name)
+		self.statusBar().showMessage(f"Deleted {e.name}", 4000)
+		gone = self.current is not None and self.current.name == e.name
+		if gone:
+			self.current = None
+		self.reload()
+		if gone:
+			nxt = next((self.journal.find(n) for n in near if self.journal.find(n)), None)
+			self.show_(nxt, force=True)
+
+	def forget(self, name):
+		"""drop what is kept of a capture removed: its drawing not saved, and
+		the clipboard if it has it"""
+		if self.pending.pop(name, None) is not None:
+			self.updatetitle()
+		c = self.clipped()
+		if c and c["name"] == name and os.path.realpath(c["dir"]) == os.path.realpath(self.journal.dir):
+			QApplication.clipboard().clear()
 
 	def showpanel(self, w, a, on=None):
 		"""show or hide panel w (the list or the notes), as action a says"""

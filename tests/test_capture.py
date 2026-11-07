@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
 os.environ["HOME"] = tempfile.mkdtemp()
 
-from PySide6.QtCore import QMimeData, QPointF, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QMimeData, QPointF, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDropEvent, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -180,5 +180,35 @@ dl.dateedit.setDate(dl.dateedit.date().addDays(2))
 dl.weekbox.setChecked(True)
 check(dl.name() == "day261018weekprof.png", "now a week profile")
 dl.reject()
+# adding one that replaces the captures of its day
+w.journal.savenotes(w.journal.find("day261014c.png"), "old notes")
+w.journal.savedrawing(w.journal.find("day261014c.png"), {"version": 1, "shapes": [{"kind": "text", "pos": [1, 1], "text": "x", "color": "#000000", "size": 9}]})
+dl = capture.CaptureDialog(w.journal, new)
+dl.dateedit.setDate(QDate(2026, 10, 14))
+check(not dl.replacebox.isChecked() and dl.replacebox.isEnabled() and dl.name() == "day261014d.png", "replacing is off by default")
+check(dl.replacebox.text() == "Replace the 2 captures there", "says what it replaces")
+dl.replacebox.setChecked(True)
+check(dl.name() == "day261014.png" and [x.name for x in dl.replaced()] == ["day261014.png", "day261014c.png"], "replacing takes the plain name")
+dl.dateedit.setDate(QDate(2026, 10, 20))
+check(not dl.replacebox.isEnabled() and dl.replaced() == [] and dl.name() == "day261020.png", "nothing to replace")
+dl.reject()
+def answer3():
+	dl = QApplication.activeModalWidget()
+	if not isinstance(dl, capture.CaptureDialog):
+		QTimer.singleShot(50, answer3)
+		return
+	dl.touched = True
+	dl.dateedit.setDate(QDate(2026, 10, 14))
+	dl.weekbox.setChecked(False)
+	dl.replacebox.setChecked(True)
+	dl.accept()
+QTimer.singleShot(50, answer3)
+w.addcaptures([new])
+check([x.name for x in w.journal.capturesof(date(2026, 10, 14))] == ["day261014.png"], "replaced the captures of the day")
+r = w.journal.find("day261014.png")
+check(QImage(w.journal.path(r)).width() == 800 and w.current is r, "the new one is there and shown")
+check(r.notes.strip() == "old notes" and not os.path.exists(os.path.join(jd, "day261014c.png"))
+	and not os.path.exists(os.path.join(jd, "day261014c.drw")) and not os.path.exists(os.path.join(jd, "day261014.drw")),
+	"keeps the notes, drops the old images and drawings")
 w.close()
 print("ALL OK")
