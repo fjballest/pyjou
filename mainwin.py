@@ -3,23 +3,24 @@
 # and a calendar, and the image with its tags and notes on the right
 #
 import html
+from datetime import date, timedelta
 import json
 import os
 import subprocess
 import sys
 
-from PySide6.QtCore import QDate, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
-	QAction, QBrush, QColor, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
+	QAction, QBrush, QColor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
 )
 from PySide6.QtWidgets import (
-	QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-	QProgressBar, QSplitter, QStyle, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+	QProgressBar, QSplitter, QStyle, QTableView, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget, QDialogButtonBox
 )
 
-from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture
+from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture, weekname
 from journal import Journal, defaultjournals, drawtext, groupkeys, tradedir, weekno
 from ocrworker import startocr
 from search import Search
@@ -78,6 +79,47 @@ class SearchEdit(QLineEdit):
 		super().keyPressEvent(ev)
 
 windows = []	# the windows made with New Window, so they are kept
+
+DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
+
+class CaptureList(QTreeWidget):
+	"""the list; its captures can be dragged, to a day of the calendar to
+	move them there, or to another program or window as image files"""
+	def __init__(self, win):
+		super().__init__()
+		self.win = win
+		self.setDragEnabled(True)
+		self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+
+	def startDrag(self, actions):
+		md = self.win.dragdata(self.currentItem())
+		if md is None:
+			return
+		drag = QDrag(self)
+		drag.setMimeData(md)
+		drag.exec(Qt.DropAction.CopyAction | Qt.DropAction.MoveAction, Qt.DropAction.CopyAction)
+
+def calendardate(cal, pos):
+	"""the date of the calendar cell at pos of its view's viewport, or None"""
+	v = cal.findChild(QTableView, "qt_calendar_calendarview")
+	if v is None:
+		return None
+	i = v.indexAt(pos)
+	m = v.model()
+	if not i.isValid():
+		return None
+	first = None	# where the 1st of the month shown is
+	for r in range(min(4, m.rowCount())):
+		for c in range(m.columnCount()):
+			if m.data(m.index(r, c)) == 1:
+				first = (r, c)
+				break
+		if first:
+			break
+	if first is None or not isinstance(m.data(i), int):
+		return None
+	off = 7 * (i.row() - first[0]) + i.column() - first[1]
+	return date(cal.yearShown(), cal.monthShown(), 1) + timedelta(days=off)
 
 class MainWindow(QMainWindow):
 	def __init__(self, path=None):
@@ -328,7 +370,7 @@ class MainWindow(QMainWindow):
 		kinds.addWidget(self.weeksbox)
 		kinds.addStretch()
 		kinds.addWidget(self.countlabel)
-		self.list = QTreeWidget()
+		self.list = CaptureList(self)
 		self.list.setHeaderHidden(True)
 		self.list.setIndentation(14)
 		self.list.setUniformRowHeights(True)
@@ -350,6 +392,9 @@ class MainWindow(QMainWindow):
 		self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
 		self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
 		self.calendar.clicked.connect(self.calendarclicked)
+		self.calview = self.calendar.findChild(QTableView, "qt_calendar_calendarview")
+		self.calview.viewport().setAcceptDrops(True)
+		self.calview.viewport().installEventFilter(self)
 		left = self.left = QWidget()
 		ll = QVBoxLayout(left)
 		ll.setContentsMargins(4, 4, 4, 4)
@@ -492,8 +537,89 @@ class MainWindow(QMainWindow):
 			return []
 		return [u.toLocalFile() for u in md.urls() if u.isLocalFile() and isimage(u.toLocalFile())]
 
+	def owndrag(self, md):
+		"""the capture of this journal dragged from a list, or None"""
+		if self.journal is None or not md.hasFormat(DRAGMIME):
+			return None
+		try:
+			c = json.loads(bytes(md.data(DRAGMIME)).decode())
+		except ValueError:
+			return None
+		if os.path.realpath(c.get("dir", "")) != os.path.realpath(self.journal.dir):
+			return None
+		return self.journal.find(c.get("name", ""))
+
+	def dragdata(self, item):
+		"""what dragging the capture of item from the list carries"""
+		name = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+		e = self.journal.find(name) if name and self.journal else None
+		if e is None:
+			return None
+		self.savenotes()
+		md = QMimeData()
+		md.setData(DRAGMIME, json.dumps({"dir": self.journal.dir, "name": e.name}).encode())
+		md.setUrls([QUrl.fromLocalFile(self.journal.path(e))])	# to other programs and journals
+		return md
+
+	def eventFilter(self, obj, ev):
+		if hasattr(self, "calview") and obj is self.calview.viewport():
+			t = ev.type()
+			if t in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+				e = self.owndrag(ev.mimeData())
+				d = calendardate(self.calendar, ev.position().toPoint()) if e is not None else None
+				if d is None:
+					ev.ignore()
+					return True
+				self.calendar.blockSignals(True)
+				self.calendar.setSelectedDate(QDate(d.year, d.month, d.day))	# where it goes
+				self.calendar.blockSignals(False)
+				ev.acceptProposedAction()
+				return True
+			if t == QEvent.Type.DragLeave:
+				self.showcalendarday()
+				return False
+			if t == QEvent.Type.Drop:
+				e = self.owndrag(ev.mimeData())
+				d = calendardate(self.calendar, ev.position().toPoint()) if e is not None else None
+				if d is None:
+					ev.ignore()
+					return True
+				ev.acceptProposedAction()
+				QTimer.singleShot(0, lambda: self.movetodate(e, d))	# after the drop is over
+				return True
+		return super().eventFilter(obj, ev)
+
+	def showcalendarday(self):
+		e = self.current
+		if e is not None:
+			self.calendar.blockSignals(True)
+			self.calendar.setSelectedDate(QDate(e.day.year, e.day.month, e.day.day))
+			self.calendar.blockSignals(False)
+
+	def movetodate(self, e, d):
+		"""move capture e to day d: a day goes to that day, a week profile to
+		the week of d (named on the Sunday before it)"""
+		self.savenotes()
+		self.journal.load()
+		e = self.journal.find(e.name)
+		if e is None:
+			return
+		if e.week:
+			d = weekname(d)
+		if d == e.day:
+			self.showcalendarday()
+			return
+		name = self.journal.newname(d, e.week, e)
+		if name is None:
+			QMessageBox.warning(self, "Move", f"No names left for {d:%d %b %Y}")
+			self.showcalendarday()
+			return
+		self.renamecapture(e, name, "Move")
+
 	def dragEnterEvent(self, ev):
-		if self.journal is not None and self.droppedimages(ev):
+		if self.owndrag(ev.mimeData()) is not None:
+			ev.ignore()	# from the list, to the calendar only
+		elif self.journal is not None and self.droppedimages(ev):
 			ev.acceptProposedAction()
 		else:
 			ev.ignore()
@@ -502,7 +628,7 @@ class MainWindow(QMainWindow):
 		self.dragEnterEvent(ev)
 
 	def dropEvent(self, ev):
-		paths = self.droppedimages(ev)
+		paths = self.droppedimages(ev) if self.owndrag(ev.mimeData()) is None else []
 		if not paths:
 			ev.ignore()
 			return
@@ -753,11 +879,16 @@ class MainWindow(QMainWindow):
 		name = dlg.name()
 		if name is None or name == e.name:
 			return
+		self.renamecapture(e, name, "Change Date")
+
+	def renamecapture(self, e, name, what):
+		"""rename capture e to name, with its notes, drawing and tags, and show it"""
 		self.view.commitedit()
 		try:
 			self.journal.rename(e, name)
 		except OSError as x:
-			QMessageBox.warning(self, "Change Date", f"Can't rename {e.name}: {x}")
+			QMessageBox.warning(self, what, f"Can't rename {e.name}: {x}")
+			self.showcalendarday()
 			return
 		if e.name in self.pending:
 			self.pending[name] = self.pending.pop(e.name)

@@ -130,6 +130,58 @@ w.reveal(w.journal.find("day261014c.png"))
 w.deletecapture()
 check(w.journal.find("day261014c.png") is None and w.deldlg is None, "deleted without asking")
 mainwin.settings().setValue("askdelete", True)
+
+# dragging a capture from the list to a day of the calendar moves it there
+from datetime import date
+from PySide6.QtCore import QDate, QPointF
+from PySide6.QtGui import QDropEvent, QDragEnterEvent
+import warnings
+warnings.simplefilter("ignore", DeprecationWarning)
+def cell(d):
+	"""the middle of day d in the calendar"""
+	w.calendar.setCurrentPage(d.year, d.month)
+	v, m = w.calview, w.calview.model()
+	for r in range(m.rowCount()):
+		for c in range(m.columnCount()):
+			p = v.visualRect(m.index(r, c)).center()
+			if mainwin.calendardate(w.calendar, p) == d:
+				return p
+w.calendar.setCurrentPage(2026, 6)
+cells = {mainwin.calendardate(w.calendar, w.calview.visualRect(w.calview.model().index(r, c)).center())
+	for r in range(1, 7) for c in range(7)}
+check(date(2026, 6, 1) in cells and date(2026, 5, 25) in cells and date(2026, 7, 5) in cells and len(cells) == 42,
+	"the calendar cells' dates")
+def drop(e, d):
+	md = w.dragdata(w.items[e])
+	p = QPointF(cell(d))
+	vp = w.calview.viewport()
+	en = QDragEnterEvent(p.toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+	QApplication.sendEvent(vp, en)
+	ok = en.isAccepted()
+	if ok:
+		QApplication.sendEvent(vp, QDropEvent(p, Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+		QTest.qWait(50)
+	return ok
+w.reload()
+names = [x.name for x in w.journal.entries]
+day = next(n for n in names if "week" not in n)
+e = w.journal.find(day)
+w.journal.savenotes(e, "moved notes")
+w.reload()
+check(drop(day, date(2026, 10, 21)), "a capture can be dropped on a day")
+n = w.journal.find("day261021.png")
+check(n is not None and w.journal.find(day) is None and n.notes == "moved notes" and w.current is n, "moved to that day, with its notes, and shown")
+check(w.calendar.selectedDate() == QDate(2026, 10, 21), "the calendar shows its day")
+check(drop("day261021.png", date(2026, 10, 14)) and w.journal.find("day261021.png") is None
+	and w.current.name.startswith("day261014") and w.current.name != "day261014.png", "to a day with captures: the next name")
+wk = next((x.name for x in w.journal.entries if x.week), None)
+if wk:
+	check(drop(wk, date(2026, 10, 29)) and w.current.name == "day261025weekprof.png", "a week profile goes to the Sunday before")
+md = w.dragdata(w.items[w.current.name])
+check(w.owndrag(md) is w.current, "the window knows its own drags")
+en = QDragEnterEvent(QPointF(5, 5).toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+w.dragEnterEvent(en)
+check(not en.isAccepted(), "dropping it on the window does nothing")
 w.close()
 QApplication.clipboard().clear()	# a clipboard left set crashes Qt at exit
 print("ALL OK")

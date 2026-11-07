@@ -168,6 +168,14 @@ week profile. The window is the one used when adding captures, titled
 image, with its notes, drawings and tags, to the name shown in **Saved
 as**; keeping the date keeps the name.
 
+To move an image to another day, drag it from the list to that day in the
+calendar (go to another month with the calendar's arrows first). The day
+under the image is selected while you drag; dropping renames it, with its
+notes, drawings and tags, to the next name free for that day. A week
+profile dropped on any day goes to the week of that day, named on the
+Sunday before it. Dragging an image to the Finder or to another DayJournal
+window copies it there.
+
 Right click an image in the list for **Cut**, **Copy** and **Paste**
 (⌘X, ⌘C and ⌘V work too while the list has the focus). Copy an image, open
 another journal (or keep this one) and paste: the image is copied there with

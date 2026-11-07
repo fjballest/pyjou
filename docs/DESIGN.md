@@ -178,6 +178,16 @@ them from `src` for a cut. A cut is pasted only once (the clipboard is
 cleared) and never in its own journal. Clipboard files without that type
 go to `addcaptures`.
 
+The list (`CaptureList`) drags its captures with the `DRAGMIME` type (the
+journal directory and image name) and the image's file URL. The calendar's
+view viewport has `MainWindow` as event filter: a drag of a capture of this
+journal (`owndrag`) over a day (`calendardate`, from the cell's row and
+column and where the 1st of the month shown is) selects that day, and a
+drop calls `movetodate`, which renames it like Change Date does
+(`renamecapture`, `Journal.newname`). The window itself ignores its own
+drags, so dropping one elsewhere doesn't add it again; other windows and
+programs take the file URL.
+
 `MainWindow.deletecapture` (Del in the list, the context menu, Edit) asks
 unless the `askdelete` setting is false, then `Journal.delete(entry)`
 removes the image, `.txt`, `.drw` and cache entry; `forget` drops its
