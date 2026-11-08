@@ -217,6 +217,14 @@ fingers zooms in, zooms in again, and fits again, keeping the point tapped
 in place, and pinching zooms in and out. Drag to move around. **View ▸ Open
 in Preview** opens it with the system viewer.
 
+The cursor is a crosshair: a dashed horizontal and vertical line through
+the mouse, across the whole image, so you can see the same level or time at
+other places of the chart. It hides while you draw, drag the image or write
+a text, and comes back when you move the mouse again. **Cross** on the
+drawing bar (or X with the image focused) turns it off and on, for
+DayJournal and RoadBook alike; with it off, the cursor is the hand again
+when dragging the image.
+
 The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
 Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the
 list and the calendar) and the tags and notes under the image, so the image

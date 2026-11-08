@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+import drawbar
 import journal
 import mainwin
 import ocrworker
@@ -228,5 +229,38 @@ check(w.isVisible() and asked and "not saved" in asked[0], "quitting with unsave
 answers = [mainwin.QMessageBox.StandardButton.Save]
 w.close()
 check(not w.isVisible() and not os.path.exists(p), "save on quit; no drawings, no file")
+# the crosshair follows the mouse on the image, but not while drawing
+w = mainwin.MainWindow(d)
+w.resize(1500, 950)
+w.show()
+QTest.qWaitForWindowExposed(w)
+v, vp = w.view, w.view.viewport()
+v.setcrosshair(True)
+w.toolacts["select"].trigger()
+QTest.mouseMove(vp, QPoint(300, 200))
+app.processEvents()
+c = v.mapToScene(QPoint(300, 200))
+check(v.cross is not None and abs(v.cross.x() - c.x()) < 1 and abs(v.cross.y() - c.y()) < 1, "the crosshair is at the mouse")
+check(vp.cursor().shape() == Qt.CursorShape.CrossCursor, "a cross cursor")
+img = vp.grab().toImage()
+check(img.pixelColor(300, 40) != img.pixelColor(310, 40) or img.pixelColor(300, 41) != img.pixelColor(310, 41)
+	or img.pixelColor(300, 43) != img.pixelColor(310, 43), "its vertical line is drawn")
+vp.grab().save(os.path.join(sys.argv[1] if len(sys.argv) > 1 else d, "crosshair.png"))
+w.toolacts["line"].trigger()
+QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(300, 200))
+QTest.mouseMove(vp, QPoint(400, 260))
+check(v.cross is None, "no crosshair while drawing")
+QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(400, 260))
+QTest.mouseMove(vp, QPoint(420, 270))
+check(v.cross is not None, "back after drawing")
+w.toolacts["select"].trigger()
+v.setFocus()
+QTest.keyClick(vp, Qt.Key.Key_X)
+check(not v.crosshair and v.cross is None and not w.drawbar.crossact.isChecked(), "X turns it off")
+check(vp.cursor().shape() == Qt.CursorShape.OpenHandCursor, "the hand again")
+check(drawbar.fibsettings().value("crosshair") in (False, "false"), "remembered")
+w.drawbar.crossact.trigger()
+check(v.crosshair, "the Cross button turns it on")
+w.pending = {}	# the line drawn, not to be saved
 w.close()
 print("ALL OK")

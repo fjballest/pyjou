@@ -243,6 +243,14 @@ trackpad gestures: a two finger double tap (`SmartZoomNativeGesture`) steps
 the zoom (`zoomstep`: in, in again, fit) and pinching zooms. Double clicks
 on the image step it too when `dclickzoom`, which DayJournal turns off.
 
+The crosshair is `ImageView.cross`, the scene point under the mouse
+(`crossat` gives None when it is off, out of the image, while drawing, with
+a button down or while a text is edited); mouse moves, scrolls and zooms set
+it, `drawForeground` draws the two lines across `sceneRect` with a cosmetic
+white pen in difference mode, so they show on any chart, and `setcross`
+repaints only the strips they cover. X or `DrawBar`'s **Cross** button call
+`setcrosshair`, kept as `crosshair` in `QSettings("fjballest", "drawing")`.
+
 - The tool (`settool`) decides what a mouse press does: with **select** the
   scene handles it (selecting and moving items), and a drag on the image
   pans (`ScrollHandDrag`); with a drawing tool the press creates a shape and

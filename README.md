@@ -24,7 +24,8 @@ What it does:
 - Draws on the captures: pencil, lines, arrows and circles with labels,
   rectangles with FVG, IFVG+, IFVG-, BRK and MB presets, Fibonacci levels
   (OTE, quadrants, PO3 or your own), and text, in solid, dashed or dotted
-  lines, with undo. The drawing buttons can float in a bar of their own.
+  lines, with undo. The drawing buttons can float in a bar of their own. A
+  crosshair cursor shows the same level across the chart.
 - Hides the list and the notes to give the chart the whole window, and
   zooms with a two finger double tap or a pinch.
 - Opens more windows (File ▸ New Window), on the same journal or another one,
