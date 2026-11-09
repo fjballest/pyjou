@@ -306,6 +306,7 @@ class MainWindow(QMainWindow):
 		e.addSeparator()
 		e.addAction(self.delcapact)
 		e.addAction(self.askdelact)
+		e.addAction(self.copyimgact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
@@ -464,6 +465,9 @@ class MainWindow(QMainWindow):
 		self.drawbar = tb
 		self.toolacts = tb.toolacts
 		self.undoact, self.redoact, self.delact = tb.undoact, tb.redoact, tb.delact
+		self.copyimgact = tb.copyimgact
+		self.copyimgact.setText("Copy Image")
+		self.copyimgact.setIconText("Copy")
 		self.setcolor = tb.setcolor
 		return tb
 
@@ -699,6 +703,7 @@ class MainWindow(QMainWindow):
 		m = QMenu(self)
 		for a in (self.cutact, self.copyact, self.pasteact):
 			m.addAction(a)
+		m.addAction(self.copyimgact)
 		m.addSeparator()
 		m.addAction(self.delcapact)
 		m.exec(self.list.viewport().mapToGlobal(pos))

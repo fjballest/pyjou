@@ -225,6 +225,12 @@ drawing bar (or X with the image focused) turns it off and on, for
 DayJournal and RoadBook alike; with it off, the cursor is the hand again
 when dragging the image.
 
+**Copy** on the drawing bar (⇧⌘C, **Edit ▸ Copy Image**, or **Copy Image**
+when you right click an image in the list) copies the image with its
+drawings to the clipboard, at its own size, to paste it in a message, a
+document or another program. ⌘C in the list still copies the capture, to
+paste it in another journal.
+
 The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
 Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the
 list and the calendar) and the tags and notes under the image, so the image
