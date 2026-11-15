@@ -299,6 +299,32 @@ check(g.from2 and fromdict({**fib.todict(), "from2": False}).from2 is False, "an
 v.undo.undo()
 check(not fib.from2, "undo puts it back")
 
+# width and line style in the fib and rectangle forms, shown while open
+def fibstyle(dl):
+	dl.width.setCurrentIndex(dl.width.findData(5.0))
+	dl.dash.setCurrentIndex(dl.dash.findData("dot"))
+	seen["live"] = (fib.width, fib.dash)
+	dl.accept()
+later(fibstyle)
+v.editfib(fib)
+check(seen["live"] == (5.0, "dot") and (fib.width, fib.dash) == (5.0, "dot") and fib.levels == [0, 0.5, 1],
+	"the fib form sets its width and style")
+v.undo.undo()
+check((fib.width, fib.dash) == (2, "solid"), "undo puts them back")
+rs = RectShape(QRectF(v.mapToScene(QPoint(200, 200)), v.mapToScene(QPoint(400, 300))), "#ff0000", 2)
+v.additem(rs)
+def rectstyle(dl):
+	dl.width.setCurrentIndex(dl.width.findData(3.0))
+	dl.dash.setCurrentIndex(dl.dash.findData("dash"))
+	seen["live"] = (rs.width, rs.dash)
+	dl.accept()
+later(rectstyle)
+v.editshape(rs)
+check(seen["live"] == (3.0, "dash") and (rs.width, rs.dash) == (3.0, "dash"), "the rectangle form sets its width and style")
+v.undo.undo()
+check((rs.width, rs.dash) == (2, "solid"), "undo puts them back")
+v.scene().removeItem(rs)
+
 # the right button on a drawing: its configurations, to change it to one
 def popup(pick):
 	def f():

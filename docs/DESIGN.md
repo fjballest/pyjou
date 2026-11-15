@@ -346,7 +346,9 @@ in the list menu and Edit menu), puts it on the clipboard.
   of its kind selected, without changing what the bar draws next. A fib's
   `from2` (the **From 2** box) starts its lines at `p2` (`FibShape.start`);
   it goes with its levels and diagonal everywhere (`LevelsCmd`, the custom
-  rows, the sets saved).
+  rows, the sets saved). The form of a fib drawn (`fibform`'s `style`)
+  also asks for its width and dash, a `PropsCmd` in the same undo step;
+  `RectDialog` asks for the border's width and dash too.
 - Every shape but the text boxes has a `dash` (solid, dash, dot); lines,
   arrows, circles and rectangles a `label` with its `size` and
   `labelcolor`, placed by `labelrect` (lines and circles also by `valign`
