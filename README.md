@@ -1,3 +1,5 @@
+<img src="Icon.png" alt="DayJournal icon" width="128" align="right">
+
 # DayJournal
 
 Still in alpha. Just born for personal use. Provided AS-IS.
