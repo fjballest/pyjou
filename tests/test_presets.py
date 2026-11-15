@@ -94,6 +94,31 @@ def taken(dl):
 later(taken)
 bar.setfib("Custom")
 
+# a double click on a fib opens its levels, checked, and changes them
+from drawing import FibShape
+from PySide6.QtCore import QPointF
+w.toolacts["select"].trigger()
+fib = FibShape(v.mapToScene(QPoint(300, 500)), v.mapToScene(QPoint(500, 700)), [0, 0.5, 1], "#000000", 2)
+v.additem(fib)
+seen = {}
+def fiblevels(dl):
+	seen["on"] = [e.text() for c, e in zip(dl.checks, dl.edits) if c.isChecked()]
+	seen["title"] = dl.windowTitle()
+	for c, e in zip(dl.checks, dl.edits):
+		if e.text() == "0.5":
+			c.setChecked(False)
+		if e.text() == "0.705":
+			c.setChecked(True)
+	dl.diagbox.setChecked(True)
+	dl.accept()
+later(fiblevels)
+QTest.mouseDClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, v.mapFromScene(QPointF((fib.xs()[0] + fib.xs()[1]) / 2, fib.ys()[1][1])))
+check(seen.get("on") == ["0", "0.5", "1"] and seen.get("title") == "Fib Levels", "the form shows its levels checked")
+check(fib.levels == [0, 0.705, 1] and fib.diagonal, "and changes them")
+v.undo.undo()
+check(fib.levels == [0, 0.5, 1] and not fib.diagonal, "undo puts them back")
+v.scene().removeItem(fib)
+
 # a rectangle saved with a name, from its form
 w.toolacts["rect"].trigger()
 drag(QPoint(200, 200), QPoint(400, 300))
@@ -161,6 +186,38 @@ later(edit)
 bar.editsaved("line")
 check(list(drawbar.savedshapes("line")) == ["PDL"] and "PDL" in menu("line") and "PDH" not in menu("line")
 	and "EQH" not in menu("line"), "renamed and removed")
+# Edit… changes a saved one with its form
+def editline(dl):
+	dl.list.setCurrentRow(0)
+	def form(f):
+		check(not f.namebox.isVisibleTo(f) and f.extend is not None, "the line form, without Save as")
+		f.dash.setCurrentIndex(f.dash.findData("dot"))
+		f.extend.setChecked(True)
+		f.accept()
+	later(form)
+	dl.edit()
+	dl.accept()
+later(editline)
+bar.editsaved("line")
+pdl = drawbar.savedshapes("line")["PDL"]
+check(pdl["dash"] == "dot" and pdl["extend"] is True and pdl["label"] == "PDH", "the saved line changed, its label kept")
+def editfiblevels(dl):
+	dl.list.setCurrentRow(0)
+	def form(f):
+		check(not f.namerow.isVisibleTo(f) and [e.text() for c, e in zip(f.checks, f.edits) if c.isChecked()] == ["0.5", "0.705"],
+			"the fib form with its levels, without a name")
+		for c, e in zip(f.checks, f.edits):
+			if e.text() == "0.79":
+				c.setChecked(True)
+		f.accept()
+	later(form)
+	dl.edit()
+	dl.accept()
+later(editfiblevels)
+bar.setfib("Mine")
+bar.editsaved("fib")
+check(drawbar.savedfibs()["Mine"]["levels"] == [0.5, 0.705, 0.79] and v.fiblevels == [0.5, 0.705, 0.79],
+	"a level added to the saved fib, and drawn with it as it is in use")
 def editfibs(dl):
 	dl.remove()
 	dl.accept()

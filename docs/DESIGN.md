@@ -270,7 +270,9 @@ repaints only the strips they cover. `DrawBar` turns it on for good
 (`setcrosshair(True)`). Its **Hide** button (H) calls `togglehidden`:
 `setdrawingsshown` sets `hidden` and the items' visibility, `additem` and
 undos keep new ones hidden too, and drawing or pasting shows them again;
-`hiddenchanged` makes the button say Show or Hide.
+`hiddenchanged` makes the button say Show or Hide. A double click on a fib
+calls `ImageView.editfib`, which asks `fibform` (set by `DrawBar`: a
+`FibDialog` with its levels checked) and pushes a `LevelsCmd` for it.
 `renderimage` renders the scene (image and drawings, without the selection)
 at the image's size; `copyimage`, `DrawBar`'s **Copy** (⇧⌘C, and Copy Image
 in the list menu and Edit menu), puts it on the clipboard.
@@ -328,8 +330,10 @@ in the list menu and Edit menu), puts it on the clipboard.
   `QSettings("fjballest", "drawing")`. `mkfibmenu` and `mkshapemenu(kind)`
   rebuild the menus after them; picking one calls `ImageView.setpreset(kind,
   preset)` (`presets`, used when the next shape of that kind is made, and
-  applied to the ones selected). `SavedDialog` (Edit Saved…) renames,
-  removes and reorders them; built-in names can't be used.
+  applied to the ones selected). `SavedDialog` (Edit Saved…) edits
+  (`DrawBar.editpreset`: the `FibDialog`, or the shape's form on a
+  stand-in shape, with no name row), renames, removes and reorders them;
+  built-in names can't be used. The one in use is drawn as edited.
 - Every shape but the text boxes has a `dash` (solid, dash, dot); lines,
   arrows, circles and rectangles a `label` with its `size` and
   `labelcolor`, placed by `labelrect` (lines and circles also by `valign`
