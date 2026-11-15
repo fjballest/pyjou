@@ -199,6 +199,13 @@ fails), moving their OCR cache too. Drawings not saved and the selection
 follow the new names; a clipboard naming a renamed one is cleared. Other
 drags on the list (image files) go to the window, which adds them.
 
+Del goes to `MainWindow.delpressed`: from the list's own `dellistact` (the
+Edit menu entry has no shortcut, so Del doesn't reach it from the image)
+and from the view's `delkey` hook. With the mouse on the list (`mouseon`) it
+deletes the capture; else the view deletes its drawings selected (from the
+list's Del only when the mouse is on the image), and the list's Del with
+nothing there deletes the capture.
+
 `MainWindow.deletecapture` (Del in the list, the context menu, Edit) asks
 unless the `askdelete` setting is false, then `Journal.delete(entry)`
 removes the image, `.txt`, `.drw` and cache entry; `forget` drops its
@@ -287,6 +294,10 @@ in the list menu and Edit menu), puts it on the clipboard.
   work.
 - Each change is a `QUndoCommand` on the view's `QUndoStack`: `AddCmd`,
   `DeleteCmd`, `MoveCmd` (made on release from the positions at the press),
+  `GeomCmd` (a reshape: the shapes but pencil and text have `handles()`, in
+  scene points, `geom()`/`setgeom()` and `movehandle(i, p, start)`; the view
+  draws the handles of the items selected in `drawForeground`, in pixels,
+  `handleat` finds the one pressed, and `reshaping` holds it while dragged),
   `TextCmd`, `StyleCmd`, `LevelsCmd` (fib levels) and `PropsCmd` (a
   rectangle's fill, middle line and label and their colors, set in
   `RectDialog`, opened by a double click on it, or by a preset of

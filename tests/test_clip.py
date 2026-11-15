@@ -183,6 +183,43 @@ en = QDragEnterEvent(QPointF(5, 5).toPoint(), Qt.DropAction.CopyAction, md, Qt.M
 w.dragEnterEvent(en)
 check(not en.isAccepted(), "dropping it on the window does nothing")
 
+# Del deletes the drawing selected, unless the mouse is on the list: then the capture
+from drawing import LineShape
+from PySide6.QtCore import QPointF as P
+under = {"on": None}
+w.mouseon = lambda x: x is under["on"]
+def lined():
+	ln = LineShape(P(10, 10), P(200, 100), "#e53935", 3)
+	w.view.additem(ln)
+	w.view.scene().clearSelection()
+	ln.setSelected(True)
+	return ln
+mainwin.settings().setValue("askdelete", False)
+w.activateWindow()
+QTest.qWaitForWindowActive(w)
+cap = w.current.name
+ln = lined()
+under["on"] = w.view
+w.view.setFocus()
+QTest.keyClick(w.view.viewport(), Qt.Key.Key_Delete)
+check(ln.scene() is None and w.journal.find(cap) is not None, "Del on the image deletes the drawing selected, not the capture")
+ln = lined()
+w.list.setFocus()
+QTest.keyClick(w.list, Qt.Key.Key_Delete)
+check(ln.scene() is None and w.journal.find(cap) is not None, "also with the focus in the list and the mouse on the image")
+ln = lined()
+under["on"] = w.list
+w.view.setFocus()
+QTest.keyClick(w.view.viewport(), Qt.Key.Key_Delete)
+check(w.journal.find(cap) is None, "with the mouse on the list it deletes the capture, whatever is selected")
+under["on"] = None
+w.view.setFocus()
+QTest.keyClick(w.view.viewport(), Qt.Key.Key_Delete)
+check(w.current is not None and w.journal.find(w.current.name) is not None, "on the image with nothing selected, nothing")
+check(not w.delcapact.shortcuts(), "the menu entry has no Del of its own")
+mainwin.settings().setValue("askdelete", True)
+del w.mouseon
+
 # dropping a capture before or after another of its day reorders them, renaming them
 from PySide6.QtGui import QDragMoveEvent
 jd = w.journal.dir

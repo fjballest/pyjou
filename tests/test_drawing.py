@@ -117,6 +117,47 @@ QTest.keyClick(vp, Qt.Key.Key_Delete)
 check("line" not in kinds(), "Del deletes the selection")
 v.undo.undo()
 check("line" in kinds(), "undo the delete")
+# the ends of a line selected can be dragged; the corners of a circle too
+line.setSelected(True)
+end = v.mapFromScene(line.handles()[1])
+check(v.handleat(end) == (line, 1), "the handle at the end of the line selected")
+img = v.grab().toImage()
+c = img.pixelColor(end.x() + 2, end.y() + 2)
+check(c.red() > 200 and c.green() > 200 and c.blue() > 200, "the handle is drawn")
+start = line.handles()[0]
+drag(end, QPoint(760, 200))
+h = line.handles()
+check(abs(h[1].x() - v.mapToScene(QPoint(760, 200)).x()) < 1 and abs(h[1].y() - v.mapToScene(QPoint(760, 200)).y()) < 1
+	and abs(h[0].x() - start.x()) < 0.1 and abs(h[0].y() - start.y()) < 0.1, "dragging it moves that end only")
+check(line.isSelected(), "still selected")
+v.undo.undo()
+check(abs(line.handles()[1].x() - v.mapToScene(end).x()) < 1, "undo the reshape")
+v.undo.redo()
+check(abs(line.handles()[1].y() - v.mapToScene(QPoint(760, 200)).y()) < 1, "redo it")
+end = v.mapFromScene(line.handles()[1])
+a = v.mapFromScene(line.handles()[0])
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QEvent, QPointF
+def move(p, mods):
+	v.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, QPointF(p), QPointF(vp.mapToGlobal(p)), Qt.MouseButton.NoButton,
+		Qt.MouseButton.LeftButton, mods))
+QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
+move(QPoint(end.x() + 40, a.y() + 15), Qt.KeyboardModifier.ShiftModifier)
+QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(end.x() + 40, a.y() + 15))
+h = line.handles()
+check(abs(h[1].y() - h[0].y()) < 0.1, "with shift the end stays level with the other")
+v.undo.undo()
+circle = [s for s in v.shapes() if s.kind == "circle"][0]
+v.scene().clearSelection()
+circle.setSelected(True)
+r0 = circle.mapRectToScene(circle.rect())
+check(v.handleat(end) is None, "only the handles of what is selected")
+br = v.mapFromScene(circle.handles()[2])
+drag(br, br + QPoint(50, 30))
+r1 = circle.mapRectToScene(circle.rect())
+check(abs(r1.topLeft().x() - r0.topLeft().x()) < 0.1 and r1.width() > r0.width() + 30, "a corner of the circle resizes it")
+v.undo.undo()
+v.scene().clearSelection()
 # a click on the image deselects; drag on it pans, not moves
 QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(1000, 700))
 check(not v.scene().selectedItems(), "clicking the image deselects")

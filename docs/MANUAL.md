@@ -196,11 +196,13 @@ is pasted, and is shown in gray until then; pasting it in its own journal
 does nothing. Paste also works between two DayJournal windows, and pasting
 image files copied in the Finder adds them as captures.
 
-**Delete Capture…** in the same menu (or Del, or ⌫, while the list has the
-focus, or **Edit ▸ Delete Capture…**) deletes the image selected with its
+**Delete Capture…** in the same menu (or Del, or ⌫, with the mouse on the
+list, or while the list has the focus, or **Edit ▸ Delete Capture…**)
+deletes the image selected with its
 notes, drawings and tags, and shows the one after it. It asks first; check
 **Don't ask again** to delete without asking from then on, and turn **Edit ▸
-Ask Before Deleting** back on to be asked again. A deleted capture can't be
+Ask Before Deleting** back on to be asked again. With the mouse on the image
+and drawings selected, Del deletes those drawings instead, never the image. A deleted capture can't be
 recovered from DayJournal.
 
 ## Moving around
@@ -332,7 +334,11 @@ where it suits you. Click **⧉** again, or close the bar, to put it back.
 
 **Select** (the usual tool) clicks a drawing to select it, drags it to move
 it, and Del or **Delete** removes the ones selected. Shift-click selects
-more than one. Double click a text box to change its text; emptying it
+more than one. A drawing selected shows small squares (handles) where it can
+be reshaped: the two ends of a line or arrow, the corners of a rectangle or
+circle, and the two points and the right end of a fib. Drag one to move just
+that point (with shift a line's end stays level or plumb with the other);
+**Undo** puts it back. Double click a text box to change its text; emptying it
 removes it. Dragging the image itself moves around it, as before.
 
 The color button, the width list, the line style list (solid, dashed,

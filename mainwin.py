@@ -11,7 +11,7 @@ import sys
 
 from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
-	QAction, QBrush, QColor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
+	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
 )
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -328,7 +328,11 @@ class MainWindow(QMainWindow):
 			QKeySequence.StandardKey.Paste, "paste the capture cut or copied here, keeping its date")
 		self.delcapact = self.mkaction("&Delete Capture…", self.deletecapture, None, None,
 			"delete this capture, with its notes and drawings (Del in the list)")
-		self.delcapact.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
+		# Del in the list, or with the mouse on it: the menu entry has no
+		# shortcut, so Del on the image deletes the drawings selected there
+		self.dellistact = QAction("Delete Capture", self)
+		self.dellistact.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
+		self.dellistact.triggered.connect(lambda: self.delpressed(False))
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
@@ -457,7 +461,7 @@ class MainWindow(QMainWindow):
 		self.list.itemCollapsed.connect(lambda it: self.groupexpanded(it, False))
 		self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 		self.list.customContextMenuRequested.connect(self.listmenu)
-		for a in (self.cutact, self.copyact, self.pasteact, self.delcapact):
+		for a in (self.cutact, self.copyact, self.pasteact, self.dellistact):
 			a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)	# not in the notes
 			self.list.addAction(a)
 		self.items = {}			# entry name -> its tree item
@@ -486,6 +490,7 @@ class MainWindow(QMainWindow):
 		f.setPointSizeF(f.pointSizeF() * 1.2)
 		self.titlelabel.setFont(f)
 		self.view = ImageView()
+		self.view.delkey = lambda: self.delpressed(True)
 		self.view.dclickzoom = False	# a double tap zooms; double clicks are for the drawings
 		self.view.navigate.connect(self.navigate)
 		self.view.drawchanged.connect(self.drawchanged)
@@ -934,6 +939,25 @@ class MainWindow(QMainWindow):
 		if gone:
 			nxt = next((self.journal.find(n) for n in near if self.journal.find(n)), None)
 			self.show_(nxt, force=True)
+
+	def mouseon(self, w):
+		"""whether the mouse is on widget w"""
+		return w.isVisible() and w.rect().contains(w.mapFromGlobal(QCursor.pos()))
+
+	def delpressed(self, onimage):
+		"""Del with the focus on the image (onimage) or in the list: with the
+		mouse on the list it deletes the capture; else the drawings selected,
+		when the focus or the mouse is on the image. Whether it took it."""
+		if self.mouseon(self.list):
+			self.deletecapture()
+			return True
+		if onimage:
+			return False	# the image deletes its drawings selected
+		if self.view.scene().selectedItems() and self.mouseon(self.view):
+			self.view.deleteselected()
+		else:
+			self.deletecapture()
+		return True
 
 	def forget(self, name):
 		"""drop what is kept of a capture removed: its drawing not saved, and
