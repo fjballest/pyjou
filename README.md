@@ -44,8 +44,12 @@ The same day with the list and the notes hidden, zoomed on the FVGs:
 
 ## Running
 
-    pip install -r requirements.txt
-    python3 dj.py [journaldir]
+It needs Python 3.12 or later (the releases are built with 3.14) and
+macOS 14 or later on a Mac. A virtual environment keeps its packages apart:
+
+    python3.14 -m venv ~/u/trade/.venv
+    ~/u/trade/.venv/bin/pip install -r requirements.txt
+    ~/u/trade/.venv/bin/python dj.py [journaldir]
 
 Without a directory it opens the journal used last, or the first
 `DayJournal*` directory found in `/u/trade` or `~/u/trade`, or, when there is
