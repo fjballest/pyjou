@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 #
 #	pyinstaller --noconfirm dj.spec
 #
@@ -51,10 +52,15 @@ coll = COLLECT(
     upx_exclude=[],
     name='dj',
 )
+# the version About shows (version.py), for Info.plist too
+VERSION = {}
+exec(open(os.path.join(SPECPATH, 'version.py')).read(), VERSION)
+VERSION = VERSION['VERSION']
 app = BUNDLE(
     coll,
     name='DayJournal.app',
     icon='icon.icns',
     bundle_identifier=None,
+    version=VERSION,	# what Finder's Get Info shows
     info_plist={'NSHighResolutionCapable': True},
 )
