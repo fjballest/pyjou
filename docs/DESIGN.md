@@ -282,6 +282,17 @@ in the list menu and Edit menu), puts it on the clipboard.
   `drawing.RECTSETS`, picked in the Rect menu of `DrawBar` and kept in
   `ImageView.rectpreset` for the next rectangles). Commands made after the fact (the shape is
   already drawn) skip their first `redo`.
+- Sets saved by name: the custom fib levels (`FibDialog`'s Name, `savefib`,
+  `savedfibs`) and the look of rectangles, lines, arrows and circles (the
+  Save as field `namerow` adds to `RectDialog` and `ShapeDialog`; the view
+  emits `shapesaved(kind, name, preset)` and `DrawBar.shapesaved` keeps the
+  `SHAPEKEYS` of it with `saveshape`), as JSON under `savedfibs`,
+  `savedrects`, `savedlines`, `savedarrows` and `savedcircles` in
+  `QSettings("fjballest", "drawing")`. `mkfibmenu` and `mkshapemenu(kind)`
+  rebuild the menus after them; picking one calls `ImageView.setpreset(kind,
+  preset)` (`presets`, used when the next shape of that kind is made, and
+  applied to the ones selected). `SavedDialog` (Edit Saved…) renames,
+  removes and reorders them; built-in names can't be used.
 - Every shape but the text boxes has a `dash` (solid, dash, dot); lines,
   arrows, circles and rectangles a `label` with its `size` and
   `labelcolor`, placed by `labelrect` (lines and circles also by `valign`
