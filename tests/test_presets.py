@@ -276,6 +276,66 @@ later(editfibs)
 bar.editsaved("fib")
 check(drawbar.savedfibs() == {} and not any(t.startswith("Mine") for t in menu("fib")) and bar.fibname == "OTE",
 	"the fib levels removed; back to OTE")
+# From 2: the fib lines start at the second point
+from drawing import fromdict
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QContextMenuEvent
+w.toolacts["select"].trigger()
+fib = FibShape(v.mapToScene(QPoint(300, 500)), v.mapToScene(QPoint(500, 700)), [0, 0.5, 1], "#000000", 2,
+	right=v.mapToScene(QPoint(800, 0)).x())
+v.additem(fib)
+check(abs(fib.xs()[0] - fib.p1.x()) < 0.01, "the lines start at the first point")
+def from2form(dl):
+	check(dl.from2box.text() == "From 2" and not dl.from2box.isChecked(), "the fib form has From 2, off")
+	dl.from2box.setChecked(True)
+	seen["live"] = fib.xs()[0]
+	dl.accept()
+later(from2form)
+v.editfib(fib)
+check(abs(seen["live"] - fib.p2.x()) < 0.01 and fib.from2 and abs(fib.xs()[0] - fib.p2.x()) < 0.01,
+	"From 2 starts them at the second point, shown while editing")
+g = fromdict(fib.todict())
+check(g.from2 and fromdict({**fib.todict(), "from2": False}).from2 is False, "and it is saved with the drawing")
+v.undo.undo()
+check(not fib.from2, "undo puts it back")
+
+# the right button on a drawing: its configurations, to change it to one
+def popup(pick):
+	def f():
+		m = QApplication.activePopupWidget()
+		if m is None:
+			QTimer.singleShot(30, f)
+			return
+		seen["menu"] = [(x.text(), x.isChecked()) for x in m.actions() if x.text()]
+		hit = [x for x in m.actions() if x.text().startswith(pick)]
+		m.close()
+		if hit:
+			hit[0].trigger()
+	QTimer.singleShot(30, f)
+def rightclick(it, at):
+	popup_at = v.mapFromScene(at)
+	ev = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, popup_at, v.viewport().mapToGlobal(popup_at))
+	QApplication.sendEvent(v.viewport(), ev)
+v.scene().clearSelection()
+popup("Quadrants")
+rightclick(fib, QPointF((fib.xs()[0] + fib.xs()[1]) / 2, fib.ys()[1][1]))
+check(fib.isSelected() and ("Quadrants: 0 0.25 0.5 0.75 1", False) in seen["menu"], "the fib's menu lists the fib sets")
+check(fib.levels == [0, 0.25, 0.5, 0.75, 1], "and picking one changes its levels")
+v.undo.undo()
+check(fib.levels == [0, 0.5, 1], "in one undo step")
+rect = RectShape(QRectF(v.mapToScene(QPoint(200, 200)), v.mapToScene(QPoint(400, 300))), "#ff0000", 2)
+v.additem(rect)
+popup("FVG")
+rightclick(rect, rect.rect().topLeft() + QPointF(1, 30))
+names = [n for n, _ in seen["menu"]]
+check(rect.isSelected() and not fib.isSelected() and "BRK" in names and "FVG" in names, "a rectangle's menu lists its looks")
+check(rect.label == "FVG" and rect.fill == "#ff9800", "and picking one changes it")
+popup("BRK")
+rightclick(rect, rect.rect().topLeft() + QPointF(1, 30))
+check(("FVG", True) in seen["menu"], "the one it has is checked")
+v.scene().removeItem(rect)
+v.scene().removeItem(fib)
+
 w.pending = {}
 w.close()
 print("ALL OK")

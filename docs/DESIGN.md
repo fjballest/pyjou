@@ -340,6 +340,13 @@ in the list menu and Edit menu), puts it on the clipboard.
   (`DrawBar.editpreset`: the `FibDialog`, or the shape's form on a
   stand-in shape, with no name row), renames, removes and reorders them;
   built-in names can't be used. The one in use is drawn as edited.
+  The context menu of a drawing (`ImageView.contextMenuEvent`) is filled by
+  `DrawBar.presetmenu`, set as `view.presetmenu`: the fib sets or the looks
+  of its kind, applied by `applyfib` or `applypreset` to it and the others
+  of its kind selected, without changing what the bar draws next. A fib's
+  `from2` (the **From 2** box) starts its lines at `p2` (`FibShape.start`);
+  it goes with its levels and diagonal everywhere (`LevelsCmd`, the custom
+  rows, the sets saved).
 - Every shape but the text boxes has a `dash` (solid, dash, dot); lines,
   arrows, circles and rectangles a `label` with its `size` and
   `labelcolor`, placed by `labelrect` (lines and circles also by `valign`
