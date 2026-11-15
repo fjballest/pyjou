@@ -6,7 +6,6 @@ import html
 from datetime import date, timedelta
 import json
 import os
-import subprocess
 import sys
 
 from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
@@ -1492,15 +1491,8 @@ class MainWindow(QMainWindow):
 		self.show_(to)
 
 	def osview(self):
-		if self.current is None:
-			return
-		p = self.journal.path(self.current)
-		if sys.platform == "darwin":
-			subprocess.Popen(["open", p])
-		elif sys.platform.startswith("win"):
-			os.startfile(p)
-		else:
-			subprocess.Popen(["xdg-open", p])
+		if self.current is not None:
+			self.view.osview()	# with its drawings
 
 	# ---- notes ----
 	def noteschanged(self):

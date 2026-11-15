@@ -227,7 +227,9 @@ Searching, the arrows and the calendar move through the images listed.
 and **Zoom +**/**Zoom −** zoom. On a trackpad, a double tap with two
 fingers zooms in, zooms in again, and fits again, keeping the point tapped
 in place, and pinching zooms in and out. Drag to move around. **View ▸ Open
-in Preview** opens it with the system viewer.
+in Preview** opens it with the system viewer, with the drawings shown on
+it: a PNG at the image's size, made in a temporary folder (the image itself
+when nothing is drawn).
 
 The cursor is a crosshair: a dashed horizontal and vertical line through
 the mouse, across the whole image, so you can see the same level or time at
