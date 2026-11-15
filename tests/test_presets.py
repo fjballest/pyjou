@@ -35,6 +35,9 @@ img.save(os.path.join(d, "day261013.png"))
 ocrworker.ocrcommand = lambda: (sys.executable, ["-c", "import sys\nfor l in sys.stdin: pass"])
 warned = []
 QMessageBox.warning = staticmethod(lambda *a, **k: warned.append(a[2]))
+asked, answers = [], []	# the answers to give to the questions, No when none is left
+QMessageBox.question = staticmethod(lambda *a, **k: asked.append(a[2]) or
+	(answers.pop(0) if answers else QMessageBox.StandardButton.No))
 app = QApplication(sys.argv)
 w = mainwin.MainWindow(d)
 w.resize(1500, 950)
@@ -90,10 +93,25 @@ check(v.fiblevels == [0.5, 0.705] and bar.fibacts["Mine"].isChecked(), "picked a
 def taken(dl):
 	dl.namebox.setText("OTE")
 	dl.accept()
-	check(dl.isVisible() and warned and "OTE" in warned[-1], "a built-in name is refused")
+	check(dl.isVisible() and asked and "OTE" in asked[-1], "a name in the menu asks to replace it; No keeps the form")
+	dl.namebox.setText("Custom")
+	dl.accept()
+	check(dl.isVisible() and warned and "Custom" in warned[-1], "Custom is never a name")
 	dl.reject()
 later(taken)
 bar.setfib("Custom")
+def replaceote(dl):
+	for c, e in zip(dl.checks, dl.edits):
+		c.setChecked(e.text() in ("0.5", "0.79"))
+	dl.namebox.setText("OTE")
+	answers.append(QMessageBox.StandardButton.Yes)
+	dl.accept()
+later(replaceote)
+bar.setfib("Custom")
+check(bar.fibsets()["OTE"]["levels"] == [0.5, 0.79] and "OTE" not in drawbar.savedfibs(), "Yes replaces the built-in set")
+drawbar.setedited("fib", {})
+bar.mkfibmenu()
+bar.setfib("Mine")
 
 # a double click on a fib opens its levels, checked, and changes them
 from drawing import FibShape
@@ -230,7 +248,7 @@ def edit(dl):
 	dl.move(-1)
 	check(dl.names() == ["EQH", "PDL"], "moved up")
 	dl.list.item(0).setText("PDL")
-	check(dl.names() == ["EQH", "PDL"], "a name already there is refused")
+	check(dl.names() == ["EQH", "PDL"] and "PDL" in asked[-1], "a name already there asks; No keeps both")
 	dl.list.setCurrentRow(0)
 	dl.remove()
 	dl.accept()
@@ -238,6 +256,18 @@ later(edit)
 bar.editsaved("line")
 check(list(drawbar.savedshapes("line")) == ["PDL"] and "PDL" in menu("line") and "PDH" not in menu("line")
 	and "EQH" not in menu("line"), "renamed and removed")
+drawbar.saveshape("line", "EQH", {"color": "#000000", "width": 1.0, "dash": "dot"})
+bar.remakemenu("line")
+def replacing(dl):
+	dl.select("EQH")
+	answers.append(QMessageBox.StandardButton.Yes)
+	dl.list.currentItem().setText("PDL")
+	check(dl.names() == ["PDL"], "Yes replaces the one with that name")
+	dl.accept()
+later(replacing)
+bar.editsaved("line")
+check(drawbar.savedshapes("line")["PDL"]["dash"] == "dot" and "EQH" not in menu("line"), "the renamed one kept under it")
+drawbar.saveshape("line", "PDL", {"color": "#000000", "width": 2.0, "dash": "solid", "label": "PDH"})
 # Edit… changes a saved one with its form
 def editline(dl):
 	dl.list.setCurrentRow(0)
