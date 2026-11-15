@@ -72,6 +72,9 @@ capture and asks for its date:
   the same way; you can still change the box afterwards.
 - **Saved as** shows the name it gets: the first capture of a day is
   `day261014.png`, and the next ones `day261014b.png`, `day261014c.png`...
+  A name left free by a capture you removed is used again before a new
+  letter: with `day261014.png` and `day261014c.png` there, the next one is
+  `day261014b.png`.
   Nothing already in the journal is replaced, unless you check the box
   below.
 - **Replace** (unchecked at first, and only there when the day or week

@@ -173,7 +173,7 @@ n = w.journal.find("day261021.png")
 check(n is not None and w.journal.find(day) is None and n.notes == "moved notes" and w.current is n, "moved to that day, with its notes, and shown")
 check(w.calendar.selectedDate() == QDate(2026, 10, 21), "the calendar shows its day")
 check(drop("day261021.png", date(2026, 10, 14)) and w.journal.find("day261021.png") is None
-	and w.current.name.startswith("day261014") and w.current.name != "day261014.png", "to a day with captures: the next name")
+	and w.current.name == "day261014.png", "to a day with captures: its free name, there only b is in use")
 wk = next((x.name for x in w.journal.entries if x.week), None)
 if wk:
 	check(drop(wk, date(2026, 10, 29)) and w.current.name == "day261025weekprof.png", "a week profile goes to the Sunday before")

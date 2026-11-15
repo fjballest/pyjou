@@ -162,8 +162,8 @@ don't change. `Journal.rename` moves the image, its `.txt` and `.drw`
 files and its cache entry, refusing to replace any file.
 
 `Journal.newname` gives the name: the plain one for the first capture of a
-day (or week profile), then the letter after the last one there, counting
-the plain one as `a`. `savecapture` copies through a temporary file, or
+day (or week profile), then the first letter not in use there, counting
+the plain one as `a`, so a removed capture's slot is used again. `savecapture` copies through a temporary file, or
 converts to PNG with `QImage`, and never replaces a file. The OCR results
 are stored in the tags cache for the new name, so it is not read again.
 

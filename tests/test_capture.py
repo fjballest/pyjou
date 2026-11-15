@@ -85,6 +85,17 @@ check(j.newname(date(2026, 10, 11), True) == "day261011weekprofb.png", "second w
 mkimage(os.path.join(jd, "day261014b.png"), date(2026, 10, 14))
 j.load()
 check(j.newname(date(2026, 10, 14)) == "day261014c.png", "third of a day")
+mkimage(os.path.join(jd, "day261014d.png"), date(2026, 10, 14))
+os.remove(os.path.join(jd, "day261014b.png"))
+j.load()
+check(j.newname(date(2026, 10, 14)) == "day261014b.png", "a removed one's letter is used again")
+os.remove(os.path.join(jd, "day261014.png"))
+j.load()
+check(j.newname(date(2026, 10, 14)) == "day261014.png", "and the plain name too")
+for n in ("day261014.png", "day261014b.png"):
+	mkimage(os.path.join(jd, n), date(2026, 10, 14))
+os.remove(os.path.join(jd, "day261014d.png"))
+j.load()
 
 # the window: a capture dropped is added after the dialog
 ocrworker.ocrcommand = lambda: (sys.executable, ["-c",
@@ -185,7 +196,7 @@ w.journal.savenotes(w.journal.find("day261014c.png"), "old notes")
 w.journal.savedrawing(w.journal.find("day261014c.png"), {"version": 1, "shapes": [{"kind": "text", "pos": [1, 1], "text": "x", "color": "#000000", "size": 9}]})
 dl = capture.CaptureDialog(w.journal, new)
 dl.dateedit.setDate(QDate(2026, 10, 14))
-check(not dl.replacebox.isChecked() and dl.replacebox.isEnabled() and dl.name() == "day261014d.png", "replacing is off by default")
+check(not dl.replacebox.isChecked() and dl.replacebox.isEnabled() and dl.name() == "day261014b.png", "replacing is off by default")
 check(dl.replacebox.text() == "Replace the 2 captures there", "says what it replaces")
 dl.replacebox.setChecked(True)
 check(dl.name() == "day261014.png" and [x.name for x in dl.replaced()] == ["day261014.png", "day261014c.png"], "replacing takes the plain name")
