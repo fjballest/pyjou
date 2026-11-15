@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication
 import drawbar
 import journal
 import mainwin
+import viewer
 import ocrworker
 import sandbox
 from drawing import CircleShape, LineShape, PencilShape, TextShape
@@ -202,6 +203,50 @@ QTest.qWaitForWindowActive(w)	# the form took it
 check(not hl.extend and hl.drawn() == hl.line(), "the line form turns it off")
 v.undo.undo()
 check(hl.extend, "undo turns it on again")
+# a label at an end of a line extended: the line stops before it
+hl.setprops({"label": "PDH", "align": "left"})
+lr = hl.mapRectToScene(hl.labelrect())
+e = hl.drawn()
+check(abs(lr.left() - sr.left()) < 0.1 and abs(lr.center().y() - 200) < 0.1, "Left: the label at the left edge, across the line")
+check(min(hl.mapToScene(e.p1()).x(), hl.mapToScene(e.p2()).x()) > lr.right()
+	and abs(max(hl.mapToScene(e.p1()).x(), hl.mapToScene(e.p2()).x()) - sr.right()) < 0.1, "the line starts after it")
+hl.setprops({"align": "right"})
+lr = hl.mapRectToScene(hl.labelrect())
+check(abs(lr.right() - sr.right()) < 0.1 and max(hl.mapToScene(hl.drawn().p1()).x(), hl.mapToScene(hl.drawn().p2()).x()) < lr.left(),
+	"Right: at the right edge, the line stopping before it")
+vl.setprops({"label": "open", "align": "right"})
+lr = vl.mapRectToScene(vl.labelrect())
+check(abs(lr.bottom() - sr.bottom()) < 0.1 and max(vl.mapToScene(vl.drawn().p1()).y(), vl.mapToScene(vl.drawn().p2()).y()) < lr.top(),
+	"a vertical line: Right puts it at the bottom")
+vl.edit = v.editshape
+names = []
+QTimer.singleShot(100, lambda: (names.extend(v.shapedlg.align.itemText(i) for i in range(3)), v.shapedlg.reject()))
+v.editshape(vl)
+w.activateWindow()
+QTest.qWaitForWindowActive(w)
+check(names == ["Center", "Top", "Bottom"], "its form says Top and Bottom")
+hl.setprops({"align": "center"})
+check(hl.mapRectToScene(hl.labelrect()).center().x() == 500, "Center: in the middle of its points, as before")
+# drawings selected are copied with the copy key and pasted under the mouse
+v.scene().clearSelection()
+hl.setSelected(True)
+n = len(v.shapes())
+old = set(v.shapes())
+v.setFocus()
+QTest.keyClick(vp, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+md = QApplication.clipboard().mimeData()
+check(md.hasFormat(viewer.DRAWMIME), "copied")
+at = QPointF(700, 600)
+check(v.pastedrawings(at) and len(v.shapes()) == n + 1, "pasted")
+new = (set(v.shapes()) - old).pop()
+check(new.isSelected() and not hl.isSelected() and new.extend and new.label == "PDH"
+	and abs(new.mapToScene(new.line().center()).y() - 600) < 25, "a copy, selected, where the mouse is")
+v.undo.undo()
+check(len(v.shapes()) == n, "undo the paste")
+QTest.keyClick(vp, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+check(len(v.shapes()) == n + 1, "the paste key pastes")
+v.undo.undo()
+QApplication.clipboard().clear()
 v.scene().removeItem(hl); v.scene().removeItem(vl)
 # a click on the image deselects; drag on it pans, not moves
 QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(1000, 700))

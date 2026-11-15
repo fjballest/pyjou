@@ -308,7 +308,14 @@ in the list menu and Edit menu), puts it on the clipboard.
 - An extended line (`LineShape.extend`, lines only) keeps its two points;
   `drawn()` is the line clipped to the image (in item coordinates), used to
   paint it, pick it and bound it, and it sends geometry changes so a move
-  updates its bounds.
+  updates its bounds. With a label and `align` left or right (`endlabel`),
+  `endlabelrect` puts it at that end (top or bottom when `vertical`) and
+  `drawn` clips the line short of it.
+- `ImageView.copydrawings` puts the `todict` of the drawings selected on
+  the clipboard as `DRAWMIME`; `pastedrawings` adds them with `fromdict`,
+  centered under the mouse, as one undo macro. `event` takes the copy and
+  paste `ShortcutOverride` first when there is something to copy or paste,
+  so the window's shortcuts don't get them.
 - Sets saved by name: the custom fib levels (`FibDialog`'s Name, `savefib`,
   `savedfibs`) and the look of rectangles, lines, arrows and circles (the
   Save as field `namerow` adds to `RectDialog` and `ShapeDialog`; the view
