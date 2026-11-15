@@ -4,10 +4,15 @@
 #
 # builds dist/DayJournal.app on macOS (and dist/dj elsewhere)
 
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
 a = Analysis(
     ['dj.py'],
     pathex=['.'],
-    binaries=[],
+    # torchvision loads _C_stable.so (nms, needed by easyocr) at run time,
+    # so PyInstaller does not find it by itself; on macOS the default
+    # patterns would only match *.dylib
+    binaries=collect_dynamic_libs('torchvision', search_patterns=['*.dylib', '*.so']),
     datas=[],
     hiddenimports=[],
     hookspath=[],
