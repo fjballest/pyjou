@@ -27,6 +27,7 @@ from search import Search
 from drawbar import DrawBar
 from viewer import ImageView
 from winlayout import windowmenu
+from version import VERSION
 
 RECENTMAX = 10
 CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
@@ -1624,7 +1625,8 @@ class MainWindow(QMainWindow):
 	def about(self):
 		QMessageBox.about(self, "About DayJournal",
 			"<b>DayJournal</b><p>Browse the day and week chart snapshots of a journal, "
-			"search them by the words read from each image, and keep notes for each one.</p>")
+			"search them by the words read from each image, and keep notes for each one.</p>"
+			f"<p>Version {VERSION}</p>")
 
 	def closeEvent(self, ev):
 		self.savenotes()

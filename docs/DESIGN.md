@@ -411,6 +411,10 @@ it, to tune `tags.py`.
 GitHub for the three systems. The OCR models are not bundled: easyocr keeps
 them in `~/.EasyOCR` and downloads them the first time.
 
+`version.py` holds the version that About shows; the release workflow
+writes the tag it builds there. Fixes bump the third number (2.0.1), new
+features the second (2.1).
+
 The PDFs next to these documents are made with `docs/mkpdf.sh`.
 
 ## Where to change things
