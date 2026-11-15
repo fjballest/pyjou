@@ -17,6 +17,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 import drawbar
+import drawing
 import mainwin
 import ocrworker
 import sandbox
@@ -253,7 +254,8 @@ bar.editsaved("line")
 pdl = drawbar.savedshapes("line")["PDL"]
 check(pdl["dash"] == "dot" and pdl["extend"] is True and pdl["label"] == "PDH", "the saved line changed, its label kept")
 def editfiblevels(dl):
-	dl.list.setCurrentRow(0)
+	check(dl.list.item(0).text() == "OTE (built-in)" and dl.names() == ["Mine"], "the built-in sets listed first, then the saved")
+	dl.select("Mine")
 	def form(f):
 		check(not f.namerow.isVisibleTo(f) and [e.text() for c, e in zip(f.checks, f.edits) if c.isChecked()] == ["0.5", "0.705"],
 			"the fib form with its levels, without a name")
@@ -276,6 +278,75 @@ later(editfibs)
 bar.editsaved("fib")
 check(drawbar.savedfibs() == {} and not any(t.startswith("Mine") for t in menu("fib")) and bar.fibname == "OTE",
 	"the fib levels removed; back to OTE")
+
+# the width and style of a saved fib, and editing a built-in set and look
+drawbar.savefib("Mine", [0, 0.5, 1], False)
+bar.mkfibmenu()
+def fibwidth(dl):
+	dl.select("Mine")
+	def form(f):
+		check(f.width is not None and f.dash is not None, "the saved fib's form has Width and Style")
+		f.width.setCurrentIndex(f.width.findData(3.0))
+		f.dash.setCurrentIndex(f.dash.findData("dash"))
+		f.accept()
+	later(form)
+	dl.edit()
+	dl.accept()
+later(fibwidth)
+bar.editsaved("fib")
+check(drawbar.savedfibs()["Mine"].get("width") == 3.0 and drawbar.savedfibs()["Mine"].get("dash") == "dash",
+	"a saved fib keeps its width and style")
+bar.setfib("Mine")
+w.toolacts["fib"].trigger()
+before = set(v.shapes())
+drag(QPoint(300, 300), QPoint(400, 400))
+QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(600, 400))
+QTest.qWait(QApplication.doubleClickInterval() + 100)
+nf = [s for s in v.shapes() if s not in before and isinstance(s, FibShape)]
+check(len(nf) == 1 and nf[0].width == 3.0 and nf[0].dash == "dash", "fibs drawn with it have them")
+v.scene().removeItem(nf[0])
+def editote(dl):
+	dl.select("OTE")
+	def form(f):
+		for c, e in zip(f.checks, f.edits):
+			if e.text() == "0.5":
+				c.setChecked(False)
+		f.accept()
+	later(form)
+	dl.edit()
+	dl.accept()
+later(editote)
+bar.editsaved("fib")
+check(bar.fibsets()["OTE"]["levels"] == [0.62, 0.705, 0.79] and any(t.startswith("OTE: 0.62") for t in menu("fib")),
+	"a built-in fib set edited")
+def resetote(dl):
+	dl.select("OTE")
+	dl.remove()
+	check(dl.list.count() == len(drawing.FIBSETS) + 1, "Remove does not take a built-in one out")
+	dl.accept()
+later(resetote)
+bar.editsaved("fib")
+check(bar.fibsets()["OTE"]["levels"] == list(drawing.FIBSETS["OTE"]), "and Remove puts it back as it came")
+def editfvg(dl):
+	dl.select("FVG")
+	def form(f):
+		f.label.setText("GAP")
+		f.accept()
+	later(form)
+	dl.edit()
+	dl.accept()
+later(editfvg)
+bar.editsaved("rect")
+check(bar.shapesets("rect")["FVG"]["label"] == "GAP" and drawing.RECTSETS["FVG"]["label"] == "FVG", "a built-in rectangle look edited")
+bar.setshape("rect", "FVG")
+check(v.rectpreset["label"] == "GAP", "and drawn as edited")
+drawbar.setedited("rect", {})
+drawbar.setedited("fib", {})
+drawbar.setsaved("fib", {})
+bar.mkfibmenu()
+bar.remakemenu("rect")
+bar.setshape("rect", "Plain")
+bar.setfib("OTE")
 # From 2: the fib lines start at the second point
 from drawing import fromdict
 from PySide6.QtCore import QRectF
