@@ -44,6 +44,8 @@ QTest.qWaitForWindowExposed(w)
 v = w.view
 vp = v.viewport()
 check(w.current.name == "day261013.png" and v.hasimage(), "image shown")
+mark = lambda: w.items["day261013.png"].text(0).endswith("✎")
+check(not mark(), "no mark without notes or drawings")
 
 def drag(a, b):
 	QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, a)
@@ -157,6 +159,7 @@ br = v.mapFromScene(circle.handles()[2])
 drag(br, br + QPoint(50, 30))
 r1 = circle.mapRectToScene(circle.rect())
 check(abs(r1.topLeft().x() - r0.topLeft().x()) < 0.1 and r1.width() > r0.width() + 30, "a corner of the circle resizes it")
+check(mark(), "drawings put the mark in the list")
 v.undo.undo()
 v.scene().clearSelection()
 # a rectangle: the middle of a side moves just that side; shift keeps a corner level or plumb

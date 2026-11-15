@@ -410,5 +410,5 @@ The words in the text boxes and labels are found by the search, as the notes are
 
 Write under the image. Notes are saved as you type, in a file with the
 image's name and a `.txt` extension (`day261014.txt`). Emptying the notes
-removes the file. Images with notes have a ✎ in the list, and their notes
-show in its tooltip.
+removes the file. Images with notes or drawings have a ✎ in the list, and
+their notes show in its tooltip.

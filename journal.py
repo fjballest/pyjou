@@ -34,6 +34,7 @@ class Entry:
 	tags: list[str] = field(default_factory=list)
 	notes: str = ""
 	drawtext: str = ""	# what is written in its text boxes
+	drawn: bool = False	# something is drawn on it
 
 	def base(self):
 		return os.path.splitext(self.name)[0]
@@ -72,6 +73,11 @@ def drawtext(data):
 	return " ".join(str(s.get("text") or s.get("label") or "") for s in (data or {}).get("shapes", [])
 		if isinstance(s, dict) and s.get("kind") in ("text", "rect", "line", "arrow", "circle"))
 
+def setdrawing(e, data):
+	"""note in e what its drawing data has: its words, and whether it has any"""
+	e.drawtext = drawtext(data)
+	e.drawn = bool((data or {}).get("shapes"))
+
 def parsename(name):
 	"""the Entry for a file name, or None when it isn't a journal image"""
 	m = NAMERE.match(name)
@@ -107,7 +113,7 @@ class Journal:
 			if e is None:
 				continue
 			e.notes = self.readnotes(e)
-			e.drawtext = drawtext(self.readdrawing(e))
+			setdrawing(e, self.readdrawing(e))
 			e.tags = self.tagsof(e)
 			entries.append(e)
 		entries.sort(key=Entry.sortkey)
@@ -317,7 +323,7 @@ class Journal:
 			with open(tmp, "w", encoding="utf-8") as f:
 				json.dump(data, f, ensure_ascii=False, indent=1)
 			os.replace(tmp, p)
-		e.drawtext = drawtext(data)
+		setdrawing(e, data)
 
 	# ---- tags ----
 	def loadcache(self):

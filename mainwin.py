@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture, weekname
-from journal import Journal, defaultjournals, drawtext, groupkeys, tradedir, weekno
+from journal import Journal, defaultjournals, setdrawing, groupkeys, tradedir, weekno
 from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
@@ -566,7 +566,8 @@ class MainWindow(QMainWindow):
 			self.pending.pop(e.name, None)	# back as saved
 		else:
 			self.pending[e.name] = data
-		e.drawtext = drawtext(data)
+		setdrawing(e, data)
+		self.refreshitem(e)
 		self.updatetitle()
 
 	def drawingof(self, e):
@@ -1089,7 +1090,7 @@ class MainWindow(QMainWindow):
 		for name, data in self.pending.items():
 			e = self.journal.find(name)
 			if e is not None:
-				e.drawtext = drawtext(data)
+				setdrawing(e, data)
 		self.current = self.journal.find(cur) if cur else None
 		self.applysearch()
 		e = self.current
@@ -1255,7 +1256,7 @@ class MainWindow(QMainWindow):
 			s = "Week profile"
 		else:
 			s = e.day.strftime("%a %d") + e.extra	# Tue 26, Tue 26b
-		return s + ("  ✎" if e.notes.strip() else "")
+		return s + ("  ✎" if e.notes.strip() or e.drawn else "")	# notes or drawings
 
 	@staticmethod
 	def itemtip(e):
@@ -1511,11 +1512,15 @@ class MainWindow(QMainWindow):
 		except OSError as x:
 			self.statusBar().showMessage(f"Can't save the notes: {x}", 5000)
 			return
+		self.refreshitem(e)
+		self.statusBar().showMessage("Notes saved", 1500)
+
+	def refreshitem(self, e):
+		"""show e's mark in the list as it is now"""
 		it = self.items.get(e.name)
 		if it is not None:
 			it.setText(0, self.itemtext(e))
 			it.setToolTip(0, self.itemtip(e))
-		self.statusBar().showMessage("Notes saved", 1500)
 
 	# ---- tags ----
 	def startocr(self, entries=None):
