@@ -148,6 +148,57 @@ class Journal:
 			self.savecache()
 		self.load()
 
+	def reorder(self, names):
+		"""rename the captures of one day (or week profile), named in the order
+		wanted, to the plain name, then b, c..., with their notes, drawings and
+		tags, so they are listed in that order. names are all its captures.
+		The old name -> new name of each; OSError if it can't be done."""
+		es = [self.find(n) for n in names]
+		if not es or None in es:
+			raise OSError("a capture is not there any more")
+		d, week = es[0].day, es[0].week
+		if {e.name for e in self.capturesof(d, week)} != set(names) or len(set(names)) != len(names):
+			raise OSError("not all the captures of that day")
+		if len(names) > 26:
+			raise OSError("too many captures for one day")
+		new = {e.name: capturename(d, week, "" if i == 0 else "abcdefghijklmnopqrstuvwxyz"[i])
+			for i, e in enumerate(es)}
+		files = []	# (old file, its temporary name, new file)
+		for e in es:
+			if new[e.name] == e.name:
+				continue
+			n = parsename(new[e.name])
+			for a, b in ((e.name, n.name), (e.notesname(), n.notesname()), (e.drawname(), n.drawname())):
+				if os.path.exists(os.path.join(self.dir, a)):
+					files.append((a, a + ".reorder", b))
+		ours = {a for a, _, _ in files}
+		for a, t, b in files:
+			if os.path.exists(os.path.join(self.dir, t)) or (os.path.exists(os.path.join(self.dir, b)) and b not in ours):
+				raise OSError(f"{b if b not in ours else t} is already there")
+		p = lambda n: os.path.join(self.dir, n)
+		attemp, atnew = [], []	# what was renamed, to put it back if one fails
+		try:
+			for a, t, _ in files:
+				os.rename(p(a), p(t))
+				attemp.append((a, t))
+			for a, t, b in files:
+				os.rename(p(t), p(b))
+				atnew.append((t, b))
+		except OSError:
+			for t, b in atnew:
+				os.rename(p(b), p(t))
+			for a, t in attemp:
+				os.rename(p(t), p(a))
+			self.load()
+			raise
+		cached = {a: self.cache.pop(a) for a in new if a != new[a] and a in self.cache}
+		for a, c in cached.items():
+			self.cache[new[a]] = c
+		if cached:
+			self.savecache()
+		self.load()
+		return new
+
 	def capturesof(self, d, week=False):
 		"""the captures of day d (or the week profiles dated d)"""
 		return [x for x in self.entries if x.day == d and x.week == week]

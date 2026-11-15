@@ -188,6 +188,17 @@ drop calls `movetodate`, which renames it like Change Date does
 drags, so dropping one elsewhere doesn't add it again; other windows and
 programs take the file URL.
 
+The list also takes its own drags: `CaptureList.droporder` finds the
+capture under the pointer and, when it is of the same day and kind, the
+order the day's captures get with the one dragged before or after it (by
+the half of the row), drawing a line there (`dropline`, in `paintEvent`).
+The drop calls `MainWindow.reorder`, and `Journal.reorder(names)` renames
+them all to the plain name, b, c... in that order, through temporary
+`.reorder` names so none is overwritten (and puts them back if a rename
+fails), moving their OCR cache too. Drawings not saved and the selection
+follow the new names; a clipboard naming a renamed one is cleared. Other
+drags on the list (image files) go to the window, which adds them.
+
 `MainWindow.deletecapture` (Del in the list, the context menu, Edit) asks
 unless the `askdelete` setting is false, then `Journal.delete(entry)`
 removes the image, `.txt`, `.drw` and cache entry; `forget` drops its

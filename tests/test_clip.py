@@ -182,6 +182,49 @@ check(w.owndrag(md) is w.current, "the window knows its own drags")
 en = QDragEnterEvent(QPointF(5, 5).toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
 w.dragEnterEvent(en)
 check(not en.isAccepted(), "dropping it on the window does nothing")
+
+# dropping a capture before or after another of its day reorders them, renaming them
+from PySide6.QtGui import QDragMoveEvent
+jd = w.journal.dir
+for n, t in (("day261030.png", "one"), ("day261030c.png", "two"), ("day261030d.png", "three")):
+	mkimage(jd, n)
+	w.journal.savenotes(journal.parsename(n), t)
+with open(os.path.join(jd, "day261030d" + journal.DRAWEXT), "w") as f:
+	json.dump({"shapes": [{"kind": "text", "text": "drawn on three"}]}, f)
+w.reload()
+w.reveal(w.journal.find("day261030d.png"))
+def listdrop(src, dst, after=False):
+	"""drop capture src on the list, before or after capture dst"""
+	md = w.dragdata(w.items[src])
+	it = w.items[dst]
+	w.list.scrollToItem(it)
+	r = w.list.visualItemRect(it)
+	p = QPointF(r.center().x(), r.bottom() - 2 if after else r.top() + 2)
+	vp = w.list.viewport()
+	QApplication.sendEvent(vp, QDragEnterEvent(p.toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+	mv = QDragMoveEvent(p.toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+	QApplication.sendEvent(vp, mv)
+	if not mv.isAccepted():
+		return False
+	QApplication.sendEvent(vp, QDropEvent(p, Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+	QTest.qWait(50)
+	return True
+def notesof(day):
+	return [x.notes for x in w.journal.capturesof(day)]
+oct30 = date(2026, 10, 30)
+check(listdrop("day261030d.png", "day261030.png"), "a capture can be dropped before another of its day")
+check([x.name for x in w.journal.capturesof(oct30)] == ["day261030.png", "day261030b.png", "day261030c.png"]
+	and notesof(oct30) == ["three", "one", "two"], "renamed to keep the new order, with no letters left out")
+check(w.journal.readdrawing(w.journal.find("day261030.png"))["shapes"][0]["text"] == "drawn on three"
+	and not os.path.exists(os.path.join(jd, "day261030d" + journal.DRAWEXT)), "its drawing goes with it")
+check(w.current.name == "day261030.png" and w.current.notes == "three", "the one moved is shown")
+check(listdrop("day261030.png", "day261030c.png", after=True) and notesof(oct30) == ["one", "two", "three"], "or after another")
+check(not listdrop("day261030.png", "day261030.png") and not listdrop("day261030.png", "day261030b.png"),
+	"where it is already: nothing to do")
+other = next(x.name for x in w.journal.entries if x.day != oct30 and not x.week)
+check(not listdrop("day261030.png", other), "not among the captures of another day")
+check(not [n for n in os.listdir(jd) if n.endswith(".reorder")], "no files left behind")
+
 w.close()
 QApplication.clipboard().clear()	# a clipboard left set crashes Qt at exit
 print("ALL OK")

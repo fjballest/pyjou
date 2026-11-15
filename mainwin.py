@@ -84,12 +84,16 @@ DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
 
 class CaptureList(QTreeWidget):
 	"""the list; its captures can be dragged, to a day of the calendar to
-	move them there, or to another program or window as image files"""
+	move them there, before or after another capture of their day to
+	reorder them, or to another program or window as image files"""
 	def __init__(self, win):
 		super().__init__()
 		self.win = win
+		self.dropline = None	# where a capture dropped goes, as a y of the viewport
 		self.setDragEnabled(True)
-		self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+		self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+		self.setAcceptDrops(True)
+		self.viewport().setAcceptDrops(True)
 
 	def startDrag(self, actions):
 		md = self.win.dragdata(self.currentItem())
@@ -98,6 +102,77 @@ class CaptureList(QTreeWidget):
 		drag = QDrag(self)
 		drag.setMimeData(md)
 		drag.exec(Qt.DropAction.CopyAction | Qt.DropAction.MoveAction, Qt.DropAction.CopyAction)
+
+	def droporder(self, md, pos):
+		"""the names of the captures of its day in the order they get when
+		capture md is dropped at pos, and the y where it goes; None when it
+		goes nowhere, or stays where it is"""
+		e = self.win.owndrag(md)
+		it = self.itemAt(pos)
+		name = it.data(0, Qt.ItemDataRole.UserRole) if it is not None else None
+		t = self.win.journal.find(name) if e is not None and name else None
+		if t is None or t.day != e.day or t.week != e.week:
+			return None
+		r = self.visualItemRect(it)
+		after = pos.y() >= r.center().y()
+		old = [x.name for x in self.win.journal.capturesof(e.day, e.week)]
+		order = [n for n in old if n != e.name]
+		if t.name != e.name:
+			order.insert(order.index(t.name) + after, e.name)
+		else:
+			order = old
+		if order == old:
+			return None
+		return order, r.bottom() + 1 if after else r.top()
+
+	def dragEnterEvent(self, ev):
+		if self.win.owndrag(ev.mimeData()) is None:
+			self.win.dragEnterEvent(ev)	# images from elsewhere are added
+			return
+		ev.setDropAction(Qt.DropAction.MoveAction)
+		ev.accept()	# it may come to a capture of its day
+
+	def dragMoveEvent(self, ev):
+		if self.win.owndrag(ev.mimeData()) is None:
+			self.win.dragMoveEvent(ev)
+			return
+		o = self.droporder(ev.mimeData(), ev.position().toPoint())
+		self.setdropline(o[1] if o else None)
+		if o is None:
+			ev.ignore()
+			return
+		ev.setDropAction(Qt.DropAction.MoveAction)
+		ev.accept()
+
+	def dragLeaveEvent(self, ev):
+		self.setdropline(None)
+
+	def dropEvent(self, ev):
+		self.setdropline(None)
+		if self.win.owndrag(ev.mimeData()) is None:
+			self.win.dropEvent(ev)
+			return
+		o = self.droporder(ev.mimeData(), ev.position().toPoint())
+		if o is None:
+			ev.ignore()
+			return
+		ev.setDropAction(Qt.DropAction.MoveAction)
+		ev.accept()
+		e = self.win.owndrag(ev.mimeData())
+		QTimer.singleShot(0, lambda: self.win.reorder(o[0], e.name))	# after the drop is over
+
+	def setdropline(self, y):
+		if y != self.dropline:
+			self.dropline = y
+			self.viewport().update()
+
+	def paintEvent(self, ev):
+		super().paintEvent(ev)
+		if self.dropline is not None:
+			p = QPainter(self.viewport())
+			p.setPen(QPen(self.palette().color(QPalette.ColorRole.Highlight), 2))
+			p.drawLine(0, self.dropline, self.viewport().width(), self.dropline)
+			p.end()
 
 def calendardate(cal, pos):
 	"""the date of the calendar cell at pos of its view's viewport, or None"""
@@ -619,6 +694,31 @@ class MainWindow(QMainWindow):
 			self.showcalendarday()
 			return
 		self.renamecapture(e, name, "Move")
+
+	def reorder(self, names, moved=None):
+		"""rename the captures of a day so they go in the order of names,
+		showing the one moved"""
+		self.savenotes()
+		self.view.commitedit()
+		self.journal.load()
+		try:
+			new = self.journal.reorder(names)
+		except OSError as x:
+			QMessageBox.warning(self, "Reorder", f"Can't reorder: {x}")
+			self.reload()
+			return
+		pend = {a: self.pending.pop(a) for a in new if a in self.pending}
+		for a, v in pend.items():
+			self.pending[new[a]] = v
+		c = self.clipped()
+		if c and c["name"] in new and new[c["name"]] != c["name"] \
+				and os.path.realpath(c["dir"]) == os.path.realpath(self.journal.dir):
+			QApplication.clipboard().clear()	# it names one that has another name now
+		self.statusBar().showMessage("Reordered " + ", ".join(f"{a} → {b}" for a, b in new.items() if a != b), 4000)
+		show = new.get(moved or names[0])
+		self.current = None	# its notes were saved; don't save the ones shown into it
+		self.applysearch()
+		self.reveal(self.journal.find(show), force=True)
 
 	def dragEnterEvent(self, ev):
 		if self.owndrag(ev.mimeData()) is not None:

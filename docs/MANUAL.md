@@ -179,6 +179,13 @@ profile dropped on any day goes to the week of that day, named on the
 Sunday before it. Dragging an image to the Finder or to another DayJournal
 window copies it there.
 
+To change the order of the images of a day (or of the week profiles of a
+week), drag one in the list and drop it before or after another of the same
+day: a line shows where it goes. The images of that day are renamed, with
+their notes, drawings and tags, to keep the new order with the usual names:
+the first `day261014.png`, then `day261014b.png`, `day261014c.png`... with
+no letters left out.
+
 Right click an image in the list for **Cut**, **Copy** and **Paste**
 (⌘X, ⌘C and ⌘V work too while the list has the focus). Copy an image, open
 another journal (or keep this one) and paste: the image is copied there with
