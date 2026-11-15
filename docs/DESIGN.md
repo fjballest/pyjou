@@ -294,7 +294,8 @@ in the list menu and Edit menu), puts it on the clipboard.
   work.
 - Each change is a `QUndoCommand` on the view's `QUndoStack`: `AddCmd`,
   `DeleteCmd`, `MoveCmd` (made on release from the positions at the press),
-  `GeomCmd` (a reshape: the shapes but pencil and text have `handles()`, in
+  `GeomCmd` (a reshape: boxes have their corners and then the middle of
+  their sides, `reshaped`; the shapes but pencil and text have `handles()`, in
   scene points, `geom()`/`setgeom()` and `movehandle(i, p, start)`; the view
   draws the handles of the items selected in `drawForeground`, in pixels,
   `handleat` finds the one pressed, and `reshaping` holds it while dragged),
@@ -304,6 +305,10 @@ in the list menu and Edit menu), puts it on the clipboard.
   `drawing.RECTSETS`, picked in the Rect menu of `DrawBar` and kept in
   `ImageView.rectpreset` for the next rectangles). Commands made after the fact (the shape is
   already drawn) skip their first `redo`.
+- An extended line (`LineShape.extend`, lines only) keeps its two points;
+  `drawn()` is the line clipped to the image (in item coordinates), used to
+  paint it, pick it and bound it, and it sends geometry changes so a move
+  updates its bounds.
 - Sets saved by name: the custom fib levels (`FibDialog`'s Name, `savefib`,
   `savedfibs`) and the look of rectangles, lines, arrows and circles (the
   Save as field `namerow` adds to `RectDialog` and `ShapeDialog`; the view

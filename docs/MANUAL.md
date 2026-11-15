@@ -265,6 +265,10 @@ color**. The label goes **Above**, **Center** (across it; the line stops
 around the label) or **Below**, and **Left** (at its left end), **Center**
 (in its middle) or **Right**. For lines and arrows, **Right** puts the label
 past the right end of the line, kept inside the image.
+A line (not an arrow) also has **Extend across the image**: a horizontal
+line then goes from the left edge to the right one, a vertical one from top
+to bottom, and any other to where it meets the edges. Its ends stay where
+they were, for its label and handles.
 
 **Rect** draws a rectangle, just its border at first. Double click its
 border (anywhere on it once filled) to set:
@@ -335,10 +339,12 @@ where it suits you. Click **⧉** again, or close the bar, to put it back.
 **Select** (the usual tool) clicks a drawing to select it, drags it to move
 it, and Del or **Delete** removes the ones selected. Shift-click selects
 more than one. A drawing selected shows small squares (handles) where it can
-be reshaped: the two ends of a line or arrow, the corners of a rectangle or
-circle, and the two points and the right end of a fib. Drag one to move just
-that point (with shift a line's end stays level or plumb with the other);
-**Undo** puts it back. Double click a text box to change its text; emptying it
+be reshaped: the two ends of a line or arrow, the corners and the middle of
+the sides of a rectangle or circle, and the two points and the right end of
+a fib. Drag one to move just that point: a side's handle moves only that
+side (the right one widens a box keeping its top and bottom). With shift, a
+line's end stays level or plumb with the other, and a corner moves only
+across or only up and down, as the mouse goes most. **Undo** puts it back. Double click a text box to change its text; emptying it
 removes it. Dragging the image itself moves around it, as before.
 
 The color button, the width list, the line style list (solid, dashed,
