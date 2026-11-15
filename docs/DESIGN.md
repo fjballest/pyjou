@@ -266,8 +266,11 @@ The crosshair is `ImageView.cross`, the scene point under the mouse
 a button down or while a text is edited); mouse moves, scrolls and zooms set
 it, `drawForeground` draws the two lines across `sceneRect` with a cosmetic
 white pen in difference mode, so they show on any chart, and `setcross`
-repaints only the strips they cover. X or `DrawBar`'s **Cross** button call
-`setcrosshair`, kept as `crosshair` in `QSettings("fjballest", "drawing")`.
+repaints only the strips they cover. `DrawBar` turns it on for good
+(`setcrosshair(True)`). Its **Hide** button (H) calls `togglehidden`:
+`setdrawingsshown` sets `hidden` and the items' visibility, `additem` and
+undos keep new ones hidden too, and drawing or pasting shows them again;
+`hiddenchanged` makes the button say Show or Hide.
 `renderimage` renders the scene (image and drawings, without the selection)
 at the image's size; `copyimage`, `DrawBar`'s **Copy** (⇧⌘C, and Copy Image
 in the list menu and Edit menu), puts it on the clipboard.

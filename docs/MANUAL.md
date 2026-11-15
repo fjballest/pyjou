@@ -232,10 +232,13 @@ in Preview** opens it with the system viewer.
 The cursor is a crosshair: a dashed horizontal and vertical line through
 the mouse, across the whole image, so you can see the same level or time at
 other places of the chart. It hides while you draw, drag the image or write
-a text, and comes back when you move the mouse again. **Cross** on the
-drawing bar (or X with the image focused) turns it off and on, for
-DayJournal and RoadBook alike; with it off, the cursor is the hand again
-when dragging the image.
+a text, and comes back when you move the mouse again. It is always on.
+
+**Hide** on the drawing bar (or H with the image focused) hides all the
+drawings, to see the image as it is; the button then says **Show**, and
+pressing it (or H) brings them back. Hidden drawings are kept and saved, and
+stay hidden as you go to other images, until you show them, draw something
+new or paste drawings.
 
 **Copy** on the drawing bar (⇧⌘C, **Edit ▸ Copy Image**, or **Copy Image**
 when you right click an image in the list) copies the image with its
