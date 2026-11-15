@@ -110,6 +110,7 @@ def fiblevels(dl):
 		if e.text() == "0.705":
 			c.setChecked(True)
 	dl.diagbox.setChecked(True)
+	seen["live"] = (list(fib.levels), fib.diagonal)
 	dl.accept()
 later(fiblevels)
 QTest.mouseDClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, v.mapFromScene(QPointF((fib.xs()[0] + fib.xs()[1]) / 2, fib.ys()[1][1])))
@@ -117,6 +118,26 @@ check(seen.get("on") == ["0", "0.5", "1"] and seen.get("title") == "Fib Levels",
 check(fib.levels == [0, 0.705, 1] and fib.diagonal, "and changes them")
 v.undo.undo()
 check(fib.levels == [0, 0.5, 1] and not fib.diagonal, "undo puts them back")
+check(seen.get("live") == ([0, 0.705, 1], True), "the fib shows the levels as they are edited")
+def fibcancel(dl):
+	for c, e in zip(dl.checks, dl.edits):
+		if e.text() == "0.5":
+			c.setChecked(False)
+	seen["live"] = list(fib.levels)
+	dl.reject()
+later(fibcancel)
+v.editfib(fib)
+check(seen["live"] == [0, 1] and fib.levels == [0, 0.5, 1] and v.undo.canRedo(), "and Cancel puts them back, with nothing to undo")
+fib.setSelected(True)
+def custom(dl):
+	for c, e in zip(dl.checks, dl.edits):
+		c.setChecked(e.text() in ("0", "0.25", "1"))
+	seen["live"] = list(fib.levels)
+	dl.reject()
+later(custom)
+bar.setfib("Custom")
+check(seen["live"] == [0, 0.25, 1] and fib.levels == [0, 0.5, 1], "Custom shows its levels on the fibs selected, and Cancel puts them back")
+fib.setSelected(False)
 v.scene().removeItem(fib)
 
 # a rectangle saved with a name, from its form
@@ -134,6 +155,36 @@ check("OB" in menu("rect") and drawbar.savedshapes("rect")["OB"]["label"] == "OB
 bar.setshape("rect", "OB")
 r2 = newshape(RectShape, QPoint(500, 200), QPoint(700, 300))
 check(r2 is not r and r2.label == "OB" and r2.fill, "new rectangles look like it")
+
+# colors show on the drawing as they are picked, and Cancel puts them back
+ln = LineShape(v.mapToScene(QPoint(300, 400)), v.mapToScene(QPoint(500, 420)), "#000000", 2)
+v.additem(ln)
+def pickred(dl):
+	dl.setCurrentColor(QColor("#ff0000"))
+	seen["live"] = ln.color
+	dl.reject()
+def lineform(dl):
+	later(pickred)
+	dl.color.click()
+	seen["after"] = ln.color
+	dl.width.setCurrentIndex(dl.width.findData(5.0))
+	seen["width"] = ln.width
+	dl.reject()
+later(lineform)
+v.editshape(ln)
+check(seen["live"] == "#ff0000" and seen["after"] == "#000000", "a line shows the color picked, and Cancel puts it back")
+check(seen["width"] == 5.0 and ln.width == 2, "and its width while the form is open")
+ln.setSelected(True)
+def pickblue(dl):
+	dl.setCurrentColor(QColor("#0000ff"))
+	seen["live"] = ln.color
+	dl.accept()
+later(pickblue)
+bar.othercolor()
+check(seen["live"] == "#0000ff" and ln.color == "#0000ff", "the bar's color shows on the selection, and OK keeps it")
+v.undo.undo()
+check(ln.color == "#000000", "in one undo step")
+v.scene().removeItem(ln)
 
 # lines, arrows and circles too
 w.setcolor("#1e63d6")

@@ -273,6 +273,12 @@ undos keep new ones hidden too, and drawing or pasting shows them again;
 `hiddenchanged` makes the button say Show or Hide. A double click on a fib
 calls `ImageView.editfib`, which asks `fibform` (set by `DrawBar`: a
 `FibDialog` with its levels checked) and pushes a `LevelsCmd` for it.
+`FibDialog.changed` and `shown` let the fib show the levels while the form
+is open (`fibform`'s `show`; the custom form does it for the fibs
+selected); they are put back before the `LevelsCmd`, so OK is one undo
+step and Cancel leaves nothing. `pickcolor` opens a `QColorDialog` whose
+`currentColorChanged` shows the color as it moves, for `ColorButton`, the
+rectangle fill and the bar's Color… on the selection.
 `renderimage` renders the scene (image and drawings, without the selection)
 at the image's size; `copyimage`, `DrawBar`'s **Copy** (⇧⌘C, and Copy Image
 in the list menu and Edit menu), puts it on the clipboard.
