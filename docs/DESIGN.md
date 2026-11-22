@@ -19,6 +19,7 @@ pylg, and uses easyocr for the OCR.
 | `search.py` | `Search`: parses and evaluates search expressions |
 | `viewer.py` | `ImageView`: a `QGraphicsView` with the image, the zoom and the drawing tools |
 | `drawing.py` | the shapes (`LineShape`, `PencilShape`, `CircleShape`, `RectShape`, `TextShape`, `FibShape`), the fib level sets, their JSON form and the undo commands |
+| `weekprof.py` | `profile`: the swings of a week found in its week profile's image; `Profiles`, their cache |
 | `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo, delete) |
 | `tests/` | headless tests; the OCR is faked |
 | `dj.spec` | pyinstaller spec: `DayJournal.app` on macOS |
@@ -43,6 +44,7 @@ temporary directories (`istemp`, `TEMPDIRS`).
 | `<image>.txt` | `Journal.savenotes` | the notes, plain UTF-8 text |
 | `<image>.drw` | `Journal.savedrawing` | the drawings, JSON (below) |
 | `.pyjou-tags.json` | `Journal.savecache` | `{"version": 1, "images": {name: {"mtime", "raw": [[text, confidence]...]}}}` |
+| `.pyjou-weekprof.json` | `Profiles.save` | `{name: {"mtime", "points": [[t, v]...] or null}}`: the profile of each week profile image |
 | `aliases.txt` | you, or `Journal.savealiases` | search aliases, `word: alias, alias` per line, `#` comments |
 
 All writes go to a temporary file first and then `os.replace` it, so a
@@ -415,6 +417,7 @@ QT_QPA_PLATFORM=offscreen python3 tests/test_clip.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_panels.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_window.py
 QT_QPA_PLATFORM=offscreen python3 tests/test_layout.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_weekprof.py
 ```
 
 `tests/sandbox.py` makes them keep their settings in files of their own,
@@ -499,3 +502,30 @@ Topics, an entry per section (levels 2 and 3, `guidetopics`) calling
 skipped without it), so the Help menu's search box lists the sections that
 have the words typed under Help Topics, opens one with `gotosection`, and
 Show All Help Topics opens the guide with that search.
+
+## Week profiles
+
+`weekprof.profile(path)` finds the profile of a week in its image, without
+knowing the chart's colors:
+
+- `bluelines`: columns mostly blue are the week's line (dashes of 6 pixels
+  or more, Sunday 18:00) and the days' (dots, at midnight). Without them
+  the week is the whole chart, and its days are spread evenly.
+- `candles`: pixels dark, or saturated red or green, between the week's
+  line and the end of Friday (0.72 of a day after its midnight, which also
+  leaves out the labels at the right). Horizontal runs of 12 pixels or more
+  are lines and go; a column's candle is its vertical runs of 9 pixels or
+  more, and it is kept only when a neighbour within 12 pixels reaches about
+  its high and another about its low, which drops labels and vertical lines.
+- `zigzag`: the swings of at least `SWING` (a third) of the week's range,
+  from the first candle (its low when the week goes up first) to the last.
+- `clean`: turns less than an hour apart go in pairs.
+
+A profile is `[(t, v)]`: `t` in days from Monday 00:00 (Sunday evening is
+below 0, Friday 4 to 5), `v` from 0 at the week's low to 1 at its high, so
+weeks can be compared. `Profiles.get` finds one when its image is new or
+changed (about half a second), and `MainWindow.profsave` saves the cache a
+while later, once. `RowDelegate.paintprofile` draws it at the right of the
+week profile's row; `sizeHint` makes those rows taller, so the list has no
+uniform row heights.
+

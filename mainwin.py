@@ -9,9 +9,9 @@ import os
 import sys
 import zipfile
 
-from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
-	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
+	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -26,6 +26,7 @@ from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
 from viewer import ImageView, renderfile
+from weekprof import Profiles
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
@@ -96,6 +97,7 @@ class RowDelegate(QStyledItemDelegate):
 		names = index.data(NAMESROLE) or []
 		if len(names) < 2:
 			super().paint(painter, option, index)
+			self.paintprofile(painter, option, names)
 			return
 		opt = QStyleOptionViewItem(option)
 		self.initStyleOption(opt, index)
@@ -122,6 +124,43 @@ class RowDelegate(QStyledItemDelegate):
 			else:
 				painter.setPen(pal.color(QPalette.ColorRole.HighlightedText if cur else QPalette.ColorRole.Text))
 			painter.drawText(r, Qt.AlignmentFlag.AlignCenter, win.chiplabel(e) if e else "?")
+		painter.restore()
+		self.paintprofile(painter, option, names)
+
+	def sizeHint(self, option, index):
+		"""a week profile's row is taller, for its profile"""
+		s = super().sizeHint(option, index)
+		names = index.data(NAMESROLE) or []
+		win = self.lst.win
+		e = win.journal.find(names[0]) if win.journal and names else None
+		if e is not None and e.week:
+			s.setHeight(max(s.height(), 2 * option.fontMetrics.height() + 6))
+		return s
+
+	def paintprofile(self, painter, option, names):
+		"""the profile of the week at the right of a week profile's row"""
+		win = self.lst.win
+		e = win.journal.find(names[0]) if win.journal and names else None
+		if e is None or not e.week or win.profiles is None:
+			return
+		pts = win.profiles.get(e.name)
+		win.profsave.start()
+		r = option.rect
+		w = min(90, r.width() // 3)
+		box = QRectF(r.right() - w - 4, r.top() + 3, w, r.height() - 6)
+		if not pts or box.height() < 6:
+			return
+		x = lambda t: box.left() + (t + 0.3) / 5.3 * box.width()
+		y = lambda v: box.bottom() - v * box.height()
+		pal = option.palette
+		painter.save()
+		painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+		painter.setPen(QPen(pal.color(QPalette.ColorRole.Mid), 0.5, Qt.PenStyle.DotLine))
+		for d in range(6):	# midnights, Monday to Saturday
+			painter.drawLine(QPointF(x(d), box.top()), QPointF(x(d), box.bottom()))
+		sel = option.state & QStyle.StateFlag.State_Selected
+		painter.setPen(QPen(pal.color(QPalette.ColorRole.HighlightedText if sel else QPalette.ColorRole.Highlight), 1.5))
+		painter.drawPolyline(QPolygonF([QPointF(x(t), y(v)) for t, v in pts]))
 		painter.restore()
 
 class CaptureList(QTreeWidget):
@@ -352,6 +391,11 @@ class MainWindow(QMainWindow):
 		self.reloadtimer.timeout.connect(self.reload)
 		self.watcher = QFileSystemWatcher(self)
 		self.watcher.directoryChanged.connect(lambda _: self.reloadtimer.start())
+		self.profiles = None	# the profiles of the weeks, found in their captures
+		self.profsave = QTimer(self)	# saved a while after finding new ones
+		self.profsave.setSingleShot(True)
+		self.profsave.setInterval(3000)
+		self.profsave.timeout.connect(lambda: self.profiles and self.profiles.save())
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -605,7 +649,7 @@ class MainWindow(QMainWindow):
 		self.list = CaptureList(self)
 		self.list.setHeaderHidden(True)
 		self.list.setIndentation(14)
-		self.list.setUniformRowHeights(True)
+		self.list.setUniformRowHeights(False)	# week profile rows are taller, for their profiles
 		self.list.currentItemChanged.connect(self.listchanged)
 		self.list.itemClicked.connect(self.groupclicked)
 		self.list.itemDoubleClicked.connect(self.itemdoubleclicked)
@@ -1325,6 +1369,7 @@ class MainWindow(QMainWindow):
 		if self.watcher.directories():
 			self.watcher.removePaths(self.watcher.directories())
 		self.journal = j
+		self.profiles = Profiles(j.dir)
 		self.watcher.addPath(j.dir)
 		addrecent(j.dir)
 		self.current = None

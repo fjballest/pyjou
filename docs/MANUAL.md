@@ -162,8 +162,20 @@ them side by side in its row, after the day, as compact names: its letters,
 `a` for the first (`day261026.png`), then `b`, `c`... with ✎ on the ones
 with notes or drawings, and the one shown highlighted. Click one to show
 it, or use ← and → on the row to go along them; hover one to see its name,
-notes and tags. Week profiles get a row of their own in the same way. Above the list, the count says how many images are
+notes and tags. Week profiles get a row of their own in the same way, taller, with the
+profile of the week drawn at its right (see below). Above the list, the count says how many images are
 shown, of how many, and how many weeks have images (`12 of 40, 9 weeks`).
+
+The profile of a week is the line of the swings that frame it: Monday
+up, Tuesday down, Wednesday up to the high of the week, Thursday down... It
+is found in the week profile's image, a TradingView chart of the week: its
+candles, from the dashed blue line where the week starts (Sunday evening)
+to the end, with the dotted blue lines between days drawn faintly behind
+the profile. Only the swings of about a third of the week's range or more
+count. The images are only read, never changed; the profiles found are kept
+in `.pyjou-weekprof.json` in the journal, and found again when an image
+changes. A chart with other kinds of candles, or the whole screen captured,
+may give a wrong profile or none.
 
 Beside the triangle, **m** closes the list down to the months, keeping the
 last month open with its weeks and the days of its last week, and **w**
