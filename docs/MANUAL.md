@@ -260,14 +260,13 @@ levels match the other one's. Click where the two charts meet (a blue line
 follows the mouse), then click on the chart to scale, near its time axis:
 below that line the chart stays as it is, so its times do too.
 
-Then drag prices of that chart to their levels in the other one, as many
-times as you need: a white line across the whole image follows the mouse,
-and the point being dragged, so you can see whether it lines up with the
-other chart. With one point dragged the chart stretches or shrinks about the
-blue line; drag a second one (a top and a bottom price, say) and the chart is
-scaled and moved so both land where you put them. Pressing near a point
-dragged before (an orange line) drags it again; a third point replaces the
-oldest one. The status bar says the scale.
+Then drag that chart up or down to put one of its prices on the level the
+same price has in the other chart: a white line across the whole image
+follows that price (and the mouse), so you can see whether they line up.
+Then scale the chart with the scroll wheel (or the trackpad), or by dragging
+up or down with shift held: it stretches or shrinks keeping that price where
+you put it. Drag again to move it, from any price; that price is then the
+one kept in place. The status bar says the scale.
 
 Double click when done: DayJournal asks whether to replace the image with
 the result. Yes saves it over the capture's PNG, at the same size (what goes

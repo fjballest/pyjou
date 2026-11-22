@@ -80,18 +80,31 @@ check(v.scaler is not None and "two charts" in w.statusBar().currentMessage(), "
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(200, 50))
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(300, 180))
 check(v.scaler["side"] == "right" and v.scaler["y"] == 180, "the right chart, kept below y 180")
-# one drag: scaled about the base, the level at 100 to 60 (x1.5)
-drag(300, 100, 60)
-check(abs(v.scalemap()[0] - 1.5) < 0.01 and asked == [], "one drag scales about the line, without asking yet")
-# drag it again, nearer: 100 to 80 (x1.25)
-drag(300, 60, 80)
-check(abs(v.scalemap()[0] - 1.25) < 0.01 and len(v.scaler["pins"]) == 1, "dragging the same point again")
-# a second point: the source row at 20 (now at 180-160*1.25=-20, out of sight) ... use a visible one
+# drag the chart: the level at 100 to 80, moved, not scaled
+drag(300, 100, 80)
+check(v.scalemap() == (1.0, -20.0) and asked == [], "a drag moves the chart, without asking yet")
+check(abs(v.anchorat() - 80) < 0.01, "the price dragged is the one kept in place")
+# the wheel scales about it
+from PySide6.QtCore import QPoint
+from PySide6.QtGui import QWheelEvent
+def wheel(d):
+	pos = QPointF(at(300, 120))
+	ev = QWheelEvent(pos, QPointF(v.viewport().mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, d),
+		Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+	QApplication.sendEvent(v.viewport(), ev)
+wheel(120)
 a, b = v.scalemap()
-drag(300, 150, 140)	# the row shown at 150 goes to 140, the first stays at 80
-a, b = v.scalemap()
-s150 = (150 - (180 * (1 - 1.25))) / 1.25
-check(len(v.scaler["pins"]) == 2 and abs(a * 100 + b - 80) < 0.5 and abs(a * s150 + b - 140) < 0.5, "two points: both where dragged")
+check(a > 1.05 and abs(v.anchorat() - 80) < 0.01, f"the wheel scales, keeping that price in place: x{a:.3f}")
+# shift drag scales too, about the same price
+drag_shift = lambda x, y0, y1: (QTest.mousePress(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, at(x, y0)),
+	QTest.mouseMove(v.viewport(), at(x, y1)),
+	QTest.mouseRelease(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, at(x, y1)))
+drag_shift(300, 140, 130)
+a2, _ = v.scalemap()
+check(a2 > a and abs(v.anchorat() - 80) < 0.01, "a shift drag up stretches it, the price stays")
+drag_shift(300, 130, 160)
+a3, _ = v.scalemap()
+check(a3 < a2 and abs(v.anchorat() - 80) < 0.01, "down shrinks it")
 finish(300, 120)
 check(asked and "right chart ×" in asked[0], f"a double click asks before replacing: {asked}")
 img = QImage(os.path.join(d, "day261014.png"))
@@ -110,6 +123,7 @@ w.scalepanel()
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(200, 50))
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(100, 180))
 drag(100, 100, 140)
+wheel(-120)
 finish(100, 120)
 check(open(os.path.join(d, "day261013.png"), "rb").read() == before and v.scaler is None, "no: the file stays")
 check(v.pixitem.pixmap().toImage().pixelColor(100, 100).lightness() < 60, "and the image shown is the original")

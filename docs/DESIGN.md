@@ -455,20 +455,18 @@ The PDFs next to these documents are made with `docs/mkpdf.sh`.
 `ImageView.startscale(done)` (Edit ▸ Scale Panel) puts the view in a mode
 of its own, `scaler`, which takes the mouse before the tools: a click sets
 the split `x`, the next the base `y` and the `side` (left or right of the
-split, or `all` when the split is at an edge). Then each press above the
-base, in that side, drags a pin: one pressed near (`PINNEAR` view pixels) a
-pin's row is dragged again, else a new pin is made from the source row
-under the press (keeping the last two). A pin is (source row, target row);
-`scalemap` gives the map `t = a*s + b` for the side's rows above the base:
-with one pin a scale about the base, with two the line through both
-(scale and offset), `a` within 0.2–5. A press and release without moving
-puts the pins back as they were. `scaledimage` paints the original
-(`orig`) with source rows `[0, base)` drawn at `[b, a*base + b)` cut to
-`[0, base)`, the rest filled with the color of the side's top left pixel;
-the pixmap shown follows the drags. `drawscaler` draws the split and base
-(blue, dashed), the pins (orange, across the side) and, in difference mode,
-a white line across the whole image at the mouse or the pin being dragged.
-A double click (`scaledouble`) ends: with nothing changed it just ends,
+split, or `all` when the split is at an edge). The side's rows above the
+base go from source row `s` to `t = a*s + b` (`scalemap`). A plain drag in
+the side moves it (`b`), and makes the source row under the press the
+`anchor`; the wheel (`scalewheel`, 6% a notch) and a shift drag (1% a view
+pixel) call `scaleby(k)`, which scales `a` within 0.2–5 and sets `b` so the
+anchor stays where it is (`anchorat`; the base when none was dragged yet).
+`scaledimage` paints the original (`orig`) with source rows `[0, base)`
+drawn at `[b, a*base + b)` cut to `[0, base)`, the rest filled with the
+color of the side's top left pixel; the pixmap shown follows (`showscaled`).
+`drawscaler` draws the split and base (blue, dashed) and, in difference
+mode, a white line across the whole image at the anchor while dragging, or
+at the mouse. A double click (`scaledouble`) ends: with nothing changed it just ends,
 else `done(img, a, side)` runs: `MainWindow.panelscaled` asks, writes the
 PNG over the capture when told yes, and calls `endscale(keep)`, which puts
 the original back otherwise. `hint` tells the window what to do next, for
