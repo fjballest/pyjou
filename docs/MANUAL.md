@@ -273,7 +273,9 @@ the result. Yes saves it over the capture's PNG, at the same size (what goes
 past the top is cut, and what is left empty is filled with the chart's
 background), No puts the image back as it was. Clicking first beyond either
 side of the image scales the whole image instead. Esc, or the right button,
-cancels. Drawings already on the image are not moved.
+cancels. The drawings on the chart scaled, above the line, move and scale
+with it, so they stay on the same prices; the others stay where they are.
+They are saved with the image.
 
 The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
 Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the
@@ -450,3 +452,12 @@ Write under the image. Notes are saved as you type, in a file with the
 image's name and a `.txt` extension (`day261014.txt`). Emptying the notes
 removes the file. Images with notes or drawings have a ✎ in the list, and
 their notes show in its tooltip.
+
+## Help
+
+**Help ▸ DayJournal User Guide** (⌘?, F1 elsewhere) opens this guide in a window
+of its own: its sections on the left, the text on the right. Type in the
+search box to list only the sections that have all the words typed; they
+are marked in the text, and Return (⇧Return back) or the arrows go from one
+place found to the next. Click a section to go to it, and clear the search
+to see all of them again.

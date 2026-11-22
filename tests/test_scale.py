@@ -75,6 +75,11 @@ def finish(x, y):
 		QTest.qWait(20)
 		if v.scaler is None:
 			break
+from drawing import LineShape, TextShape
+v.additem(LineShape(QPointF(250, 100), QPointF(350, 100), "#ff0000", 2))	# on the right chart's level
+v.additem(LineShape(QPointF(50, 100), QPointF(150, 100), "#00ff00", 2))	# on the left chart
+v.additem(TextShape(QPointF(260, 185), "time", "#000000", 12))	# below the line
+v.drawchanged.emit()
 w.scalepanel()
 check(v.scaler is not None and "two charts" in w.statusBar().currentMessage(), "scaling starts by asking for the split")
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(200, 50))
@@ -114,6 +119,12 @@ check(dark(300, 80) and not dark(300, 101), "the right chart's level is where it
 check(dark(100, 100) and not dark(100, 80), "the left chart is as it was")
 check(img.pixelColor(300, 190) == QColor("blue"), "below the line it is as it was")
 check(v.scaler is None, "scaling ends")
+saved = {sh.get("color"): sh for sh in w.journal.readdrawing(w.journal.find("day261014.png"))["shapes"]}
+check(abs(saved["#ff0000"]["p1"][1] - 80) < 0.6 and abs(saved["#ff0000"]["p2"][1] - 80) < 0.6,
+	f"a drawing on the chart scaled follows it: {saved['#ff0000']}")
+check(saved["#00ff00"]["p1"][1] == 100, "one on the other chart stays")
+check(saved["#000000"]["pos"] == [260, 185], "and one below the line too")
+check("day261014.png" not in w.pending, "the drawings are saved with the image")
 
 # saying no keeps the file
 before = open(os.path.join(d, "day261013.png"), "rb").read()

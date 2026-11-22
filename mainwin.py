@@ -28,6 +28,7 @@ from drawbar import DrawBar
 from viewer import ImageView, renderfile
 from winlayout import windowmenu
 from version import VERSION
+from helpwin import showguide
 
 RECENTMAX = 10
 CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
@@ -559,6 +560,9 @@ class MainWindow(QMainWindow):
 		v.addAction(self.osviewact)
 		mb.addMenu(windowmenu(self))
 		h = mb.addMenu("&Help")
+		guide = h.addAction("DayJournal &User Guide")
+		guide.setShortcut(QKeySequence.StandardKey.HelpContents)
+		guide.triggered.connect(lambda: showguide("DayJournal", self))
 		about = h.addAction("&About DayJournal")
 		about.setMenuRole(QAction.MenuRole.AboutRole)
 		about.triggered.connect(self.about)
@@ -1779,11 +1783,23 @@ class MainWindow(QMainWindow):
 			f"Scale {what} ×{f:.3f} and replace {e.name} with the result?",
 			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
 			QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
+		drawing = self.view.scaledrawing() if ok else None	# its drawings follow the chart
 		if ok and not img.save(self.journal.path(e), "PNG"):
 			QMessageBox.warning(self, "Scale Panel", f"Can't write {e.name}")
 			ok = False
 		self.view.endscale(ok)
 		if ok:
+			if drawing:
+				try:
+					self.journal.savedrawing(e, drawing)
+					self.pending.pop(e.name, None)
+				except OSError as x:
+					self.pending[e.name] = drawing
+					self.statusBar().showMessage(f"Can't save the drawing of {e.name}: {x}", 5000)
+				setdrawing(e, drawing)
+				self.view.setimage(self.journal.path(e), drawing)
+				self.refreshitem(e)
+				self.updatetitle()
 			self.statusBar().showMessage(f"{e.name} scaled", 3000)
 
 	def osview(self):

@@ -468,6 +468,20 @@ color of the side's top left pixel; the pixmap shown follows (`showscaled`).
 mode, a white line across the whole image at the anchor while dragging, or
 at the mouse. A double click (`scaledouble`) ends: with nothing changed it just ends,
 else `done(img, a, side)` runs: `MainWindow.panelscaled` asks, writes the
-PNG over the capture when told yes, and calls `endscale(keep)`, which puts
+PNG over the capture when told yes, with the drawings mapped too
+(`scaledrawing`, `mapdrawing`: the points of the shapes on that side above
+the base go through the same map) and saved, and calls `endscale(keep)`, which puts
 the original back otherwise. `hint` tells the window what to do next, for
 the status bar. Esc or the right button cancel (`cancelscale`).
+
+## The user guide
+
+`helpwin.py` (the same in RoadBook) shows `docs/MANUAL.md` (`guidepath`:
+next to the program, or in the bundle, where the spec's `datas` puts it) in
+`HelpWindow`, opened by Help ▸ User Guide (`showguide`, one window per
+application, not owned by the main window). `sections` splits the markdown
+at its headings for the contents tree; a search keeps the sections whose
+text, without markup, has every word, marks every place found
+(`setExtraSelections`) and goes through them with `QTextBrowser.find`.
+`GuideView.loadResource` shrinks the pictures to fit, and links to
+`#anchors` go to their section (`slug`).
