@@ -407,6 +407,16 @@ Notes are still saved as you type.
 Drawings are kept in image coordinates, so they stay in place when zooming.
 The words in the text boxes and labels are found by the search, as the notes are.
 
+## Exporting
+
+**File ▸ Export All…** (⇧⌘E) saves the captures shown in the list, as the
+search and the Days and Weeks boxes leave them, in one zip file you pick.
+**File ▸ Export Selected…** (⌘E) saves only the capture selected in the
+list, or, with a year, month or week selected, the captures shown in it.
+Each one is a PNG with its drawings on it, at the image's size, named as
+the capture (`day261014.png`); drawings not saved yet are included, and so
+are hidden ones. A capture with nothing drawn goes as it is.
+
 ## Notes
 
 Write under the image. Notes are saved as you type, in a file with the

@@ -281,7 +281,13 @@ step and Cancel leaves nothing. `pickcolor` opens a `QColorDialog` whose
 rectangle fill and the bar's Color… on the selection.
 `renderimage` renders the scene (image and drawings, without the selection)
 at the image's size; `copyimage`, `DrawBar`'s **Copy** (⇧⌘C, and Copy Image
-in the list menu and Edit menu), puts it on the clipboard.
+in the list menu and Edit menu), puts it on the clipboard. `renderfile`
+does the same for an image file and a drawing as saved, in a scene of its
+own with no view, for **File ▸ Export**: `MainWindow.export` takes the
+entries shown (`shown`) or `selectedentries` (the one current in the list,
+or the ones under the group current), and `exportto` writes each to a
+deflated zip as `<base>.png`, using `drawingof` so unsaved drawings count,
+and the file itself when nothing is drawn.
 
 - The tool (`settool`) decides what a mouse press does: with **select** the
   scene handles it (selecting and moving items), and a drag on the image

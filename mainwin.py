@@ -7,6 +7,7 @@ from datetime import date, timedelta
 import json
 import os
 import sys
+import zipfile
 
 from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
@@ -24,7 +25,7 @@ from journal import Journal, defaultjournals, setdrawing, groupkeys, tradedir, w
 from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
-from viewer import ImageView
+from viewer import ImageView, renderfile
 from winlayout import windowmenu
 from version import VERSION
 
@@ -317,6 +318,10 @@ class MainWindow(QMainWindow):
 			"open another window on this journal and image, to browse it or open another journal")
 		self.newwinact.setIcon(self.dupicon())
 		self.newwinact.setIconText("Window")
+		self.exportselact = self.mkaction("&Export Selected…", lambda: self.export(False), None, "Ctrl+E",
+			"save the capture selected, or those of the week, month or year selected, as PNGs with their drawings in a zip file")
+		self.exportallact = self.mkaction("Export &All…", lambda: self.export(True), None, "Ctrl+Shift+E",
+			"save the captures shown, as the search and the Days and Weeks boxes leave them, as PNGs with their drawings in a zip file")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -376,6 +381,9 @@ class MainWindow(QMainWindow):
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
 		f.addAction(self.reloadact)
+		f.addSeparator()
+		f.addAction(self.exportselact)
+		f.addAction(self.exportallact)
 		f.addSeparator()
 		f.addAction(self.quitact)
 		e = mb.addMenu("&Edit")
@@ -901,6 +909,89 @@ class MainWindow(QMainWindow):
 		self.statusBar().showMessage(f"Pasted {c['name']} as {name}", 4000)
 		self.reload()
 		self.reveal(self.journal.find(name))
+
+	def selectedentries(self):
+		"""the capture selected in the list, or the ones shown in the
+		group (year, month or week) selected"""
+		it = self.list.currentItem()
+		if it is None or self.journal is None:
+			return []
+		out, todo = [], [it]
+		while todo:
+			x = todo.pop(0)
+			name = x.data(0, Qt.ItemDataRole.UserRole)
+			if name is not None:
+				e = self.journal.find(name)
+				if e is not None:
+					out.append(e)
+			todo[0:0] = [x.child(i) for i in range(x.childCount())]
+		return out
+
+	def export(self, every):
+		"""save the captures shown (every) or selected as PNGs, with their
+		drawings, in a zip file the user picks"""
+		if self.journal is None:
+			return
+		self.view.commitedit()
+		entries = list(self.shown) if every else self.selectedentries()
+		if not entries:
+			self.statusBar().showMessage("No captures to export", 3000)
+			return
+		name = os.path.basename(os.path.normpath(self.journal.dir)) or "journal"
+		if not every and len(entries) == 1:
+			name = entries[0].base()
+		start = os.path.join(settings().value("exportdir", os.path.expanduser("~")), name + ".zip")
+		path, _ = QFileDialog.getSaveFileName(self, "Export Captures", start, "Zip files (*.zip)")
+		if not path:
+			return
+		if not path.lower().endswith(".zip"):
+			path += ".zip"
+		settings().setValue("exportdir", os.path.dirname(path))
+		n, bad = self.exportto(path, entries)
+		msg = f"{n} capture{'s' if n != 1 else ''} exported to {os.path.basename(path)}"
+		if bad:
+			msg += f"; can't read {', '.join(bad)}"
+		self.statusBar().showMessage(msg, 5000)
+
+	def exportto(self, path, entries):
+		"""write entries as PNGs, drawings included, to the zip file path;
+		(how many were written, names that could not be read)"""
+		from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+		n, bad, used = 0, [], set()
+		QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+		try:
+			with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+				for i, e in enumerate(entries):
+					if i % 5 == 0:
+						self.statusBar().showMessage(f"Exporting {i + 1} of {len(entries)}…")
+						QApplication.processEvents()
+					src = self.journal.path(e)
+					drawing = self.drawingof(e)
+					if not (drawing or {}).get("shapes") and src.lower().endswith(".png") and os.path.isfile(src):
+						with open(src, "rb") as f:
+							data = f.read()
+					else:
+						img = renderfile(src, drawing)
+						if img is None:
+							bad.append(e.name)
+							continue
+						ba = QByteArray()
+						buf = QBuffer(ba)
+						buf.open(QIODevice.OpenModeFlag.WriteOnly)
+						img.save(buf, "PNG")
+						buf.close()
+						data = bytes(ba.data())
+					arc = e.base() + ".png"
+					k = 2
+					while arc in used:
+						arc = f"{e.base()}-{k}.png"
+						k += 1
+					used.add(arc)
+					z.writestr(arc, data)
+					n += 1
+		finally:
+			QApplication.restoreOverrideCursor()
+		return n, bad
 
 	def deletecapture(self, e=None):
 		"""delete capture e (the one selected in the list), with its notes
