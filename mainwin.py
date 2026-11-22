@@ -15,7 +15,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+	QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
 	QProgressBar, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget, QDialogButtonBox
 )
@@ -26,7 +26,7 @@ from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
 from viewer import ImageView, renderfile
-from weekprof import Profiles
+from weekprof import Profiles, matches, partial
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
@@ -85,6 +85,90 @@ windows = []	# the windows made with New Window, so they are kept
 
 DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
 NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
+
+MATCHCOLOR = QColor("#e53935")
+
+def drawprofile(painter, box, pts, pal, selected=False, upto=None):
+	"""draw week profile pts in box, with the midnights faint behind it; the
+	part before day upto (a match) in red"""
+	x = lambda t: box.left() + (t + 0.3) / 5.3 * box.width()
+	y = lambda v: box.bottom() - v * box.height()
+	painter.save()
+	painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+	painter.setPen(QPen(pal.color(QPalette.ColorRole.Mid), 0.5, Qt.PenStyle.DotLine))
+	for d in range(6):	# midnights, Monday to Saturday
+		painter.drawLine(QPointF(x(d), box.top()), QPointF(x(d), box.bottom()))
+	line = QPolygonF([QPointF(x(t), y(v)) for t, v in pts])
+	painter.setPen(QPen(pal.color(QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Highlight), 1.5))
+	if upto is None:
+		painter.drawPolyline(line)
+	else:	# the rest after the match, then the match over it
+		painter.save()
+		painter.setClipRect(QRectF(x(upto), box.top() - 2, box.right() - x(upto) + 4, box.height() + 4))
+		painter.drawPolyline(line)
+		painter.restore()
+		painter.setClipRect(QRectF(box.left() - 4, box.top() - 2, x(upto) - box.left() + 4, box.height() + 4))
+		painter.setPen(QPen(MATCHCOLOR, 2))
+		painter.drawPolyline(line)
+	painter.restore()
+
+class MatchDialog(QDialog):
+	"""the weeks like the one in progress, best first: click one to show it"""
+	def __init__(self, win, src, found):
+		super().__init__(win)
+		self.win = win
+		self.setWindowTitle("Match Week")
+		self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+		lay = QVBoxLayout(self)
+		e = win.journal.find(src)
+		lay.addWidget(QLabel(f"Weeks like the week of {e.weekmonday():%d %b %Y} so far, "
+			f"to {daytime(win.matchend)} (in red):"))
+		self.lst = QListWidget()
+		self.lst.setItemDelegate(MatchDelegate(self.lst, win))
+		for s, name in found:
+			it = QListWidgetItem(f"Week {win.journal.find(name).weekmonday():%d %b %Y}   {s:.0%}")
+			it.setData(Qt.ItemDataRole.UserRole, name)
+			self.lst.addItem(it)
+		self.lst.currentItemChanged.connect(self.picked)
+		lay.addWidget(self.lst)
+		if not found:
+			lay.addWidget(QLabel("No full week with a profile to compare it with."))
+		self.resize(420, 360)
+		self.finished.connect(lambda _: win.clearmatch())
+
+	def picked(self, it, _prev):
+		e = self.win.journal.find(it.data(Qt.ItemDataRole.UserRole)) if it and self.win.journal else None
+		if e is not None:
+			self.win.show_(e)
+			self.win.selectitem(e)
+
+class MatchDelegate(QStyledItemDelegate):
+	"""a row of the match window: the week, how well it matches, and its profile"""
+	def __init__(self, lst, win):
+		super().__init__(lst)
+		self.win = win
+
+	def sizeHint(self, option, index):
+		s = super().sizeHint(option, index)
+		s.setHeight(max(s.height(), 2 * option.fontMetrics.height() + 8))
+		return s
+
+	def paint(self, painter, option, index):
+		super().paint(painter, option, index)
+		pts = self.win.profiles.get(index.data(Qt.ItemDataRole.UserRole)) if self.win.profiles else None
+		r = option.rect
+		box = QRectF(r.right() - 150, r.top() + 4, 140, r.height() - 8)
+		if pts:
+			drawprofile(painter, box, pts, option.palette,
+				bool(option.state & QStyle.StateFlag.State_Selected), self.win.matchend)
+
+def daytime(t):
+	"""day t of a week profile (days from Monday 00:00) as 'Tue 04:00'"""
+	d = int(t // 1)
+	h = round((t - d) * 24)
+	if h == 24:
+		d, h = d + 1, 0
+	return f"{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][(d + 1) % 7]} {h:02d}:00"
 
 class RowDelegate(QStyledItemDelegate):
 	"""draws a day row with several captures as its day and a compact chip
@@ -150,18 +234,18 @@ class RowDelegate(QStyledItemDelegate):
 		box = QRectF(r.right() - w - 4, r.top() + 3, w, r.height() - 6)
 		if not pts or box.height() < 6:
 			return
-		x = lambda t: box.left() + (t + 0.3) / 5.3 * box.width()
-		y = lambda v: box.bottom() - v * box.height()
-		pal = option.palette
-		painter.save()
-		painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-		painter.setPen(QPen(pal.color(QPalette.ColorRole.Mid), 0.5, Qt.PenStyle.DotLine))
-		for d in range(6):	# midnights, Monday to Saturday
-			painter.drawLine(QPointF(x(d), box.top()), QPointF(x(d), box.bottom()))
 		sel = option.state & QStyle.StateFlag.State_Selected
-		painter.setPen(QPen(pal.color(QPalette.ColorRole.HighlightedText if sel else QPalette.ColorRole.Highlight), 1.5))
-		painter.drawPolyline(QPolygonF([QPointF(x(t), y(v)) for t, v in pts]))
-		painter.restore()
+		pal = option.palette
+		upto = None
+		if win.matchsrc is not None and (e.name == win.matchsrc or e.name in win.matching):
+			upto = win.matchend
+			if e.name in win.matching:	# how well it matches, left of the profile
+				painter.save()
+				painter.setPen(pal.color(QPalette.ColorRole.HighlightedText if sel else QPalette.ColorRole.Text))
+				painter.drawText(QRectF(box.left() - 48, r.top(), 44, r.height()),
+					Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, f"{win.matching[e.name]:.0%}")
+				painter.restore()
+		drawprofile(painter, box, pts, pal, sel, upto)
 
 class CaptureList(QTreeWidget):
 	"""the list; its captures can be dragged, to a day of the calendar to
@@ -396,6 +480,9 @@ class MainWindow(QMainWindow):
 		self.profsave.setSingleShot(True)
 		self.profsave.setInterval(3000)
 		self.profsave.timeout.connect(lambda: self.profiles and self.profiles.save())
+		self.matchsrc = None	# the week profile matched, its time up to which, and the others' scores
+		self.matchend = None
+		self.matching = {}
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -505,6 +592,8 @@ class MainWindow(QMainWindow):
 			"save the captures shown, as the search and the Days and Weeks boxes leave them, as PNGs with their drawings in a zip file")
 		self.scaleact = self.mkaction("Scale &Panel…", self.scalepanel, None, "Ctrl+Shift+S",
 			"scale one of two charts of a capture vertically, so its price levels match the other one")
+		self.matchact = self.mkaction("&Match Week…", self.matchweek, None, "Ctrl+Shift+M",
+			"compare the week profile shown, a week in progress, with the same days of the other weeks, and list the closest")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -578,6 +667,7 @@ class MainWindow(QMainWindow):
 		e.addAction(self.askdelact)
 		e.addAction(self.copyimgact)
 		e.addAction(self.scaleact)
+		e.addAction(self.matchact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
@@ -1812,6 +1902,35 @@ class MainWindow(QMainWindow):
 				self.searchbox.clear()
 				self.applysearch()
 		self.show_(to)
+
+	def matchweek(self):
+		"""list the weeks whose profiles look like the one shown so far"""
+		e = self.current
+		if e is None or not e.week or self.journal is None:
+			QMessageBox.information(self, "Match Week", "Show the week profile of a week in progress first.")
+			return
+		pts = self.profiles.get(e.name)
+		if not pts:
+			QMessageBox.information(self, "Match Week", f"No week profile found in {e.name}.")
+			return
+		others = {x.name: self.profiles.get(x.name) for x in self.journal.entries
+			if x.week and x.weekmonday() != e.weekmonday()}	# not the same week
+		others = {n: p for n, p in others.items() if p and not partial(p)}
+		self.profsave.start()
+		if getattr(self, "matchdlg", None) is not None:
+			self.matchdlg.close()	# clears the last match
+		found = matches(pts, others)
+		self.matchsrc, self.matchend = e.name, pts[-1][0]
+		self.matching = dict((n, s) for s, n in found)
+		self.list.viewport().update()
+		self.matchdlg = MatchDialog(self, e.name, found[:8])
+		self.matchdlg.show()
+
+	def clearmatch(self):
+		"""the match window closed: no more red profiles"""
+		self.matchsrc, self.matchend, self.matching = None, None, {}
+		self.matchdlg = None
+		self.list.viewport().update()
 
 	def scalepanel(self):
 		"""scale a chart of the capture shown (see ImageView.startscale)"""

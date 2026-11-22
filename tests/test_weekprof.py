@@ -41,7 +41,8 @@ def chart(path, turns):
 		d.rectangle((x, 520, x + 1, 521), fill=(0, 0, 0))
 	for y in range(40, 950, 14):	# the week's dashed line, and the days' dotted ones
 		d.line((X0, y, X0, y + 9), fill=(41, 100, 249), width=2)
-	for k in range(5):
+	last = turns[-1][0]
+	for k in range(min(5, int(last) + 1)):
 		for y in range(40, 950, 5):
 			d.line((MON + k*DAY, y, MON + k*DAY, y + 1), fill=(41, 100, 249), width=2)
 	d.text((1500, 150), "maximo en miercoles", fill=(30, 60, 220))
@@ -52,7 +53,7 @@ def chart(path, turns):
 		return turns[-1][1]
 	y = lambda p: 900 - p * 750
 	prev = price(turns[0][0])
-	for x in range(X0 - 60, MON + 4*DAY + int(DAY*.7), 5):	# the Friday before too
+	for x in range(X0 - 60, MON + int(min(last, 4.7) * DAY), 5):	# the Friday before too
 		t = (x - MON) / DAY
 		p = price(max(turns[0][0], t)) if x >= X0 else 0.5 + 0.02 * random.random()
 		o, c = prev, p + 0.01 * random.uniform(-1, 1)
@@ -116,3 +117,34 @@ for x in range(r.right() - 80, r.right()):
 check(drawn > 20, "the row draws the profile at its right")
 img.save(os.path.join(d, "row.png"))
 print("row image", os.path.join(d, "row.png"))
+
+# a week in progress, matched with the full ones
+check(not weekprof.partial(pr), "a whole week is not partial")
+part = [(-0.25, 0.3), (0.5, 1.0), (1.2, 0.0)]	# up Monday, down Tuesday so far
+check(weekprof.partial(part), "one that ends on Tuesday is")
+check(abs(weekprof.at(part, 0.85) - 0.5) < 1e-9, "levels along the segments")
+like = [(-0.25, 0.25), (0.5, 0.6), (1.2, 0.1), (3, 1), (4.7, 0)]	# the same shape, smaller, then more
+unlike = [(-0.25, 1), (1.2, 0), (4.7, 0.5)]
+check(weekprof.similarity(part, like) > 0.9, "a week that went the same way matches, whatever its size")
+check(weekprof.similarity(part, unlike) < 0.7, "one that went the other way does not")
+check(weekprof.similarity(part, [(-0.25, 0), (1.0, 1)]) is None, "one that ends before it can't be compared")
+check([n for s, n in weekprof.matches(part, {"a": unlike, "b": like, "c": None})] == ["b", "a"], "the best first")
+
+path2 = os.path.join(d, "day261025weekprof.png")	# the next week, so far: Monday up, Tuesday down
+chart(path2, [(-0.25, 0.3), (0.5, 0.9), (1.2, 0.0)])
+pr2 = weekprof.profile(path2)
+check(pr2 is not None and weekprof.partial(pr2), "the capture of a week in progress gives a partial profile")
+win.reload()
+app.processEvents()
+win.show_(win.journal.find("day261025weekprof.png"))
+win.matchweek()
+app.processEvents()
+check(set(win.matching) == {"day261018weekprof.png"} and win.matching["day261018weekprof.png"] > 0.7,
+	"Match Week scores the full weeks like it")
+check(win.matchdlg is not None and win.matchdlg.lst.count() == 1, "and lists them")
+win.matchdlg.lst.setCurrentRow(0)
+app.processEvents()
+check(win.current.name == "day261018weekprof.png", "picking one shows it")
+win.matchdlg.close()
+app.processEvents()
+check(win.matchsrc is None and not win.matching, "closing the list ends the match")

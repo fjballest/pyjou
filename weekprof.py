@@ -205,3 +205,45 @@ class Profiles:
 				json.dump(self.cache, f)
 		except OSError:
 			pass
+
+FULL = 4.55	# a profile that ends before this (Friday afternoon) is a week in progress
+
+def partial(pts):
+	"""whether profile pts is of a week still going on"""
+	return bool(pts) and pts[-1][0] < FULL
+
+def at(pts, t):
+	"""the level of profile pts at time t, along its segments"""
+	if t <= pts[0][0]:
+		return pts[0][1]
+	for (t0, v0), (t1, v1) in zip(pts, pts[1:]):
+		if t <= t1:
+			return v0 if t1 == t0 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+	return pts[-1][1]
+
+def similarity(part, full):
+	"""how much full looks like part over the time part covers, from 0 to 1;
+	each is scaled to its own range in that time, so a week that went up
+	and down the same way matches whatever its size. None when they share
+	too little time"""
+	t0, t1 = max(part[0][0], full[0][0]), part[-1][0]
+	if t1 - t0 < 0.25 or full[-1][0] < t1 - 0.05:
+		return None
+	ts = set(np.linspace(t0, t1, 80).tolist())
+	ts |= {t for t, _ in part + full if t0 <= t <= t1}	# the turns themselves
+	ts = sorted(ts)
+	def scaled(pts):
+		v = np.array([at(pts, t) for t in ts])
+		lo, hi = v.min(), v.max()
+		return (v - lo) / (hi - lo) if hi > lo else v * 0 + .5
+	d = scaled(part) - scaled(full)
+	return float(1 - np.sqrt((d * d).mean()))
+
+def matches(part, profiles):
+	"""[(similarity, name)] of the profiles {name: pts} like part, best first"""
+	out = []
+	for name, pts in profiles.items():
+		s = similarity(part, pts) if pts else None
+		if s is not None:
+			out.append((s, name))
+	return sorted(out, reverse=True)
