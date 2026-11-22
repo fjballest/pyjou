@@ -20,6 +20,7 @@ pylg, and uses easyocr for the OCR.
 | `viewer.py` | `ImageView`: a `QGraphicsView` with the image, the zoom and the drawing tools |
 | `drawing.py` | the shapes (`LineShape`, `PencilShape`, `CircleShape`, `RectShape`, `TextShape`, `FibShape`), the fib level sets, their JSON form and the undo commands |
 | `weekprof.py` | `profile`: the swings of a week found in its week profile's image; `Profiles`, their cache |
+| `weekedit.py` | `ProfileEditor`: adjusting a week profile on its image, with event filters on the view |
 | `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo, delete) |
 | `tests/` | headless tests; the OCR is faked |
 | `dj.spec` | pyinstaller spec: `DayJournal.app` on macOS |
@@ -528,4 +529,25 @@ changed (about half a second), and `MainWindow.profsave` saves the cache a
 while later, once. `RowDelegate.paintprofile` draws it at the right of the
 week profile's row; `sizeHint` makes those rows taller, so the list has no
 uniform row heights.
+
+`detect` gives the profile in the image (`px`, with the week's lines that
+place it in time) and `points` turns it into `(t, v)`, with `v` from its
+lowest point to its highest; `Profiles.adjust` replaces `px` with the one
+drawn by hand and marks it `adjusted`, which keeps it when the image
+changes.
+
+`weekedit.ProfileEditor` draws `px` over the image with two
+`QGraphicsPathItem`s (made again when the view shows the image again, which
+clears its scene) and takes the mouse and Esc/Return with event filters on
+the view and its viewport, so `viewer.py`, shared with pylg, knows nothing of
+it. Points keep their order in time: a point can't be dragged past its
+neighbours. Showing another capture drops the adjusting.
+
+Matching: `similarity(part, full)` samples both every few minutes (and at
+their turns) from the later of their starts to the end of `part`, scales
+each to 0..1 over that time, and is 1 minus the RMS of the difference.
+`matches` sorts the full weeks by it; `MainWindow.matchweek` leaves out the
+week itself and the weeks in progress, keeps `matching`, `matchsrc` and
+`matchend` for `RowDelegate.paintprofile` (the score, and the red part, by
+clipping), and opens a `MatchDialog`; closing it clears them.
 

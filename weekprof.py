@@ -122,8 +122,10 @@ def zigzag(xs, hi, lo, swing=SWING):
 		pts.append((last, (hi[last] + lo[last]) / 2))
 	return [(int(x), float(y)) for x, y in pts], top, bot
 
-def profile(path, swing=SWING):
-	"""the profile of the week in the capture at path: [(t, v)], or None"""
+def detect(path, swing=SWING):
+	"""the profile of the week in the capture at path, in the image: a
+	dict with "px", its points [x, y] in pixels, and what places them in the
+	week ("start", "days", "x0", "x1"); None when there are no candles"""
 	im = np.asarray(Image.open(path).convert("RGB")).astype(int)
 	H, W, _ = im.shape
 	start, days = bluelines(im)
@@ -135,15 +137,33 @@ def profile(path, swing=SWING):
 	if len(xs) < 20:
 		return None
 	pts, top, bot = zigzag(xs, hi, lo, swing)
-	def day(x):	# x as days from Monday 00:00
-		if len(days) == 1 and start is not None:	# Sunday evening is 6 of a day's 23 hours of candles
-			return (x - days[0]) / ((days[0] - start) * 23 / 6)
-		if len(days) < 2:
-			return 5 * (x - xs[0]) / max(1, xs[-1] - xs[0])
-		i = max(0, min(len(days) - 2, int(np.searchsorted(days, x, "right")) - 1))
-		return i + (x - days[i]) / (days[i+1] - days[i])
-	pts = [(round(float(day(x)), 3), round(float((bot - y) / max(1, bot - top)), 3)) for x, y in pts]
-	return clean(pts)
+	geom = {"start": start, "days": days, "x0": int(xs[0]), "x1": int(xs[-1])}
+	pts = clean([(day(geom, x), y, x) for x, y in pts])	# by time, keeping the pixels
+	geom["px"] = [[x, round(y, 1)] for _, y, x in pts]
+	return geom
+
+def day(geom, x):
+	"""image x in days from Monday 00:00, by the week's lines"""
+	start, days = geom["start"], geom["days"]
+	if len(days) == 1 and start is not None:	# Sunday evening is 6 of a day's 23 hours of candles
+		return (x - days[0]) / ((days[0] - start) * 23 / 6)
+	if len(days) < 2:
+		return 5 * (x - geom["x0"]) / max(1, geom["x1"] - geom["x0"])
+	i = max(0, min(len(days) - 2, int(np.searchsorted(days, x, "right")) - 1))
+	return i + (x - days[i]) / (days[i+1] - days[i])
+
+def points(geom):
+	"""the profile [(t, v)] of a profile in the image: v from its lowest
+	point (the low of the week, 0) to its highest (1)"""
+	if not geom or not geom.get("px"):
+		return None
+	ys = [y for _, y in geom["px"]]
+	top, bot = min(ys), max(ys)
+	return [(round(float(day(geom, x)), 3), round(float((bot - y) / max(1, bot - top)), 3)) for x, y in geom["px"]]
+
+def profile(path, swing=SWING):
+	"""the profile of the week in the capture at path: [(t, v)], or None"""
+	return points(detect(path, swing))
 
 def clean(pts, dt=0.05):
 	"""without the swings of less than dt days (an hour): labels and lines
@@ -177,23 +197,48 @@ class Profiles:
 		except (OSError, ValueError):
 			self.cache = {}
 
-	def get(self, name):
-		"""the profile of capture name, found now if it is not known"""
+	def entry(self, name):
+		"""the cache entry of capture name, made now if it is not there or
+		its image changed (but not when it was adjusted by hand)"""
 		p = os.path.join(self.dir, name)
 		try:
 			mt = os.path.getmtime(p)
 		except OSError:
 			return None
 		c = self.cache.get(name)
-		if c and c.get("mtime") == mt:
-			return c["points"]
+		if c and "geom" in c and (c.get("mtime") == mt or c.get("adjusted")):
+			return c
 		try:
-			pts = profile(p)
+			geom = detect(p)
 		except Exception:
-			pts = None
-		self.cache[name] = {"mtime": mt, "points": pts}
+			geom = None
+		c = self.cache[name] = {"mtime": mt, "geom": geom, "points": points(geom)}
 		self.dirty = True
-		return pts
+		return c
+
+	def get(self, name):
+		"""the profile of capture name, found now if it is not known"""
+		c = self.entry(name)
+		return c["points"] if c else None
+
+	def geom(self, name):
+		"""the profile of capture name in its image (see detect)"""
+		c = self.entry(name)
+		return c["geom"] if c else None
+
+	def adjust(self, name, px):
+		"""the profile of capture name is now px, points [x, y] of its image"""
+		c = self.entry(name)
+		if c is None:
+			return
+		g = dict(c["geom"] or {"start": None, "days": [], "x0": 0, "x1": 1})
+		px = sorted([[float(x), float(y)] for x, y in px])
+		g["px"] = px
+		if not c["geom"]:	# nothing found to place it: the week is its width
+			g["x0"], g["x1"] = px[0][0], px[-1][0]
+		c.update(geom=g, points=points(g), adjusted=True)
+		self.dirty = True
+		self.save()
 
 	def save(self):
 		"""keep the profiles found since the last time"""

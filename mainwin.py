@@ -27,6 +27,7 @@ from search import Search
 from drawbar import DrawBar
 from viewer import ImageView, renderfile
 from weekprof import Profiles, matches, partial
+from weekedit import ProfileEditor
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
@@ -483,6 +484,7 @@ class MainWindow(QMainWindow):
 		self.matchsrc = None	# the week profile matched, its time up to which, and the others' scores
 		self.matchend = None
 		self.matching = {}
+		self.adjuster = None	# the ProfileEditor while adjusting a week profile
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -594,6 +596,8 @@ class MainWindow(QMainWindow):
 			"scale one of two charts of a capture vertically, so its price levels match the other one")
 		self.matchact = self.mkaction("&Match Week…", self.matchweek, None, "Ctrl+Shift+M",
 			"compare the week profile shown, a week in progress, with the same days of the other weeks, and list the closest")
+		self.adjustact = self.mkaction("Adjust Week P&rofile…", self.adjustprofile, None, "Ctrl+Shift+R",
+			"draw the profile of the week shown on its capture, to move its points, add or remove some")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -668,6 +672,7 @@ class MainWindow(QMainWindow):
 		e.addAction(self.copyimgact)
 		e.addAction(self.scaleact)
 		e.addAction(self.matchact)
+		e.addAction(self.adjustact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
@@ -1814,6 +1819,8 @@ class MainWindow(QMainWindow):
 
 	# ---- showing ----
 	def show_(self, e, force=False):
+		if self.adjuster is not None and e is not self.current:
+			self.adjuster.finish(False)	# leaving the capture drops the adjusting
 		if e is self.current and not force:
 			self.selectitem(e)
 			return
@@ -1925,6 +1932,33 @@ class MainWindow(QMainWindow):
 		self.list.viewport().update()
 		self.matchdlg = MatchDialog(self, e.name, found[:8])
 		self.matchdlg.show()
+
+	def adjustprofile(self):
+		"""adjust the profile of the week shown on its capture"""
+		e = self.current
+		if e is None or not e.week or self.journal is None or self.view.pixitem is None:
+			QMessageBox.information(self, "Adjust Week Profile", "Show a week profile first.")
+			return
+		if self.adjuster is not None:
+			return
+		g = self.profiles.geom(e.name)
+		if g and g.get("px"):
+			px = g["px"]
+		else:	# none found: a flat line across the image, to shape
+			r = self.view.sceneRect()
+			px = [[r.left() + r.width() * .05, r.center().y()], [r.right() - r.width() * .05, r.center().y()]]
+		self.statusBar().showMessage("Drag the profile's points, click a segment to add one, right click one to remove it; "
+			"double click or Return when done, Esc to cancel")
+		self.adjuster = ProfileEditor(self.view, px, lambda px, name=e.name: self.adjusted(name, px))
+		self.view.setFocus()
+
+	def adjusted(self, name, px):
+		"""the adjusting ended, with the new points or None"""
+		self.adjuster = None
+		self.statusBar().clearMessage()
+		if px:
+			self.profiles.adjust(name, px)
+		self.list.viewport().update()
 
 	def clearmatch(self):
 		"""the match window closed: no more red profiles"""

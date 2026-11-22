@@ -148,3 +148,45 @@ check(win.current.name == "day261018weekprof.png", "picking one shows it")
 win.matchdlg.close()
 app.processEvents()
 check(win.matchsrc is None and not win.matching, "closing the list ends the match")
+
+# adjusting a week profile by hand on its capture
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtTest import QTest
+name = "day261018weekprof.png"
+win.show_(win.journal.find(name))
+app.processEvents()
+before = win.profiles.geom(name)["px"]
+win.adjustprofile()
+ed = win.adjuster
+check(ed is not None and len(ed.pts) == len(before), "Adjust Week Profile draws the profile on the capture")
+vp = win.view.viewport()
+at = lambda p: win.view.mapFromScene(p)
+# drag the second point (Monday's high) up by 50 pixels of the image
+p1 = ed.pts[1]
+QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(p1))
+QTest.mouseMove(vp, at(QPointF(p1.x(), p1.y() - 50)))
+QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(QPointF(p1.x(), p1.y() - 50)))
+check(abs(ed.pts[1].y() - (p1.y() - 50)) < 3, "a point is dragged")
+# a click in the middle of the last segment adds a point there
+a, b = ed.pts[-2], ed.pts[-1]
+mid = (a + b) / 2
+QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(mid))
+check(len(ed.pts) == len(before) + 1, "a click on a segment adds a point")
+QTest.mouseClick(vp, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, at(ed.pts[-2]))
+check(len(ed.pts) == len(before), "a right click removes one")
+# Esc drops it all
+QTest.keyClick(win.view, Qt.Key.Key_Escape)
+check(win.adjuster is None and win.profiles.geom(name)["px"] == before, "Esc leaves the profile as it was")
+# again, and a double click keeps it
+win.adjustprofile()
+ed = win.adjuster
+p1 = ed.pts[1]
+QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(p1))
+QTest.mouseMove(vp, at(QPointF(p1.x(), p1.y() - 150)))
+QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(QPointF(p1.x(), p1.y() - 150)))
+QTest.mouseDClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(5, 5))
+app.processEvents()
+after = weekprof.Profiles(d).cache[name]
+check(win.adjuster is None and after.get("adjusted") and abs(after["geom"]["px"][1][1] - (p1.y() - 150)) < 3,
+	"a double click keeps it, saved in the journal")
+check(after["points"][1][1] == 1.0, "Monday's high, now the highest, is the week's high")

@@ -177,6 +177,22 @@ in `.pyjou-weekprof.json` in the journal, and found again when an image
 changes. A chart with other kinds of candles, or the whole screen captured,
 may give a wrong profile or none.
 
+**Edit ▸ Adjust Week Profile…** (⇧⌘R) draws the profile of the week shown
+on its image, in red, to fix it by hand: drag a point to move it, click a
+segment to add a point there, right click a point to remove it. A double
+click (or Return) keeps the result, and Esc leaves the profile as it was. A
+profile adjusted by hand is kept even if its image changes; the image
+itself is never changed.
+
+**Edit ▸ Match Week…** (⇧⌘M) compares the week shown, usually a week in
+progress (a capture of the week so far, from Sunday to now), with the same
+days of the other full weeks of the journal, each scaled to its own range so
+the size of the moves does not matter. A window lists the closest weeks
+first, with how well each matches; click one to show it. While the window
+is open, the list shows the score of each week next to its profile, the
+part matched drawn in red and the rest, what came after, in the usual
+color. Closing the window ends the match.
+
 Beside the triangle, **m** closes the list down to the months, keeping the
 last month open with its weeks and the days of its last week, and **w**
 closes it down to the weeks, keeping the days of the last week.
