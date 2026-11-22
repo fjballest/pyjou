@@ -30,6 +30,9 @@ What it does:
   crosshair cursor shows the same level across the chart.
 - Hides the list and the notes to give the chart the whole window, and
   zooms with a two finger double tap or a pinch.
+- Finds the profile of each week in its capture (the swings that frame it),
+  draws it in the list, lets you adjust it on the capture, and matches a
+  week in progress with the weeks that went the same way.
 - Opens more windows (File ▸ New Window), on the same journal or another one,
   and lays them out from the Window menu: tiled, side by side, halves...
 
@@ -43,6 +46,12 @@ A day with two FVGs and an IFVG+ drawn from the Rect menu, and its notes:
 The same day with the list and the notes hidden, zoomed on the FVGs:
 
 ![FVGs zoomed](screenshots/fvg2.png)
+
+Edit ▸ Match Week on a week in progress (the week of 23 Nov, captured on
+Tuesday): the weeks that went the same way, best first, and in the list the
+profile of each week, the part matched in red:
+
+![Match Week](screenshots/matchweek.png)
 
 ## Running
 
