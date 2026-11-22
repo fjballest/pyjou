@@ -60,7 +60,7 @@ def candles(im, left, right):
 	m[:int(H*.04)] = False
 	m[int(H*.95):] = False
 	m[:, :max(6, left)] = False
-	m[:, min(W - int(W*.025), right):] = False
+	m[:, min(W - 4, right):] = False
 	for y in range(H):	# horizontal lines: runs of 12 pixels or more
 		s, e = runs(m[y])
 		for a, z in zip(s, e):
@@ -136,11 +136,13 @@ def profile(path, swing=SWING):
 		return None
 	pts, top, bot = zigzag(xs, hi, lo, swing)
 	def day(x):	# x as days from Monday 00:00
+		if len(days) == 1 and start is not None:	# Sunday evening is 6 of a day's 23 hours of candles
+			return (x - days[0]) / ((days[0] - start) * 23 / 6)
 		if len(days) < 2:
 			return 5 * (x - xs[0]) / max(1, xs[-1] - xs[0])
 		i = max(0, min(len(days) - 2, int(np.searchsorted(days, x, "right")) - 1))
 		return i + (x - days[i]) / (days[i+1] - days[i])
-	pts = [(round(float(day(x)), 3), round(float(bot - y) / max(1, bot - top), 3)) for x, y in pts]
+	pts = [(round(float(day(x)), 3), round(float((bot - y) / max(1, bot - top)), 3)) for x, y in pts]
 	return clean(pts)
 
 def clean(pts, dt=0.05):
