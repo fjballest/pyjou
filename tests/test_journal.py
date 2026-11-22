@@ -197,7 +197,7 @@ def isopen(*key):
 check(sorted(k[0] for k in w.groups) == ["m", "w", "w", "y"], "a year, a month and two weeks")
 check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 19)), "last week open")
 check(isopen("w", 2026, 10, date(2026, 10, 12)), "the week before open too, as the last has one day")
-check(w.groups[("w", 2026, 10, date(2026, 10, 12))].childCount() == 5, "week profile and days in their week")
+check(w.groups[("w", 2026, 10, date(2026, 10, 12))].childCount() == 4, "week profile and days in their week, a row a day")
 w.toggleall()
 check(not any(g.isExpanded() for g in w.groups.values()) and w.allbtn.text() == "▸", "collapse all")
 w.jump(False)
@@ -217,7 +217,8 @@ w.jump(True)
 check(w.groups[("w", 2026, 10, date(2026, 10, 12))].text(0).startswith("1. Week 12 Oct") and
 	w.groups[("w", 2026, 10, date(2026, 10, 19))].text(0).startswith("2. Week 19 Oct"), "weeks numbered")
 check(w.countlabel.text().endswith(", 2 weeks"), "the weeks counted")
-check(w.items["day261014b.png"].text(0).startswith("Wed 14b"), "a second image of a day")
+check(w.items["day261014b.png"] is w.items["day261014.png"] and w.items["day261014b.png"].text(0) == "Wed 14"
+	and w.chiplabel(w.journal.find("day261014b.png")).startswith("b"), "a second image of a day, in the row of its day")
 w.collapseto("w")
 check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 19)) and
 	not isopen("w", 2026, 10, date(2026, 10, 12)), "collapse to weeks, the last one open")

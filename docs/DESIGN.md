@@ -178,6 +178,20 @@ them from `src` for a cut. A cut is pasted only once (the clipboard is
 cleared) and never in its own journal. Clipboard files without that type
 go to `addcaptures`.
 
+The list has a row per day (and per week's profiles): `fillist` makes one
+item for the captures of a day under a week, with their names, in order,
+under `NAMESROLE`, and `items` maps each capture's name to its row. A row
+with several captures is drawn by `RowDelegate`: the day, with the
+selection only behind it, then a chip per capture (`chiplabel`: its letter,
+✎ for notes or drawings), the one shown (`current`) filled, the one cut
+gray. `CaptureList.chips(row)` gives the chips' rectangles (the same layout
+the delegate uses, the label padded so they line up) and `captureat(pos)`
+the capture under the mouse; a press shows that capture (`pick` makes
+`listchanged` choose it when the row changes), ←/→ go along the chips, and
+tooltips name the chip's capture. `rowentry(row)` is the capture of a row:
+the one shown when it is there, else its first, and `listentry` is that of
+the current row.
+
 The list (`CaptureList`) drags its captures with the `DRAGMIME` type (the
 journal directory and image name) and the image's file URL. The calendar's
 view viewport has `MainWindow` as event filter: a drag of a capture of this
@@ -189,9 +203,10 @@ drags, so dropping one elsewhere doesn't add it again; other windows and
 programs take the file URL.
 
 The list also takes its own drags: `CaptureList.droporder` finds the
-capture under the pointer and, when it is of the same day and kind, the
-order the day's captures get with the one dragged before or after it (by
-the half of the row), drawing a line there (`dropline`, in `paintEvent`).
+chip nearest the pointer in its row and, when it is of the same day and kind,
+the order the day's captures get with the one dragged before or after it (by
+the half of the chip), drawing a vertical line there (`dropline`, in
+`paintEvent`).
 The drop calls `MainWindow.reorder`, and `Journal.reorder(names)` renames
 them all to the plain name, b, c... in that order, through temporary
 `.reorder` names so none is overwritten (and puts them back if a rename
@@ -434,3 +449,20 @@ The PDFs next to these documents are made with `docs/mkpdf.sh`.
 | add a kind of drawing | a shape class with `todict`, `setend`, `small` and `setstyle` in `drawing.py`, `fromdict`, the tool in `ImageView.mousePressEvent` and `drawbar.TOOLS` |
 | add a menu entry | `MainWindow.mkactions` and `mkmenus` |
 | change the list groups | `journal.groupkeys` and `MainWindow.initialgroups` |
+
+## Scaling a panel
+
+`ImageView.startscale(done)` (Edit ▸ Scale Panel) puts the view in a mode
+of its own, `scaler`, which takes the mouse before the tools: a click sets
+the split `x`, the next the base `y` and the `side` (left or right of the
+split, or `all` when the split is at an edge), and a press above the base
+then a drag sets the factor `f = (y - mouse) / (y - press)`, clamped to
+0.2–5. `scaledimage` paints the original (`orig`) with the side's rows above
+the base drawn from source rows `[y - y/f, y)` (f ≥ 1) or into target rows
+`[y(1 - f), y)` (f < 1), filling the rest with the color of the side's top
+left pixel; the pixmap shown follows the drag. On release `done(img, f,
+side)` runs: `MainWindow.panelscaled` asks, writes the PNG over the capture
+when told yes, and calls `endscale(keep)`, which puts the original back
+otherwise. `drawscaler` draws the split and base lines in `drawForeground`;
+`hint` tells the window what to do next, for the status bar. Esc or the
+right button cancel (`cancelscale`).

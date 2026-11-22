@@ -9,14 +9,14 @@ import os
 import sys
 import zipfile
 
-from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRectF, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
 	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QTextCharFormat
 )
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-	QProgressBar, QSplitter, QStyle, QTableView, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+	QProgressBar, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget, QDialogButtonBox
 )
 
@@ -82,6 +82,46 @@ class SearchEdit(QLineEdit):
 windows = []	# the windows made with New Window, so they are kept
 
 DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
+NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
+
+class RowDelegate(QStyledItemDelegate):
+	"""draws a day row with several captures as its day and a compact chip
+	for each capture (a, b, c...), the one shown highlighted"""
+	def __init__(self, lst):
+		super().__init__(lst)
+		self.lst = lst
+
+	def paint(self, painter, option, index):
+		names = index.data(NAMESROLE) or []
+		if len(names) < 2:
+			super().paint(painter, option, index)
+			return
+		opt = QStyleOptionViewItem(option)
+		self.initStyleOption(opt, index)
+		fm = opt.fontMetrics
+		opt.rect = QRect(option.rect.left(), option.rect.top(), self.lst.labelwidth(fm, opt.text), option.rect.height())
+		st = opt.widget.style() if opt.widget else QApplication.style()
+		st.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+		win = self.lst.win
+		pal = option.palette
+		painter.save()
+		painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+		for name, r in self.lst.chiprects(option.rect, opt.text, names, fm):
+			e = win.journal.find(name) if win.journal else None
+			cur = win.current is not None and win.current.name == name
+			if cur:
+				painter.setPen(Qt.PenStyle.NoPen)
+				painter.setBrush(pal.color(QPalette.ColorRole.Highlight))
+			else:
+				painter.setPen(QPen(pal.color(QPalette.ColorRole.Mid), 1))
+				painter.setBrush(Qt.BrushStyle.NoBrush)
+			painter.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+			if name == win.cutname:
+				painter.setPen(QColor("gray"))
+			else:
+				painter.setPen(pal.color(QPalette.ColorRole.HighlightedText if cur else QPalette.ColorRole.Text))
+			painter.drawText(r, Qt.AlignmentFlag.AlignCenter, win.chiplabel(e) if e else "?")
+		painter.restore()
 
 class CaptureList(QTreeWidget):
 	"""the list; its captures can be dragged, to a day of the calendar to
@@ -90,14 +130,102 @@ class CaptureList(QTreeWidget):
 	def __init__(self, win):
 		super().__init__()
 		self.win = win
-		self.dropline = None	# where a capture dropped goes, as a y of the viewport
+		self.dropline = None	# where a capture dropped goes: a y, or (x, top, bottom) in a row
+		self.pick = None		# the capture of the row clicked
+		self.pressed = None		# the capture the mouse went down on, to drag it
+		self.setItemDelegate(RowDelegate(self))
 		self.setDragEnabled(True)
 		self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
 		self.setAcceptDrops(True)
 		self.viewport().setAcceptDrops(True)
 
+	@staticmethod
+	def labelwidth(fm, label):
+		"""the width of a row's label, the same for all days so the chips line up"""
+		return max(fm.horizontalAdvance(label), fm.horizontalAdvance("Wed 30")) + 14
+
+	def chiprects(self, rect, label, names, fm):
+		"""[(name, QRect)] of the chips of a day row at rect"""
+		win = self.win
+		x = rect.left() + self.labelwidth(fm, label) + 4
+		out = []
+		for n in names:
+			e = win.journal.find(n) if win.journal else None
+			w = fm.horizontalAdvance(win.chiplabel(e) if e else "?") + 14
+			out.append((n, QRect(x, rect.top() + 2, w, rect.height() - 4)))
+			x += w + 4
+		return out
+
+	def chips(self, it):
+		"""[(name, QRect)] of the chips of row it, in viewport coordinates;
+		empty for a row with one capture, or a group"""
+		names = it.data(0, NAMESROLE) if it is not None else None
+		if not names or len(names) < 2:
+			return []
+		return self.chiprects(self.visualItemRect(it), it.text(0), names, self.fontMetrics())
+
+	def chiprect(self, name):
+		"""where the chip of capture name is, or the rect of its row"""
+		it = self.win.items.get(name)
+		for n, r in self.chips(it):
+			if n == name:
+				return r
+		return self.visualItemRect(it) if it is not None else QRect()
+
+	def captureat(self, pos):
+		"""the name of the capture at pos: its chip, or the only one of its row"""
+		it = self.itemAt(pos)
+		names = it.data(0, NAMESROLE) if it is not None else None
+		if not names:
+			return None
+		if len(names) == 1:
+			return names[0]
+		for n, r in self.chips(it):
+			if r.contains(pos):
+				return n
+		return None
+
+	def mousePressEvent(self, ev):
+		pos = ev.position().toPoint()
+		n = self.captureat(pos)
+		self.pick = self.pressed = n
+		super().mousePressEvent(ev)
+		self.pick = None
+		w = self.win
+		if n and ev.button() == Qt.MouseButton.LeftButton and (w.current is None or w.current.name != n):
+			e = w.journal.find(n) if w.journal else None
+			if e is not None:
+				w.show_(e)
+
+	def keyPressEvent(self, ev):
+		"""left and right go along the captures of a day row"""
+		it = self.currentItem()
+		names = it.data(0, NAMESROLE) if it is not None else None
+		w = self.win
+		if names and len(names) > 1 and ev.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) \
+				and w.current is not None and w.current.name in names:
+			i = names.index(w.current.name) + (1 if ev.key() == Qt.Key.Key_Right else -1)
+			if 0 <= i < len(names):
+				w.show_(w.journal.find(names[i]))
+				return
+		super().keyPressEvent(ev)
+
+	def viewportEvent(self, ev):
+		if ev.type() == QEvent.Type.ToolTip:
+			pos = ev.pos()
+			it = self.itemAt(pos)
+			if self.chips(it):
+				n = self.captureat(pos)
+				e = self.win.journal.find(n) if n and self.win.journal else None
+				if e is not None:
+					QToolTip.showText(ev.globalPos(), e.name + ("\n" + self.win.itemtip(e) if self.win.itemtip(e) else ""), self)
+				else:
+					QToolTip.hideText()
+				return True
+		return super().viewportEvent(ev)
+
 	def startDrag(self, actions):
-		md = self.win.dragdata(self.currentItem())
+		md = self.win.dragdata(self.pressed or self.currentItem())
 		if md is None:
 			return
 		drag = QDrag(self)
@@ -110,12 +238,16 @@ class CaptureList(QTreeWidget):
 		goes nowhere, or stays where it is"""
 		e = self.win.owndrag(md)
 		it = self.itemAt(pos)
-		name = it.data(0, Qt.ItemDataRole.UserRole) if it is not None else None
+		chips = self.chips(it)
+		name = None
+		for n, r in chips:	# the chip under pos, or the nearest one
+			if name is None or abs(r.center().x() - pos.x()) < abs(rr.center().x() - pos.x()):
+				name, rr = n, r
 		t = self.win.journal.find(name) if e is not None and name else None
 		if t is None or t.day != e.day or t.week != e.week:
 			return None
-		r = self.visualItemRect(it)
-		after = pos.y() >= r.center().y()
+		r = rr
+		after = pos.x() >= r.center().x()
 		old = [x.name for x in self.win.journal.capturesof(e.day, e.week)]
 		order = [n for n in old if n != e.name]
 		if t.name != e.name:
@@ -124,7 +256,7 @@ class CaptureList(QTreeWidget):
 			order = old
 		if order == old:
 			return None
-		return order, r.bottom() + 1 if after else r.top()
+		return order, (r.right() + 2 if after else r.left() - 2, r.top(), r.bottom())
 
 	def dragEnterEvent(self, ev):
 		if self.win.owndrag(ev.mimeData()) is None:
@@ -172,7 +304,11 @@ class CaptureList(QTreeWidget):
 		if self.dropline is not None:
 			p = QPainter(self.viewport())
 			p.setPen(QPen(self.palette().color(QPalette.ColorRole.Highlight), 2))
-			p.drawLine(0, self.dropline, self.viewport().width(), self.dropline)
+			if isinstance(self.dropline, tuple):
+				x, y0, y1 = self.dropline
+				p.drawLine(x, y0, x, y1)
+			else:
+				p.drawLine(0, self.dropline, self.viewport().width(), self.dropline)
 			p.end()
 
 def calendardate(cal, pos):
@@ -322,6 +458,8 @@ class MainWindow(QMainWindow):
 			"save the capture selected, or those of the week, month or year selected, as PNGs with their drawings in a zip file")
 		self.exportallact = self.mkaction("Export &All…", lambda: self.export(True), None, "Ctrl+Shift+E",
 			"save the captures shown, as the search and the Days and Weeks boxes leave them, as PNGs with their drawings in a zip file")
+		self.scaleact = self.mkaction("Scale &Panel…", self.scalepanel, None, "Ctrl+Shift+S",
+			"scale one of two charts of a capture vertically, so its price levels match the other one")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -394,6 +532,7 @@ class MainWindow(QMainWindow):
 		e.addAction(self.delcapact)
 		e.addAction(self.askdelact)
 		e.addAction(self.copyimgact)
+		e.addAction(self.scaleact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
@@ -472,7 +611,8 @@ class MainWindow(QMainWindow):
 		for a in (self.cutact, self.copyact, self.pasteact, self.dellistact):
 			a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)	# not in the notes
 			self.list.addAction(a)
-		self.items = {}			# entry name -> its tree item
+		self.items = {}			# entry name -> its row in the list
+		self.cutname = None		# the capture cut, gray in the list
 		self.groups = {}		# group key -> its tree item
 		self.expanded = set()	# keys of the groups open
 		self.calendar = QCalendarWidget()
@@ -501,6 +641,7 @@ class MainWindow(QMainWindow):
 		self.view.delkey = lambda: self.delpressed(True)
 		self.view.dclickzoom = False	# a double tap zooms; double clicks are for the drawings
 		self.view.navigate.connect(self.navigate)
+		self.view.hint.connect(lambda t: self.statusBar().showMessage(t) if t else self.statusBar().clearMessage())
 		self.view.drawchanged.connect(self.drawchanged)
 		drawbar = self.mkdrawbar()
 		self.tagslabel = QLabel()
@@ -642,9 +783,10 @@ class MainWindow(QMainWindow):
 			return None
 		return self.journal.find(c.get("name", ""))
 
-	def dragdata(self, item):
-		"""what dragging the capture of item from the list carries"""
-		name = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+	def dragdata(self, what):
+		"""what dragging a capture from the list carries: what is its name,
+		or a row of the list, for the capture of it shown"""
+		name = what if isinstance(what, str) or what is None else self.rowentry(what)
 		e = self.journal.find(name) if name and self.journal else None
 		if e is None:
 			return None
@@ -810,9 +952,9 @@ class MainWindow(QMainWindow):
 
 	# ---- cut, copy and paste ----
 	def listmenu(self, pos):
-		it = self.list.itemAt(pos)
-		if it is not None and it.data(0, Qt.ItemDataRole.UserRole) is not None:
-			self.list.setCurrentItem(it)	# the capture the menu is for
+		n = self.list.captureat(pos)
+		if n is not None:	# the capture the menu is for
+			self.show_(self.journal.find(n))
 		self.updateclipacts()
 		m = QMenu(self)
 		for a in (self.cutact, self.copyact, self.pasteact):
@@ -824,9 +966,20 @@ class MainWindow(QMainWindow):
 
 	def listentry(self):
 		"""the capture selected in the list, or None"""
-		it = self.list.currentItem()
-		name = it.data(0, Qt.ItemDataRole.UserRole) if it is not None else None
+		name = self.rowentry(self.list.currentItem())
 		return self.journal.find(name) if name and self.journal else None
+
+	def rowentry(self, it):
+		"""the name of the capture of row it: the one shown when it is
+		there, else its first; None for a group"""
+		names = it.data(0, NAMESROLE) if it is not None else None
+		if not names:
+			return None
+		if self.list.pick in names:
+			return self.list.pick
+		if self.current is not None and self.current.name in names:
+			return self.current.name
+		return names[0]
 
 	def clipped(self):
 		"""the capture cut or copied, as {"dir", "name", "cut"}, or None"""
@@ -875,8 +1028,11 @@ class MainWindow(QMainWindow):
 		"""show the capture cut in gray until it is pasted"""
 		c = self.clipped()
 		cut = c["name"] if c and c.get("cut") and self.journal and c["dir"] == self.journal.dir else None
+		self.cutname = cut
 		for name, it in self.items.items():
-			it.setData(0, Qt.ItemDataRole.ForegroundRole, QBrush(QColor("gray")) if name == cut else None)
+			if len(it.data(0, NAMESROLE) or []) < 2:
+				it.setData(0, Qt.ItemDataRole.ForegroundRole, QBrush(QColor("gray")) if name == cut else None)
+		self.list.viewport().update()
 
 	def pastecapture(self):
 		"""paste the capture cut or copied in this journal, keeping its date,
@@ -916,11 +1072,13 @@ class MainWindow(QMainWindow):
 		it = self.list.currentItem()
 		if it is None or self.journal is None:
 			return []
+		if it.data(0, NAMESROLE):	# a row: the capture shown of it
+			e = self.listentry()
+			return [e] if e is not None else []
 		out, todo = [], [it]
 		while todo:
 			x = todo.pop(0)
-			name = x.data(0, Qt.ItemDataRole.UserRole)
-			if name is not None:
+			for name in x.data(0, NAMESROLE) or []:
 				e = self.journal.find(name)
 				if e is not None:
 					out.append(e)
@@ -1082,7 +1240,7 @@ class MainWindow(QMainWindow):
 		self.notes.setFocus()
 
 	def itemdoubleclicked(self, item, _col):
-		name = item.data(0, Qt.ItemDataRole.UserRole)
+		name = self.rowentry(item)
 		e = self.journal.find(name) if name and self.journal else None
 		if e is not None:
 			QTimer.singleShot(0, lambda: self.changedate(e))	# after the click is over
@@ -1304,6 +1462,7 @@ class MainWindow(QMainWindow):
 		bold = QFont(self.list.font())
 		bold.setBold(True)
 		weeks = self.journal.weeks() if self.journal else []
+		rows = {}
 		for e in self.shown:
 			parent = None
 			for key, label in groupkeys(e):
@@ -1323,12 +1482,21 @@ class MainWindow(QMainWindow):
 					self.groups[key] = g
 				g.setData(0, Qt.ItemDataRole.UserRole + 2, g.data(0, Qt.ItemDataRole.UserRole + 2) + 1)
 				parent = g
-			it = QTreeWidgetItem([self.itemtext(e)])
-			it.setData(0, Qt.ItemDataRole.UserRole, e.name)
-			if e.week:
-				it.setFont(0, bold)
-			it.setToolTip(0, self.itemtip(e))
-			parent.addChild(it)
+			rk = (id(parent), e.day, e.week)
+			it = rows.get(rk)
+			if it is None:	# a row for the captures of the day (or the week profiles)
+				it = QTreeWidgetItem([self.itemtext(e)])
+				it.setData(0, Qt.ItemDataRole.UserRole, e.name)
+				it.setData(0, NAMESROLE, [e.name])
+				if e.week:
+					it.setFont(0, bold)
+				it.setToolTip(0, self.itemtip(e))
+				parent.addChild(it)
+				rows[rk] = it
+			else:
+				it.setData(0, NAMESROLE, it.data(0, NAMESROLE) + [e.name])
+				it.setText(0, self.rowlabel(e))
+				it.setToolTip(0, "")
 			self.items[e.name] = it
 		for key, g in self.groups.items():
 			n = g.data(0, Qt.ItemDataRole.UserRole + 2)
@@ -1340,6 +1508,17 @@ class MainWindow(QMainWindow):
 		total = len(self.journal.entries) if self.journal else 0
 		self.countlabel.setText(f"{len(self.shown)} of {total}, {len(weeks)} week{'s' if len(weeks) != 1 else ''}")
 		self.countlabel.setToolTip("images shown of all the images, and the weeks with images")
+
+	@staticmethod
+	def rowlabel(e):
+		"""the label of a row with several captures"""
+		return "Week profile" if e.week else e.day.strftime("%a %d")
+
+	@staticmethod
+	def chiplabel(e):
+		"""the compact name of a capture in its row: its letter (a for the
+		first), marked when it has notes or drawings"""
+		return (e.extra or "a") + ("✎" if e.notes.strip() or e.drawn else "")
 
 	@staticmethod
 	def itemtext(e):
@@ -1443,6 +1622,7 @@ class MainWindow(QMainWindow):
 		self.list.blockSignals(True)
 		if it is None:
 			self.list.setCurrentItem(None)
+			self.list.viewport().update()
 		else:
 			p = it.parent()
 			while p is not None:	# open its groups
@@ -1453,13 +1633,14 @@ class MainWindow(QMainWindow):
 				p = p.parent()
 			self.list.setCurrentItem(it)
 			self.list.scrollToItem(it)
+			self.list.viewport().update()	# the chip of the one shown
 		self.list.blockSignals(False)
 		self.updateallbtn()
 
 	def listchanged(self, item, _prev):
 		if item is None or self.journal is None:
 			return
-		name = item.data(0, Qt.ItemDataRole.UserRole)
+		name = self.rowentry(item)
 		if name is None:
 			return	# a group
 		e = self.journal.find(name)
@@ -1582,6 +1763,29 @@ class MainWindow(QMainWindow):
 				self.applysearch()
 		self.show_(to)
 
+	def scalepanel(self):
+		"""scale a chart of the capture shown (see ImageView.startscale)"""
+		if self.current is not None:
+			self.view.startscale(self.panelscaled)
+
+	def panelscaled(self, img, f, side):
+		"""the panel was scaled: replace the capture with img if the user says so"""
+		e = self.current
+		if e is None or self.journal is None:
+			self.view.endscale(False)
+			return
+		what = {"left": "the left chart", "right": "the right chart"}.get(side, "the image")
+		ok = QMessageBox.question(self, "Scale Panel",
+			f"Scale {what} ×{f:.3f} and replace {e.name} with the result?",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
+		if ok and not img.save(self.journal.path(e), "PNG"):
+			QMessageBox.warning(self, "Scale Panel", f"Can't write {e.name}")
+			ok = False
+		self.view.endscale(ok)
+		if ok:
+			self.statusBar().showMessage(f"{e.name} scaled", 3000)
+
 	def osview(self):
 		if self.current is not None:
 			self.view.osview()	# with its drawings
@@ -1610,8 +1814,10 @@ class MainWindow(QMainWindow):
 		"""show e's mark in the list as it is now"""
 		it = self.items.get(e.name)
 		if it is not None:
-			it.setText(0, self.itemtext(e))
-			it.setToolTip(0, self.itemtip(e))
+			if len(it.data(0, NAMESROLE) or []) < 2:
+				it.setText(0, self.itemtext(e))
+				it.setToolTip(0, self.itemtip(e))
+			self.list.viewport().update()
 
 	# ---- tags ----
 	def startocr(self, entries=None):
@@ -1656,7 +1862,7 @@ class MainWindow(QMainWindow):
 			self.applysearch()
 		else:
 			it = self.items.get(e.name)
-			if it is not None:
+			if it is not None and len(it.data(0, NAMESROLE) or []) < 2:
 				it.setToolTip(0, self.itemtip(e))
 
 	def ocrdone(self):

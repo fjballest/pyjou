@@ -75,7 +75,7 @@ check(w.cutact.isEnabled() and w.copyact.isEnabled(), "cut and copy for a captur
 w.clipcapture(True)
 c = w.clipped()
 check(c == {"dir": w.journal.dir, "name": "day261014.png", "cut": True}, "cut on the clipboard")
-check(w.items["day261014.png"].foreground(0).color() == QColor("gray"), "the capture cut is gray")
+check(w.cutname == "day261014.png", "the capture cut is gray")
 w.pastecapture()
 check(os.path.exists(os.path.join(a, "day261014.png")), "a cut pasted in its own journal stays")
 w.openjournal(b)
@@ -152,7 +152,7 @@ cells = {mainwin.calendardate(w.calendar, w.calview.visualRect(w.calview.model()
 check(date(2026, 6, 1) in cells and date(2026, 5, 25) in cells and date(2026, 7, 5) in cells and len(cells) == 42,
 	"the calendar cells' dates")
 def drop(e, d):
-	md = w.dragdata(w.items[e])
+	md = w.dragdata(e)
 	p = QPointF(cell(d))
 	vp = w.calview.viewport()
 	en = QDragEnterEvent(p.toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
@@ -177,7 +177,7 @@ check(drop("day261021.png", date(2026, 10, 14)) and w.journal.find("day261021.pn
 wk = next((x.name for x in w.journal.entries if x.week), None)
 if wk:
 	check(drop(wk, date(2026, 10, 29)) and w.current.name == "day261025weekprof.png", "a week profile goes to the Sunday before")
-md = w.dragdata(w.items[w.current.name])
+md = w.dragdata(w.current.name)
 check(w.owndrag(md) is w.current, "the window knows its own drags")
 en = QDragEnterEvent(QPointF(5, 5).toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
 w.dragEnterEvent(en)
@@ -232,11 +232,10 @@ w.reload()
 w.reveal(w.journal.find("day261030d.png"))
 def listdrop(src, dst, after=False):
 	"""drop capture src on the list, before or after capture dst"""
-	md = w.dragdata(w.items[src])
-	it = w.items[dst]
-	w.list.scrollToItem(it)
-	r = w.list.visualItemRect(it)
-	p = QPointF(r.center().x(), r.bottom() - 2 if after else r.top() + 2)
+	md = w.dragdata(src)
+	w.list.scrollToItem(w.items[dst])
+	r = w.list.chiprect(dst)
+	p = QPointF(r.right() - 2 if after else r.left() + 2, r.center().y())
 	vp = w.list.viewport()
 	QApplication.sendEvent(vp, QDragEnterEvent(p.toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
 	mv = QDragMoveEvent(p.toPoint(), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)

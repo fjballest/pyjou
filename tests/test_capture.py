@@ -170,6 +170,7 @@ def answer2():
 	dl.accept()
 dlgs.clear()
 QTimer.singleShot(50, answer2)
+w.reveal(w.journal.find("day261014b.png"))	# its chip clicked
 it = w.items["day261014b.png"]
 w.list.itemDoubleClicked.emit(it, 0)
 for _ in range(100):

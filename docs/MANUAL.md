@@ -157,8 +157,12 @@ A week that spans two months shows up in both, with the days of each.
 
 Weeks are numbered in calendar weeks from the first one in the journal,
 which is 1: `5. Week 26 Oct` is the fifth week since then, counting weeks
-without images too. Another image of a day shows with its letter, as in
-`Tue 26` and `Tue 26b`. Above the list, the count says how many images are
+without images too. Each day is one row. A day with several images shows
+them side by side in its row, after the day, as compact names: its letters,
+`a` for the first (`day261026.png`), then `b`, `c`... with ✎ on the ones
+with notes or drawings, and the one shown highlighted. Click one to show
+it, or use ← and → on the row to go along them; hover one to see its name,
+notes and tags. Week profiles get a row of their own in the same way. Above the list, the count says how many images are
 shown, of how many, and how many weeks have images (`12 of 40, 9 weeks`).
 
 Beside the triangle, **m** closes the list down to the months, keeping the
@@ -180,8 +184,8 @@ Sunday before it. Dragging an image to the Finder or to another DayJournal
 window copies it there.
 
 To change the order of the images of a day (or of the week profiles of a
-week), drag one in the list and drop it before or after another of the same
-day: a line shows where it goes. The images of that day are renamed, with
+week), drag one of its names in the row and drop it before or after another
+one: a line shows where it goes. The images of that day are renamed, with
 their notes, drawings and tags, to keep the new order with the usual names:
 the first `day261014.png`, then `day261014b.png`, `day261014c.png`... with
 no letters left out.
@@ -247,6 +251,22 @@ when you right click an image in the list) copies the image with its
 drawings to the clipboard, at its own size, to paste it in a message, a
 document or another program. ⌘C in the list still copies the capture, to
 paste it in another journal.
+
+### Scaling one of two charts
+
+Some captures hold two charts side by side, with different vertical scales.
+**Edit ▸ Scale Panel…** (⇧⌘S) scales one of them vertically so its price
+levels match the other one's. Click where the two charts meet (a blue line
+follows the mouse), then click on the chart to scale, near its time axis:
+below that line the chart stays as it is, so its times do too. Then drag a
+point above the line up or down: the chart, above the line, stretches or
+shrinks about it as you drag, and the status bar says by how much. On
+release DayJournal asks whether to replace the image with the result; Yes
+saves it over the capture's PNG, at the same size (what goes past the top is
+cut, and what is left empty is filled with the chart's background), No puts
+the image back as it was. Clicking first beyond either side of the image
+scales the whole image instead. Esc, or the right button, cancels.
+Drawings already on the image are not moved.
 
 The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
 Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the
