@@ -436,6 +436,14 @@ them in `~/.EasyOCR` and downloads them the first time.
 writes the tag it builds there. Fixes bump the third number (2.0.1), new
 features the second (2.1).
 
+`./RELEASE v2.7 notes.md` makes a release from master: it writes the
+version to `version.py` and pushes it, runs the workflow and waits for it,
+checks the three downloads and sets the release notes from `notes.md`,
+adding the paragraph on what each download holds. `-i` then installs it on
+macOS with `./MKIT`, and `-s v2.6.1` removes the downloads of the release
+it fixes. The script is the same in both repositories and uses only
+`gh api`.
+
 The PDFs next to these documents are made with `docs/mkpdf.sh`.
 
 ## Where to change things
