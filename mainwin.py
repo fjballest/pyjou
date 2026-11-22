@@ -28,7 +28,7 @@ from drawbar import DrawBar
 from viewer import ImageView, renderfile
 from winlayout import windowmenu
 from version import VERSION
-from helpwin import showguide
+from helpwin import addtopics, showguide
 
 RECENTMAX = 10
 CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
@@ -563,6 +563,7 @@ class MainWindow(QMainWindow):
 		guide = h.addAction("DayJournal &User Guide")
 		guide.setShortcut(QKeySequence.StandardKey.HelpContents)
 		guide.triggered.connect(lambda: showguide("DayJournal", self))
+		addtopics(h, "DayJournal")
 		about = h.addAction("&About DayJournal")
 		about.setMenuRole(QAction.MenuRole.AboutRole)
 		about.triggered.connect(self.about)

@@ -39,3 +39,13 @@ it = w.toc.topLevelItem(1)
 w.gosection(it)
 check(w.view.textCursor().block().blockFormat().headingLevel() > 0, "a section of the contents goes to its heading")
 check(helpwin.slug("The list") == "the-list" and helpwin.slug("Scaling one of two charts") == "scaling-one-of-two-charts", "slugs")
+# the Help menu lists the guide's topics, to find them with its search
+from PySide6.QtWidgets import QMenu
+m = QMenu()
+sub = helpwin.addtopics(m, "Test")
+names = [a.text().strip() for a in sub.actions()]
+check("Scaling one of two charts" in names and "Contents" not in names, "Guide Topics in the Help menu")
+w.search.setText("zzz-nothing")
+w.filter()
+sub.actions()[names.index("Scaling one of two charts")].trigger()
+check(w.view.textCursor().block().text().startswith("Scaling one of two charts"), "a topic opens the guide there")
