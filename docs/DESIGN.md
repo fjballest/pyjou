@@ -45,7 +45,7 @@ temporary directories (`istemp`, `TEMPDIRS`).
 | `<image>.txt` | `Journal.savenotes` | the notes, plain UTF-8 text |
 | `<image>.drw` | `Journal.savedrawing` | the drawings, JSON (below) |
 | `.pyjou-tags.json` | `Journal.savecache` | `{"version": 1, "images": {name: {"mtime", "raw": [[text, confidence]...]}}}` |
-| `.pyjou-weekprof.json` | `Profiles.save` | `{name: {"mtime", "points": [[t, v]...] or null}}`: the profile of each week profile image |
+| `.pyjou-weekprof.json` | `Profiles.save` | `{name: {"mtime", "geom": {"px": [[x, y]...], "start", "days", "x0", "x1"}, "points": [[t, v]...], "adjusted"}}`: the profile of each week profile image, in the image and in the week |
 | `aliases.txt` | you, or `Journal.savealiases` | search aliases, `word: alias, alias` per line, `#` comments |
 
 All writes go to a temporary file first and then `os.replace` it, so a
