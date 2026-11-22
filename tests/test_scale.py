@@ -56,7 +56,7 @@ QTest.keyClick(w.list, Qt.Key.Key_Left)
 check(w.current.name == "day261014.png", "left to the previous ones")
 check(w.listentry().name == "day261014.png" and [e.name for e in w.selectedentries()] == ["day261014.png"], "the chip shown is the selected one")
 
-# scale the right chart, at x 200, about y 180: the level at 100 goes to 60 with x1.5
+# scale the right chart, split at x 200, kept below y 180
 v = w.view
 v.realsize()
 app.processEvents()
@@ -64,24 +64,41 @@ asked = []
 QMessageBox.question = staticmethod(lambda *a, **k: (asked.append(a[2]), QMessageBox.StandardButton.Yes)[1])
 def at(x, y):
 	return v.mapFromScene(QPointF(x, y))
+def drag(x, y0, y1):
+	QTest.mousePress(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(x, y0))
+	QTest.mouseMove(v.viewport(), at(x, (y0 + y1) / 2))
+	QTest.mouseMove(v.viewport(), at(x, y1))
+	QTest.mouseRelease(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(x, y1))
+def finish(x, y):
+	QTest.mouseDClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(x, y))
+	for _ in range(20):
+		QTest.qWait(20)
+		if v.scaler is None:
+			break
 w.scalepanel()
 check(v.scaler is not None and "two charts" in w.statusBar().currentMessage(), "scaling starts by asking for the split")
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(200, 50))
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(300, 180))
 check(v.scaler["side"] == "right" and v.scaler["y"] == 180, "the right chart, kept below y 180")
-QTest.mousePress(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(300, 100))
-QTest.mouseMove(v.viewport(), at(300, 60))
-QTest.mouseRelease(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(300, 60))
-for _ in range(20):
-	QTest.qWait(20)
-	if asked:
-		break
-check(asked and "right chart ×1.500" in asked[0], f"asks before replacing: {asked}")
+# one drag: scaled about the base, the level at 100 to 60 (x1.5)
+drag(300, 100, 60)
+check(abs(v.scalemap()[0] - 1.5) < 0.01 and asked == [], "one drag scales about the line, without asking yet")
+# drag it again, nearer: 100 to 80 (x1.25)
+drag(300, 60, 80)
+check(abs(v.scalemap()[0] - 1.25) < 0.01 and len(v.scaler["pins"]) == 1, "dragging the same point again")
+# a second point: the source row at 20 (now at 180-160*1.25=-20, out of sight) ... use a visible one
+a, b = v.scalemap()
+drag(300, 150, 140)	# the row shown at 150 goes to 140, the first stays at 80
+a, b = v.scalemap()
+s150 = (150 - (180 * (1 - 1.25))) / 1.25
+check(len(v.scaler["pins"]) == 2 and abs(a * 100 + b - 80) < 0.5 and abs(a * s150 + b - 140) < 0.5, "two points: both where dragged")
+finish(300, 120)
+check(asked and "right chart ×" in asked[0], f"a double click asks before replacing: {asked}")
 img = QImage(os.path.join(d, "day261014.png"))
 dark = lambda x, y: img.pixelColor(x, y).lightness() < 60
 check(img.width() == 400 and img.height() == 200, "the same size")
-check(dark(300, 61) and not dark(300, 101), "the right chart's level moved up")
-check(dark(100, 100) and not dark(100, 61), "the left chart is as it was")
+check(dark(300, 80) and not dark(300, 101), "the right chart's level is where it was dragged")
+check(dark(100, 100) and not dark(100, 80), "the left chart is as it was")
 check(img.pixelColor(300, 190) == QColor("blue"), "below the line it is as it was")
 check(v.scaler is None, "scaling ends")
 
@@ -92,13 +109,16 @@ QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.N
 w.scalepanel()
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(200, 50))
 QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(100, 180))
-QTest.mousePress(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(100, 100))
-QTest.mouseMove(v.viewport(), at(100, 140))
-QTest.mouseRelease(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(100, 140))
-QTest.qWait(50)
+drag(100, 100, 140)
+finish(100, 120)
 check(open(os.path.join(d, "day261013.png"), "rb").read() == before and v.scaler is None, "no: the file stays")
 check(v.pixitem.pixmap().toImage().pixelColor(100, 100).lightness() < 60, "and the image shown is the original")
-# Esc cancels
+# a double click with nothing dragged just ends; Esc cancels
+w.scalepanel()
+QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(200, 50))
+QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(100, 180))
+finish(100, 120)
+check(v.scaler is None and open(os.path.join(d, "day261013.png"), "rb").read() == before, "nothing dragged: it just ends")
 w.scalepanel()
 v.setFocus()
 QTest.keyClick(v, Qt.Key.Key_Escape)

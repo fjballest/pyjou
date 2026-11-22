@@ -455,14 +455,21 @@ The PDFs next to these documents are made with `docs/mkpdf.sh`.
 `ImageView.startscale(done)` (Edit ▸ Scale Panel) puts the view in a mode
 of its own, `scaler`, which takes the mouse before the tools: a click sets
 the split `x`, the next the base `y` and the `side` (left or right of the
-split, or `all` when the split is at an edge), and a press above the base
-then a drag sets the factor `f = (y - mouse) / (y - press)`, clamped to
-0.2–5. `scaledimage` paints the original (`orig`) with the side's rows above
-the base drawn from source rows `[y - y/f, y)` (f ≥ 1) or into target rows
-`[y(1 - f), y)` (f < 1), filling the rest with the color of the side's top
-left pixel; the pixmap shown follows the drag. On release `done(img, f,
-side)` runs: `MainWindow.panelscaled` asks, writes the PNG over the capture
-when told yes, and calls `endscale(keep)`, which puts the original back
-otherwise. `drawscaler` draws the split and base lines in `drawForeground`;
-`hint` tells the window what to do next, for the status bar. Esc or the
-right button cancel (`cancelscale`).
+split, or `all` when the split is at an edge). Then each press above the
+base, in that side, drags a pin: one pressed near (`PINNEAR` view pixels) a
+pin's row is dragged again, else a new pin is made from the source row
+under the press (keeping the last two). A pin is (source row, target row);
+`scalemap` gives the map `t = a*s + b` for the side's rows above the base:
+with one pin a scale about the base, with two the line through both
+(scale and offset), `a` within 0.2–5. A press and release without moving
+puts the pins back as they were. `scaledimage` paints the original
+(`orig`) with source rows `[0, base)` drawn at `[b, a*base + b)` cut to
+`[0, base)`, the rest filled with the color of the side's top left pixel;
+the pixmap shown follows the drags. `drawscaler` draws the split and base
+(blue, dashed), the pins (orange, across the side) and, in difference mode,
+a white line across the whole image at the mouse or the pin being dragged.
+A double click (`scaledouble`) ends: with nothing changed it just ends,
+else `done(img, a, side)` runs: `MainWindow.panelscaled` asks, writes the
+PNG over the capture when told yes, and calls `endscale(keep)`, which puts
+the original back otherwise. `hint` tells the window what to do next, for
+the status bar. Esc or the right button cancel (`cancelscale`).

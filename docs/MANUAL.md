@@ -258,15 +258,23 @@ Some captures hold two charts side by side, with different vertical scales.
 **Edit ▸ Scale Panel…** (⇧⌘S) scales one of them vertically so its price
 levels match the other one's. Click where the two charts meet (a blue line
 follows the mouse), then click on the chart to scale, near its time axis:
-below that line the chart stays as it is, so its times do too. Then drag a
-point above the line up or down: the chart, above the line, stretches or
-shrinks about it as you drag, and the status bar says by how much. On
-release DayJournal asks whether to replace the image with the result; Yes
-saves it over the capture's PNG, at the same size (what goes past the top is
-cut, and what is left empty is filled with the chart's background), No puts
-the image back as it was. Clicking first beyond either side of the image
-scales the whole image instead. Esc, or the right button, cancels.
-Drawings already on the image are not moved.
+below that line the chart stays as it is, so its times do too.
+
+Then drag prices of that chart to their levels in the other one, as many
+times as you need: a white line across the whole image follows the mouse,
+and the point being dragged, so you can see whether it lines up with the
+other chart. With one point dragged the chart stretches or shrinks about the
+blue line; drag a second one (a top and a bottom price, say) and the chart is
+scaled and moved so both land where you put them. Pressing near a point
+dragged before (an orange line) drags it again; a third point replaces the
+oldest one. The status bar says the scale.
+
+Double click when done: DayJournal asks whether to replace the image with
+the result. Yes saves it over the capture's PNG, at the same size (what goes
+past the top is cut, and what is left empty is filled with the chart's
+background), No puts the image back as it was. Clicking first beyond either
+side of the image scales the whole image instead. Esc, or the right button,
+cancels. Drawings already on the image are not moved.
 
 The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
 Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the
