@@ -237,20 +237,24 @@ class Data:
 		"""the t of candle i in a profile: days for a week, hours for a day"""
 		return (self.wall[i] - zero) / (3600 if kind == "d" else 86400)
 
-	def profile(self, kind, d, prices=False, upto=None):
+	def profile(self, kind, d, prices=False, upto=None, until=None):
 		"""the profile of day d or week d: [(t, v)], or None. The points
 		are at the middle of their candles. With prices, [(t, price)]. With
-		upto, that of the week only to the end of day upto"""
-		k = (kind, d, upto)
+		upto, that of the week only to the end of day upto; with until, only
+		to time until (hours of a day, days of a week)"""
+		k = (kind, d, upto, until)
 		if k not in self.profs:
-			self.profs[k] = self.findprofile(kind, d, upto)
+			self.profs[k] = self.findprofile(kind, d, upto, until)
 		p = self.profs[k]
 		return p and p[1 if prices else 0]
 
-	def findprofile(self, kind, d, upto=None):
+	def findprofile(self, kind, d, upto=None, until=None):
 		i, j, zero = self.span(kind, d)
 		if upto is not None:
 			j = min(j, int(np.searchsorted(self.dayno, self.dayn(upto) + 1)))
+		if until is not None:	# the candles that end by until
+			unit = 3600 if kind == "d" else 86400
+			j = min(j, int(np.searchsorted(self.wall, zero + until * unit - 900, "right")))
 		if j - i < 4:
 			return None
 		xs = np.arange(j - i)
@@ -263,6 +267,11 @@ class Data:
 		low, high = min(ys), max(ys)
 		return ([(round(t, 3), round((y - low) / max(1e-9, high - low), 3)) for t, y, _ in pts],
 			[(t, y) for t, y, _ in pts])
+
+	def end(self, kind, d):
+		"""the time the last candle of day or week d ends, in its t"""
+		i, j, zero = self.span(kind, d)
+		return float(self.tof(kind, j - 1, zero)) + 900 / (3600 if kind == "d" else 86400) if j > i else None
 
 	def sessions(self, d):
 		"""[(name, start, end, high, low, i, j, color)] of the sessions of day

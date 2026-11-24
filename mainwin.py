@@ -14,7 +14,7 @@ from PySide6.QtGui import (
 	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
 from PySide6.QtWidgets import (
-	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
 	QProgressBar, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget, QDialogButtonBox
@@ -26,13 +26,13 @@ from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
 from viewer import ImageView, renderfile
-from weekprof import Profiles, matches, partial
+from weekprof import Profiles, matches, partial, similarity
 from weekedit import ProfileEditor
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
 import m15
-from dataview import DataPanel, render
+from dataview import DataPanel, drawpts, render
 import tempfile
 
 RECENTMAX = 10
@@ -165,6 +165,86 @@ class MatchDelegate(QStyledItemDelegate):
 		if pts:
 			drawprofile(painter, box, pts, option.palette,
 				bool(option.state & QStyle.StateFlag.State_Selected), self.win.matchend)
+
+class MatchDayDialog(QDialog):
+	"""the days of the data like day d up to a time, best first: click one to show it"""
+	def __init__(self, win, d):
+		super().__init__(win)
+		self.win, self.d = win, d
+		self.setWindowTitle("Match Day")
+		self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+		lay = QVBoxLayout(self)
+		top = QHBoxLayout()
+		top.addWidget(QLabel(f"Days like {d:%a %d %b %Y} up to"))
+		self.until = QComboBox()
+		data = win.data
+		end = data.end("d", d) or m15.DAYEND
+		h = m15.DAYSTART + 1
+		while h <= end + 1e-9:
+			self.until.addItem(f"{int(h % 24):02d}:{int(round(h % 1 * 60)):02d}", h)
+			h += 0.5
+		if self.until.count() == 0 or self.until.itemData(self.until.count() - 1) < end - 1e-9:
+			self.until.addItem(f"{int(end % 24):02d}:{int(round(end % 1 * 60)):02d}", end)
+		self.until.setCurrentIndex(self.until.count() - 1)
+		self.until.setToolTip("New York time; the part of the day compared (in red)")
+		self.until.currentIndexChanged.connect(self.refill)
+		top.addWidget(self.until)
+		top.addWidget(QLabel("(New York)"))
+		top.addStretch()
+		lay.addLayout(top)
+		self.lst = QListWidget()
+		self.lst.setItemDelegate(MatchDayDelegate(self.lst, self))
+		self.lst.currentItemChanged.connect(self.picked)
+		lay.addWidget(self.lst)
+		self.none = QLabel("No other day of the data to compare it with.")
+		lay.addWidget(self.none)
+		self.resize(440, 420)
+		self.refill()
+
+	def refill(self):
+		data, d = self.win.data, self.d
+		self.upto = self.until.currentData()
+		pts = data.profile("d", d, until=self.upto)
+		others = {x: data.profile("d", x) for x in data.days() if x != d}
+		others = {x: p for x, p in others.items() if p and p[-1][0] >= m15.DAYEND - 0.5}	# whole days
+		found = []
+		for x, p in others.items():
+			s = similarity(pts, p) if pts else None
+			if s is not None:
+				found.append((s, x))
+		found.sort(reverse=True)
+		self.lst.blockSignals(True)
+		self.lst.clear()
+		for s, x in found[:12]:
+			it = QListWidgetItem(f"{x:%a %d %b %Y}   {s:.0%}")
+			it.setData(Qt.ItemDataRole.UserRole, x)
+			self.lst.addItem(it)
+		self.lst.blockSignals(False)
+		self.none.setVisible(not found)
+
+	def picked(self, it, _prev):
+		if it is not None:
+			self.win.showday(it.data(Qt.ItemDataRole.UserRole))
+
+class MatchDayDelegate(QStyledItemDelegate):
+	"""a row of Match Day: the day, how well it matches, and its profile, the part compared in red"""
+	def __init__(self, lst, dlg):
+		super().__init__(lst)
+		self.dlg = dlg
+
+	def sizeHint(self, option, index):
+		s = super().sizeHint(option, index)
+		s.setHeight(max(s.height(), 2 * option.fontMetrics.height() + 8))
+		return s
+
+	def paint(self, painter, option, index):
+		super().paint(painter, option, index)
+		pts = self.dlg.win.data.profile("d", index.data(Qt.ItemDataRole.UserRole))
+		r = option.rect
+		box = QRectF(r.right() - 170, r.top() + 4, 160, r.height() - 8)
+		if pts:
+			drawpts(painter, box, "d", pts, option.palette,
+				bool(option.state & QStyle.StateFlag.State_Selected), upto=self.dlg.upto)
 
 def daytime(t):
 	"""day t of a week profile (days from Monday 00:00) as 'Tue 04:00'"""
@@ -603,6 +683,8 @@ class MainWindow(QMainWindow):
 			"scale one of two charts of a capture vertically, so its price levels match the other one")
 		self.matchact = self.mkaction("&Match Week…", self.matchweek, None, "Ctrl+Shift+M",
 			"compare the week profile shown, a week in progress, with the same days of the other weeks, and list the closest")
+		self.matchdayact = self.mkaction("Match &Day…", self.matchday, None, "Ctrl+Shift+Y",
+			"compare the day shown (a capture's day or a day of the data), up to a time, with the other days of the m15 data, and list the closest")
 		self.adjustact = self.mkaction("Adjust Week P&rofile…", self.adjustprofile, None, "Ctrl+Shift+R",
 			"draw the profile of the week shown on its capture, to move its points, add or remove some")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
@@ -688,6 +770,7 @@ class MainWindow(QMainWindow):
 		e.addAction(self.copyimgact)
 		e.addAction(self.scaleact)
 		e.addAction(self.matchact)
+		e.addAction(self.matchdayact)
 		e.addAction(self.adjustact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
@@ -1697,6 +1780,7 @@ class MainWindow(QMainWindow):
 		self.current = None
 		self.initialgroups()
 		self.datamode = False
+		self.datapanel.expanded = None	# the last month open
 		self.loaddata()
 		self.applysearch(keep=False)
 		self.jump(True)
@@ -2179,35 +2263,32 @@ class MainWindow(QMainWindow):
 		week profiles of the captures and the weeks of the m15 data without
 		one; in the data view, the weeks of the data, to the end of the day
 		shown"""
-		if self.datamode:
-			k = self.datakey
-			if k is None or self.data is None:
-				QMessageBox.information(self, "Match Week", "Show a week or a day of the data first.")
-				return
+		e = self.current
+		k = self.datakey if self.datamode else (("d", e.day) if e is not None and not e.week else None)
+		if self.journal is None:
+			return
+		if k is not None:	# a day: its week up to the end of it, from the data
 			monday = k[1] - timedelta(days=k[1].weekday())
-			pts = self.data.profile("w", monday, upto=k[1] if k[0] == "d" else None)
+			pts = self.data.profile("w", monday, upto=k[1] if k[0] == "d" else None) if self.data else None
 			src = DATAPFX + monday.isoformat()
-		else:
-			e = self.current
-			if e is None or not e.week or self.journal is None:
-				QMessageBox.information(self, "Match Week", "Show the week profile of a week in progress first.")
-				return
+		elif e is not None and e.week:
 			pts = self.profiles.get(e.name)
 			monday, src = e.weekmonday(), e.name
-		if not pts:
-			QMessageBox.information(self, "Match Week", "No week profile found for this week.")
+		else:
+			QMessageBox.information(self, "Match Week", "Show a week profile, a day, or a week or day of the data first.")
 			return
-		others = {}
-		if not self.datamode:
-			others = {x.name: self.profiles.get(x.name) for x in self.journal.entries
-				if x.week and x.weekmonday() != monday}	# not the same week
-			others = {n: p for n, p in others.items() if p and not partial(p)}
+		if not pts:
+			QMessageBox.information(self, "Match Week", "No week profile found for this week"
+				+ ("" if self.data else ": import m15 data to match a day") + ".")
+			return
+		# the week profiles of the captures and the weeks of the data, but this one
+		others = {x.name: self.profiles.get(x.name) for x in self.journal.entries
+			if x.week and x.weekmonday() != monday}
 		if self.data is not None:
-			have = {self.matchmonday(n) for n in others}	# a capture's profile wins over the data's
 			for w in self.data.weeks():
-				if w != monday and w not in have:
+				if w != monday:
 					others[DATAPFX + w.isoformat()] = self.data.profile("w", w)
-			others = {n: p for n, p in others.items() if p and not partial(p)}
+		others = {n: p for n, p in others.items() if p and not partial(p)}
 		self.profsave.start()
 		if getattr(self, "matchdlg", None) is not None:
 			self.matchdlg.close()	# clears the last match
@@ -2219,6 +2300,34 @@ class MainWindow(QMainWindow):
 		self.datapanel.tree.viewport().update()
 		self.matchdlg = MatchDialog(self, src, found[:8])
 		self.matchdlg.show()
+
+	def matchday(self):
+		"""list the days of the data like the one shown, up to a time"""
+		if self.datamode and self.datakey is not None and self.datakey[0] == "d":
+			d = self.datakey[1]
+		elif not self.datamode and self.current is not None and not self.current.week:
+			d = self.current.day
+		else:
+			QMessageBox.information(self, "Match Day", "Show a day, a capture or a day of the data, first.")
+			return
+		if self.data is None or ("d", d) not in set(self.datapanel.rows) | {("d", x) for x in self.data.days()}:
+			QMessageBox.information(self, "Match Day", f"No m15 data for {d:%a %d %b %Y}: "
+				"File ▸ Import m15 Data… adds it.")
+			return
+		if getattr(self, "matchdaydlg", None) is not None:
+			self.matchdaydlg.close()
+		self.matchdaydlg = MatchDayDialog(self, d)
+		self.matchdaydlg.show()
+
+	def showday(self, d):
+		"""show day d from Match Day: its capture in the captures, or its chart"""
+		if not self.datamode:
+			e = [x for x in self.shown if not x.week and x.day == d]
+			if e:
+				self.show_(e[0])
+				return
+			self.setdatamode(True)
+		self.showdata(("d", d))
 
 	def matchmonday(self, name):
 		"""the Monday of the week of a capture or a data week (DATAPFX)"""

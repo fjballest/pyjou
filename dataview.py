@@ -4,12 +4,12 @@
 # candles, with its sessions and its profile, shown in the window's image
 # view instead of a capture.
 #
-from datetime import timedelta
+from datetime import date, timedelta
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPalette, QPen, QPolygonF
 from PySide6.QtWidgets import (
-	QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+	QCheckBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 )
 
 import m15
@@ -147,9 +147,9 @@ def render(data, kind, d, path=None):
 		img.save(path)
 	return img
 
-def drawpts(painter, box, kind, pts, pal, selected=False, data=None, d=None):
+def drawpts(painter, box, kind, pts, pal, selected=False, upto=None):
 	"""draw profile pts of kind in box: the midnights faint behind it, and
-	the sessions of a day"""
+	the sessions of a day; the part before upto (a match) in red"""
 	t0, t1 = trange(kind)
 	x = lambda t: box.left() + (t - t0) / (t1 - t0) * box.width()
 	y = lambda v: box.bottom() - v * box.height()
@@ -163,8 +163,18 @@ def drawpts(painter, box, kind, pts, pal, selected=False, data=None, d=None):
 	painter.setPen(QPen(pal.color(QPalette.ColorRole.Mid), 0.5, Qt.PenStyle.DotLine))
 	for t in ([0] if kind == "d" else range(6)):
 		painter.drawLine(QPointF(x(t), box.top()), QPointF(x(t), box.bottom()))
+	line = QPolygonF([QPointF(x(t), y(v)) for t, v in pts])
 	painter.setPen(QPen(pal.color(QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Highlight), 1.5))
-	painter.drawPolyline(QPolygonF([QPointF(x(t), y(v)) for t, v in pts]))
+	if upto is None:
+		painter.drawPolyline(line)
+	else:	# the rest, then the part matched over it in red
+		painter.save()
+		painter.setClipRect(QRectF(x(upto), box.top() - 2, box.right() - x(upto) + 4, box.height() + 4))
+		painter.drawPolyline(line)
+		painter.restore()
+		painter.setClipRect(QRectF(box.left() - 4, box.top() - 2, x(upto) - box.left() + 4, box.height() + 4))
+		painter.setPen(QPen(QColor("#e53935"), 2))
+		painter.drawPolyline(line)
 	painter.restore()
 
 class DataDelegate(QStyledItemDelegate):
@@ -192,8 +202,12 @@ class DataDelegate(QStyledItemDelegate):
 		if pts and box.height() >= 6:
 			drawpts(painter, box, kind, pts, option.palette, bool(option.state & QStyle.StateFlag.State_Selected))
 
+GROUPROLE = Qt.ItemDataRole.UserRole + 11	# ("m", year, month) of a month group
+
 class DataPanel(QWidget):
-	"""the weeks of the data, each with its days, and their profiles"""
+	"""the weeks of the data, each with its days, in month groups, and
+	their profiles; the Weeks and Days boxes leave out either, and the
+	groups open and close as in the list of captures"""
 	picked = Signal(str, object)	# kind, date
 
 	def __init__(self, win):
@@ -201,6 +215,8 @@ class DataPanel(QWidget):
 		self.win = win
 		self.data = None
 		self.rows = {}	# (kind, date) -> its row
+		self.groups = {}	# ("m", y, m) and ("w", date) -> the item that holds others
+		self.expanded = None	# keys of the groups open; None: the last ones
 		lay = QVBoxLayout(self)
 		lay.setContentsMargins(0, 0, 0, 0)
 		top = QHBoxLayout()
@@ -217,67 +233,193 @@ class DataPanel(QWidget):
 		self.backbtn.setToolTip("back to the captures, on this day or week")
 		top.addWidget(self.backbtn)
 		lay.addLayout(top)
+		kinds = QHBoxLayout()
+		self.allbtn = QToolButton()
+		self.allbtn.setAutoRaise(True)
+		self.allbtn.clicked.connect(self.toggleall)
+		kinds.addWidget(self.allbtn)
+		for text, level, tip in (("m", "m", "collapse to months, showing the weeks of the last month and the days of its last week"),
+				("w", "w", "collapse to weeks, showing the days of the last week")):
+			b = QToolButton()
+			b.setText(text)
+			b.setAutoRaise(True)
+			b.setToolTip(tip)
+			b.clicked.connect(lambda _=False, l=level: self.collapseto(l))
+			kinds.addWidget(b)
+		self.daysbox = QCheckBox("Days")
+		self.weeksbox = QCheckBox("Weeks")
+		for b in (self.daysbox, self.weeksbox):
+			b.setChecked(True)
+			b.toggled.connect(lambda _=False: self.refill())
+			kinds.addWidget(b)
+		kinds.addStretch()
+		lay.addLayout(kinds)
 		self.tree = QTreeWidget()
 		self.tree.setHeaderHidden(True)
 		self.tree.setIndentation(14)
 		self.tree.setUniformRowHeights(True)
 		self.tree.setItemDelegate(DataDelegate(self))
 		self.tree.currentItemChanged.connect(self.changed)
+		self.tree.itemExpanded.connect(lambda it: self.groupopen(it, True))
+		self.tree.itemCollapsed.connect(lambda it: self.groupopen(it, False))
 		lay.addWidget(self.tree, 1)
+		self.updateallbtn()
+
+	def refill(self):
+		cur = self.tree.currentItem()
+		key = cur.data(0, KEYROLE) if cur is not None else None
+		self.fill(self.data)
+		if key in self.rows:
+			self.select(key)
+
+	def groupkey(self, it):
+		return it.data(0, GROUPROLE) if it is not None else None
+
+	def groupopen(self, it, open):
+		k = self.groupkey(it)
+		if k is None or self.expanded is None:
+			return
+		(self.expanded.add if open else self.expanded.discard)(k)
+		self.updateallbtn()
 
 	def fill(self, data):
-		"""the weeks of data, last first collapsed but the one selected"""
+		"""the weeks and days of data in month groups"""
 		self.data = data
 		self.tree.blockSignals(True)
 		self.tree.clear()
 		self.rows = {}
+		self.groups = {}
 		bold = QFont(self.tree.font())
 		bold.setBold(True)
+		weeks, days = self.weeksbox.isChecked(), self.daysbox.isChecked()
 		if data is None or not len(data):
 			self.info.setText("No m15 data in this journal. Import a CSV exported from TradingView "
 				"(time, open, high, low, close), or a zip with it.")
 		else:
-			weeks = data.weeks()
+			allweeks = data.weeks()
 			self.info.setText(f"<b>{data.symbol}</b> m15, {data.first():%d %b %Y} – {data.last():%d %b %Y}, "
-				f"{len(weeks)} weeks, {len(data.days())} days")
-			for w in weeks:
-				wi = QTreeWidgetItem([""])
-				wi.setFont(0, bold)
-				wi.setData(0, KEYROLE, ("w", w))
-				self.tree.addTopLevelItem(wi)
-				self.rows[("w", w)] = wi
-				for d in data.daysof(w):
-					di = QTreeWidgetItem([""])
-					di.setData(0, KEYROLE, ("d", d))
-					wi.addChild(di)
-					self.rows[("d", d)] = di
+				f"{len(allweeks)} weeks, {len(data.days())} days")
+			def month(d):
+				mk = ("m", d.year, d.month)
+				m = self.groups.get(mk)
+				if m is None:
+					m = QTreeWidgetItem([f"{d:%B %Y}"])
+					m.setFont(0, bold)
+					m.setData(0, GROUPROLE, mk)
+					m.setFlags(m.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+					self.tree.addTopLevelItem(m)
+					self.groups[mk] = m
+				return m
+			for w in allweeks:
+				parent = None
+				if weeks:	# a week goes in the month of its Monday
+					wi = QTreeWidgetItem([""])
+					wi.setFont(0, bold)
+					wi.setData(0, KEYROLE, ("w", w))
+					month(w).addChild(wi)
+					self.rows[("w", w)] = wi
+					if days:
+						wi.setData(0, GROUPROLE, ("w", w))
+						self.groups[("w", w)] = wi
+						parent = wi
+				if days:
+					for d in data.daysof(w):
+						di = QTreeWidgetItem([""])
+						di.setData(0, KEYROLE, ("d", d))
+						(parent or month(d)).addChild(di)
+						self.rows[("d", d)] = di
+			if self.expanded is None:	# the last month and its last week open
+				self.expanded = set()
+				self.lastopen("m")
+			for k, g in self.groups.items():
+				g.setExpanded(k in self.expanded)
 		self.tree.blockSignals(False)
 		self.mark()
+		self.updateallbtn()
+
+	def lastopen(self, level):
+		"""open the last month, and its last week"""
+		if not self.data or not len(self.data):
+			return
+		w = self.data.weeks()[-1]
+		last = self.data.days()[-1]
+		self.expanded.add(("m", w.year, w.month))
+		self.expanded.add(("m", last.year, last.month))
+		self.expanded.add(("w", w))
+
+	def setopen(self, keys):
+		self.expanded = set(keys)
+		self.tree.blockSignals(True)
+		for k, g in self.groups.items():
+			g.setExpanded(k in self.expanded)
+		self.tree.blockSignals(False)
+		self.updateallbtn()
+		cur = self.tree.currentItem()
+		if cur is not None:
+			self.tree.scrollToItem(cur)
+
+	def collapseto(self, level):
+		"""collapse to months ("m") or weeks ("w"), the last ones open"""
+		keep = {k for k in self.groups if level == "w" and k[0] == "m"}
+		self.expanded = keep
+		self.lastopen(level)
+		self.setopen(self.expanded)
+
+	def allcollapsed(self):
+		return not any(g.isExpanded() for g in self.groups.values())
+
+	def toggleall(self):
+		self.setopen(set(self.groups) if self.allcollapsed() else set())
+
+	def updateallbtn(self):
+		self.allbtn.setText("+" if self.allcollapsed() else "−")
+		self.allbtn.setToolTip("expand all the groups" if self.allcollapsed() else "collapse all the groups")
 
 	def mark(self):
 		"""the labels of the rows, with ✎ on those drawn on"""
 		for (kind, d), it in self.rows.items():
 			text = f"Week {d:%d %b %Y}" if kind == "w" else f"{d:%a %d}"
+			if kind == "d" and not self.weeksbox.isChecked():
+				text = f"{d:%a %d %b}"
 			it.setText(0, text + ("  ✎" if self.data.drawn(kind, d) else ""))
+		kind = "w" if self.weeksbox.isChecked() else "d"
+		def count(it):
+			k = it.data(0, KEYROLE)
+			return (1 if k and k[0] == kind else 0) + sum(count(it.child(n)) for n in range(it.childCount()))
+		for k, g in self.groups.items():
+			if k[0] == "m":
+				g.setText(0, f"{date(k[1], k[2], 1):%B %Y}   ({count(g)})")
 
 	def keys(self):
-		"""the rows in order: each week, then its days"""
+		"""the rows in order, as the list shows them"""
 		out = []
-		for k in range(self.tree.topLevelItemCount()):
-			w = self.tree.topLevelItem(k)
-			out.append(w.data(0, KEYROLE))
-			out += [w.child(n).data(0, KEYROLE) for n in range(w.childCount())]
+		def walk(it):
+			k = it.data(0, KEYROLE)
+			if k:
+				out.append(k)
+			for n in range(it.childCount()):
+				walk(it.child(n))
+		for n in range(self.tree.topLevelItemCount()):
+			walk(self.tree.topLevelItem(n))
 		return out
 
 	def select(self, key):
 		it = self.rows.get(key)
 		self.tree.blockSignals(True)
-		if it is not None:
-			if it.parent() is not None:
-				it.parent().setExpanded(True)
+		if it is None:
+			self.tree.setCurrentItem(None)
+		else:
+			p = it.parent()
+			while p is not None:
+				p.setExpanded(True)
+				k = self.groupkey(p)
+				if k is not None and self.expanded is not None:
+					self.expanded.add(k)
+				p = p.parent()
 			self.tree.setCurrentItem(it)
 			self.tree.scrollToItem(it)
 		self.tree.blockSignals(False)
+		self.updateallbtn()
 
 	def changed(self, it, _prev):
 		key = it.data(0, KEYROLE) if it is not None else None

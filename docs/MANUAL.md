@@ -475,8 +475,10 @@ the candles after the last one kept (and any before the first), so
 exports that overlap don't make duplicates.
 
 **View ▸ Data View** (⇧⌘D, **Data** in the toolbar) shows, instead of the
-captures, the weeks with data, each with its days, and at the right of each
-row its profile: the swings that frame it, as in the week profiles. Picking
+captures, the weeks with data by month, each with its days, and at the right of each
+row its profile. The **Weeks** and **Days** boxes list only the weeks or
+only the days, and **+**/**−**, **m** and **w** open and close the groups as in
+the list of captures: the swings that frame it, as in the week profiles. Picking
 one draws its candles where the capture goes, in New York time: a week from
 Sunday 18:00 to Friday 17:00 with its days, a day from 18:00 the day before
 to 17:00 with its Asia (20:00–00:00), London (02:00–05:00) and NY AM
@@ -496,11 +498,19 @@ rows with ✎. The chart of a week or day still going on changes its price
 scale as candles are added, so what is drawn on it may no longer sit on the
 same prices.
 
-**Edit ▸ Match Week** also uses the data. On a capture it compares the week
-with the week profiles of the captures and with the weeks of the data that
-have none. In the data view it compares the week shown, or the week up to
-the end of the day shown, with the other weeks of the data; picking one
+**Edit ▸ Match Week** also uses the data: it compares the week with the week
+profiles of the captures and with the weeks of the data, marked *(m15
+data)*. The week is the week profile shown, or, on a day (a capture or a day
+of the data), its week from the data up to the end of that day. Picking one
 shows it.
+
+**Edit ▸ Match Day** (⇧⌘Y) compares the day shown, a capture's day or a day
+of the data, with the other whole days of the data, from 18:00 the day
+before up to the time picked in its window (New York time; the end of the
+data for a day still going on). The day's profile comes from the data, not
+from the capture, so the day needs m15 data. Picking one shows its capture,
+or its chart in the data view when there is none (in the data view, always
+its chart).
 
 ## Exporting
 
