@@ -16,7 +16,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-	QProgressBar, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+	QProgressBar, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget, QDialogButtonBox
 )
 
@@ -31,6 +31,9 @@ from weekedit import ProfileEditor
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
+import m15
+from dataview import DataPanel, render
+import tempfile
 
 RECENTMAX = 10
 CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
@@ -485,6 +488,10 @@ class MainWindow(QMainWindow):
 		self.matchend = None
 		self.matching = {}
 		self.adjuster = None	# the ProfileEditor while adjusting a week profile
+		self.data = None		# the m15 data of the journal (m15.Data)
+		self.datamode = False	# the data view is shown instead of the captures
+		self.datakey = None		# ("w" or "d", date) shown in the data view
+		self.datadir = tempfile.mkdtemp(prefix="dj-data-")	# where its charts are drawn
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -617,6 +624,14 @@ class MainWindow(QMainWindow):
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
+		self.importdataact = self.mkaction("Import m&15 Data…", self.choosedata, None, None,
+			"add the candles of an m15 CSV exported from TradingView (or a zip with it) to the journal's data; "
+			"only those after the last one kept are added")
+		self.dataact = self.mkaction("&Data View", lambda: self.setdatamode(self.dataact.isChecked()), None,
+			"Ctrl+Shift+D", "switch between the captures and the weeks and days of the m15 data, "
+			"drawn from the candles with their profiles")
+		self.dataact.setCheckable(True)
+		self.dataact.setIconText("Data")
 		self.recentmenu = QMenu("Open &Recent", self)
 		self.recentmenu.aboutToShow.connect(self.fillrecent)
 
@@ -641,7 +656,7 @@ class MainWindow(QMainWindow):
 		tb.addAction(self.reloadact)
 		tb.addAction(self.newwinact)
 		tb.addSeparator()
-		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact):
+		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact, self.dataact):
 			tb.addAction(a)
 		tb.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
@@ -656,6 +671,7 @@ class MainWindow(QMainWindow):
 		f.addMenu(self.recentmenu)
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
+		f.addAction(self.importdataact)
 		f.addAction(self.reloadact)
 		f.addSeparator()
 		f.addAction(self.exportselact)
@@ -688,6 +704,7 @@ class MainWindow(QMainWindow):
 		v = mb.addMenu("&View")
 		v.addAction(self.listact)
 		v.addAction(self.notespanelact)
+		v.addAction(self.dataact)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -770,9 +787,20 @@ class MainWindow(QMainWindow):
 		left = self.left = QWidget()
 		ll = QVBoxLayout(left)
 		ll.setContentsMargins(4, 4, 4, 4)
-		ll.addWidget(self.searchbox)
-		ll.addLayout(kinds)
-		ll.addWidget(self.list, 1)
+		caps = QWidget()	# the captures, or the data view
+		cl = QVBoxLayout(caps)
+		cl.setContentsMargins(0, 0, 0, 0)
+		cl.addWidget(self.searchbox)
+		cl.addLayout(kinds)
+		cl.addWidget(self.list, 1)
+		self.datapanel = DataPanel(self)
+		self.datapanel.picked.connect(lambda kind, d: self.showdata((kind, d)))
+		self.datapanel.importbtn.clicked.connect(self.choosedata)
+		self.datapanel.backbtn.clicked.connect(lambda: self.setdatamode(False))
+		self.leftstack = QStackedWidget()
+		self.leftstack.addWidget(caps)
+		self.leftstack.addWidget(self.datapanel)
+		ll.addWidget(self.leftstack, 1)
 		ll.addWidget(self.calendar)
 
 		# right: title, image, tags, notes
@@ -843,6 +871,166 @@ class MainWindow(QMainWindow):
 		self.copyimgact.setIconText("Copy")
 		self.setcolor = tb.setcolor
 		return tb
+
+	# ---- the data view ----
+	def loaddata(self):
+		"""read the m15 data of the journal, if it has any"""
+		try:
+			self.data = m15.Data(self.journal.dir) if self.journal else None
+		except (OSError, ValueError) as x:
+			self.data = None
+			self.statusBar().showMessage(f"Can't read the m15 data: {x}", 5000)
+		self.datapanel.fill(self.data)
+		self.dataact.setEnabled(self.journal is not None)
+		if self.datamode:
+			keys = self.datapanel.keys()
+			self.showdata(self.datakey if self.datakey in keys else (keys[-1] if keys else None), force=True)
+
+	def choosedata(self):
+		if self.journal is None:
+			return
+		path, _ = QFileDialog.getOpenFileName(self, "Import m15 Data", os.path.expanduser("~"),
+			"CSV or zip (*.csv *.zip);;All files (*)")
+		if path:
+			self.importdata([path])
+
+	def importdata(self, paths):
+		"""add the candles of the files at paths to the journal's data"""
+		if self.journal is None:
+			return
+		if self.data is None:
+			self.data = m15.Data(self.journal.dir)
+		msgs = []
+		for p in paths:
+			try:
+				added, skipped = self.data.add(p)
+			except (OSError, ValueError) as x:
+				QMessageBox.warning(self, "Import m15 Data", f"Can't import {os.path.basename(p)}: {x}")
+				continue
+			msgs.append(f"{os.path.basename(p)}: {added} candles added" + (f", {skipped} already there" if skipped else ""))
+		self.loaddata()
+		if msgs:
+			self.statusBar().showMessage("; ".join(msgs), 8000)
+			if self.data is not None and len(self.data):
+				self.setdatamode(True)
+				keys = self.datapanel.keys()
+				self.showdata(keys[-1] if keys else None, force=True)
+
+	def datafor(self, e):
+		"""the data row for capture e: its day, or its week"""
+		keys = self.datapanel.keys()
+		if not keys:
+			return None
+		if e is None:
+			return keys[-1]
+		if e.week:
+			k = ("w", e.weekmonday())
+			if k in keys:
+				return k
+		elif ("d", e.day) in keys:
+			return ("d", e.day)
+		d = e.weekmonday() if e.week else e.day
+		days = [k for k in keys if k[0] == ("w" if e.week else "d")] or keys
+		return min(days, key=lambda k: abs((k[1] - d).days))
+
+	def capturefor(self, key):
+		"""the capture for data row key: the week profile of its week, or the
+		capture of its day, or the nearest one"""
+		if self.journal is None or not self.shown or key is None:
+			return None
+		kind, d = key
+		if kind == "w":
+			l = [e for e in self.shown if e.week and e.weekmonday() == d]
+		else:
+			l = [e for e in self.shown if not e.week and e.day == d]
+		return l[0] if l else self.journal.nearest(d, self.shown)
+
+	def setdatamode(self, on):
+		"""show the data view, at the day or week of the capture shown, or
+		go back to the captures at the day or week shown"""
+		on = bool(on) and self.journal is not None
+		self.dataact.setChecked(on)
+		if on == self.datamode:
+			return
+		if on:
+			if self.adjuster is not None:
+				self.adjuster.finish(False)
+			self.savenotes()
+			self.view.commitedit()
+			back = self.current
+			self.datamode = True
+			self.current = None	# no notes or drawings are saved for the data
+			self.capturekey = back.name if back else None
+			self.leftstack.setCurrentIndex(1)
+			self.notes.setReadOnly(True)	# what the data says, not notes
+			self.markcalendar()
+			self.showdata(self.datafor(back), force=True)
+		else:
+			self.datamode = False
+			self.notes.setReadOnly(False)
+			self.leftstack.setCurrentIndex(0)
+			self.markcalendar()
+			e = self.capturefor(self.datakey)
+			if e is None and getattr(self, "capturekey", None) and self.journal:
+				e = self.journal.find(self.capturekey)
+			self.show_(e, force=True)
+
+	def showdata(self, key, force=False):
+		"""show the chart of data row key, drawn from its candles"""
+		if not self.datamode:
+			return
+		if key == self.datakey and not force and self.view.hasimage():
+			self.datapanel.select(key)
+			return
+		self.datakey = key
+		self.notes.blockSignals(True)
+		self.notes.setPlainText("")
+		self.notes.blockSignals(False)
+		self.tagslabel.setText("<b>Data:</b> drawn from the m15 candles, in New York time")
+		if key is None or self.data is None:
+			self.view.setimage(None)
+			self.titlelabel.setText("No m15 data: File ▸ Import m15 Data…")
+			self.updateactions()
+			return
+		kind, d = key
+		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}.png")
+		render(self.data, kind, d, path)
+		self.view.setimage(path)
+		self.titlelabel.setText(("Data: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
+			else f"Data: {d:%a %d %b %Y}")
+		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; drawings made on it are not kept")
+		self.notes.blockSignals(True)
+		self.notes.setPlainText(self.data.summary(kind, d))
+		self.notes.blockSignals(False)
+		self.notes.setEnabled(True)
+		self.datapanel.select(key)
+		self.calendar.blockSignals(True)
+		self.calendar.setSelectedDate(QDate(d.year, d.month, d.day))
+		self.calendar.blockSignals(False)
+		self.updateactions()
+
+	def datastep(self, delta=None, last=None, week=False):
+		"""move in the data view: delta rows, to the first or last, or
+		between a day and its week"""
+		keys = self.datapanel.keys()
+		if not keys:
+			return
+		k = self.datakey
+		if last is not None:
+			to = keys[-1] if last else keys[0]
+		elif week:
+			if k is None:
+				return
+			if k[0] == "d":
+				to = ("w", k[1] - timedelta(days=k[1].weekday()))
+			else:
+				days = [x for x in keys if x[0] == "d" and k[1] <= x[1] < k[1] + timedelta(days=7)]
+				to = days[0] if days else None
+		else:
+			i = keys.index(k) + delta if k in keys else 0
+			to = keys[i] if 0 <= i < len(keys) else None
+		if to in keys:
+			self.showdata(to)
 
 	def navigate(self, what):
 		{"prev": lambda: self.step(-1), "next": lambda: self.step(1),
@@ -1020,10 +1208,18 @@ class MainWindow(QMainWindow):
 		self.applysearch()
 		self.reveal(self.journal.find(show), force=True)
 
+	def droppeddata(self, ev):
+		"""the m15 CSV files (or zips) dropped"""
+		md = ev.mimeData()
+		if not md.hasUrls():
+			return []
+		return [u.toLocalFile() for u in md.urls() if u.isLocalFile()
+			and u.toLocalFile().lower().endswith((".csv", ".zip"))]
+
 	def dragEnterEvent(self, ev):
 		if self.owndrag(ev.mimeData()) is not None:
 			ev.ignore()	# from the list, to the calendar only
-		elif self.journal is not None and self.droppedimages(ev):
+		elif self.journal is not None and (self.droppedimages(ev) or self.droppeddata(ev)):
 			ev.acceptProposedAction()
 		else:
 			ev.ignore()
@@ -1032,6 +1228,11 @@ class MainWindow(QMainWindow):
 		self.dragEnterEvent(ev)
 
 	def dropEvent(self, ev):
+		data = self.droppeddata(ev) if self.owndrag(ev.mimeData()) is None else []
+		if data:
+			ev.acceptProposedAction()
+			QTimer.singleShot(0, lambda: self.importdata(data))
+			return
 		paths = self.droppedimages(ev) if self.owndrag(ev.mimeData()) is None else []
 		if not paths:
 			ev.ignore()
@@ -1469,6 +1670,8 @@ class MainWindow(QMainWindow):
 		addrecent(j.dir)
 		self.current = None
 		self.initialgroups()
+		self.datamode = False
+		self.loaddata()
 		self.applysearch(keep=False)
 		self.jump(True)
 		self.updatetitle()
@@ -1796,6 +1999,13 @@ class MainWindow(QMainWindow):
 		self.calendar.setDateTextFormat(QDate(), QTextCharFormat())	# clear
 		if self.journal is None:
 			return
+		if self.datamode:
+			has = QTextCharFormat()
+			has.setFontWeight(QFont.Weight.Bold)
+			has.setForeground(QColor("#089981"))
+			for d in (self.data.days() if self.data is not None else []):
+				self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), has)
+			return
 		shown = {e.day for e in self.shown if not e.week}
 		other = QTextCharFormat()
 		other.setForeground(Qt.GlobalColor.gray)
@@ -1806,6 +2016,12 @@ class MainWindow(QMainWindow):
 			self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), has if d in shown else other)
 
 	def calendarclicked(self, qd):
+		if self.datamode:
+			d = qd.toPython()
+			keys = [k for k in self.datapanel.keys() if k[0] == "d"]
+			if keys:
+				self.showdata(min(keys, key=lambda k: abs((k[1] - d).days)))
+			return
 		if self.journal is None or not self.shown:
 			return
 		d = qd.toPython()
@@ -1819,6 +2035,9 @@ class MainWindow(QMainWindow):
 
 	# ---- showing ----
 	def show_(self, e, force=False):
+		if self.datamode:	# the captures come back where the data view leaves them
+			self.capturekey = e.name if e is not None else None
+			return
 		if self.adjuster is not None and e is not self.current:
 			self.adjuster.finish(False)	# leaving the capture drops the adjusting
 		if e is self.current and not force:
@@ -1859,6 +2078,16 @@ class MainWindow(QMainWindow):
 			self.tagslabel.setText("<i>No tags found in the image</i>")
 
 	def updateactions(self):
+		if self.datamode:
+			keys = self.datapanel.keys()
+			i = keys.index(self.datakey) if self.datakey in keys else -1
+			self.prevact.setEnabled(i > 0)
+			self.nextact.setEnabled(0 <= i < len(keys) - 1)
+			self.weekact.setEnabled(i >= 0)
+			self.weekact.setText("Day" if i >= 0 and self.datakey[0] == "w" else "Week")
+			for a in (self.retagact, self.osviewact):
+				a.setEnabled(a is self.osviewact and i >= 0)
+			return
 		e = self.current
 		i = self.shown.index(e) if e in self.shown else -1
 		self.prevact.setEnabled(i > 0)
@@ -1869,6 +2098,9 @@ class MainWindow(QMainWindow):
 			a.setEnabled(e is not None)
 
 	def step(self, delta):
+		if self.datamode:
+			self.datastep(delta)
+			return
 		if not self.shown:
 			return
 		if self.current not in self.shown:
@@ -1879,6 +2111,9 @@ class MainWindow(QMainWindow):
 			self.show_(self.shown[i])
 
 	def jump(self, last):
+		if self.datamode:
+			self.datastep(last=last)
+			return
 		if self.shown:
 			self.show_(self.shown[-1] if last else self.shown[0])
 		else:
@@ -1894,6 +2129,9 @@ class MainWindow(QMainWindow):
 		return self.journal.weekof(e)
 
 	def toggleweek(self):
+		if self.datamode:
+			self.datastep(week=True)
+			return
 		e = self.current
 		if e is None:
 			return
@@ -2002,7 +2240,7 @@ class MainWindow(QMainWindow):
 			self.statusBar().showMessage(f"{e.name} scaled", 3000)
 
 	def osview(self):
-		if self.current is not None:
+		if self.current is not None or (self.datamode and self.view.hasimage()):
 			self.view.osview()	# with its drawings
 
 	# ---- notes ----

@@ -464,6 +464,32 @@ Notes are still saved as you type.
 Drawings are kept in image coordinates, so they stay in place when zooming.
 The words in the text boxes and labels are found by the search, as the notes are.
 
+## The data view (m15 data)
+
+Besides the captures, a journal can keep the 15 minute candles of its
+market, exported from TradingView as a CSV (`time,open,high,low,close`, the
+time in seconds, as TradingView writes it). **File ▸ Import m15 Data…**, or
+dropping the `.csv` (or a `.zip` with it) on the window, adds them to
+`<SYMBOL>.m15.csv` in the journal directory. A file imported later adds only
+the candles after the last one kept (and any before the first), so
+exports that overlap don't make duplicates.
+
+**View ▸ Data View** (⇧⌘D, **Data** in the toolbar) shows, instead of the
+captures, the weeks with data, each with its days, and at the right of each
+row its profile: the swings that frame it, as in the week profiles. Picking
+one draws its candles where the capture goes, in New York time: a week from
+Sunday 18:00 to Friday 17:00 with its days, a day from 18:00 the day before
+to 17:00 with its Asia (20:00–00:00), London (02:00–05:00) and NY AM
+(09:30–11:00) sessions as boxes from their high to their low. The profile
+is drawn over the candles, and the notes area says the open, high, low,
+close and range, and each session's range. Previous, Next, First, Last and
+Week (day ⇄ its week) move through the data, and the calendar goes to a day.
+
+Switching the data view on goes to the day or week of the capture shown;
+switching it off (or **Captures** over the list) goes back to the capture of
+the day or week the data view was on, or the nearest one. Drawings made on
+the charts of the data view are not kept.
+
 ## Exporting
 
 **File ▸ Export All…** (⇧⌘E) saves the captures shown in the list, as the
