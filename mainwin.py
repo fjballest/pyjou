@@ -14,9 +14,9 @@ from PySide6.QtGui import (
 	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
 from PySide6.QtWidgets import (
-	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
 	QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-	QProgressBar, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+	QProgressBar, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
 	QVBoxLayout, QWidget, QDialogButtonBox
 )
 
@@ -26,11 +26,14 @@ from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
 from viewer import ImageView, renderfile
-from weekprof import Profiles, matches, partial
+from weekprof import Profiles, dayprofile, matches, partial, similarity
 from weekedit import ProfileEditor
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
+import m15
+from dataview import DataPanel, Geom, drawpts, render
+import tempfile
 
 RECENTMAX = 10
 CLIPMIME = "application/x-pyjou-capture"	# {"dir", "name", "cut"} of a capture cut or copied
@@ -88,6 +91,8 @@ DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
 NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
 
 MATCHCOLOR = QColor("#e53935")
+DATAPFX = "m15:"	# a week of the m15 data in Match Week: m15:2026-11-16
+DRAWPFX = "m15draw:"	# the drawing of a data chart in pending: m15draw:w:2026-11-16
 
 def drawprofile(painter, box, pts, pal, selected=False, upto=None):
 	"""draw week profile pts in box, with the midnights faint behind it; the
@@ -121,16 +126,18 @@ class MatchDialog(QDialog):
 		self.setWindowTitle("Match Week")
 		self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 		lay = QVBoxLayout(self)
-		e = win.journal.find(src)
-		lay.addWidget(QLabel(f"Weeks like the week of {e.weekmonday():%d %b %Y} so far, "
+		lay.addWidget(QLabel(f"Weeks like the week of {win.matchmonday(src):%d %b %Y} so far, "
 			f"to {daytime(win.matchend)} (in red):"))
 		self.lst = QListWidget()
 		self.lst.setItemDelegate(MatchDelegate(self.lst, win))
 		for s, name in found:
-			it = QListWidgetItem(f"Week {win.journal.find(name).weekmonday():%d %b %Y}   {s:.0%}")
+			data = " (m15 data)" if name.startswith(DATAPFX) else ""
+			it = QListWidgetItem(f"Week {win.matchmonday(name):%d %b %Y}{data}   {s:.0%}")
 			it.setData(Qt.ItemDataRole.UserRole, name)
 			self.lst.addItem(it)
+		self.lst.setCurrentRow(-1)
 		self.lst.currentItemChanged.connect(self.picked)
+		self.lst.itemClicked.connect(lambda it: self.picked(it, None))	# the row current at first too
 		lay.addWidget(self.lst)
 		if not found:
 			lay.addWidget(QLabel("No full week with a profile to compare it with."))
@@ -138,10 +145,8 @@ class MatchDialog(QDialog):
 		self.finished.connect(lambda _: win.clearmatch())
 
 	def picked(self, it, _prev):
-		e = self.win.journal.find(it.data(Qt.ItemDataRole.UserRole)) if it and self.win.journal else None
-		if e is not None:
-			self.win.show_(e)
-			self.win.selectitem(e)
+		if it is not None:
+			self.win.showmatch(it.data(Qt.ItemDataRole.UserRole))
 
 class MatchDelegate(QStyledItemDelegate):
 	"""a row of the match window: the week, how well it matches, and its profile"""
@@ -156,12 +161,111 @@ class MatchDelegate(QStyledItemDelegate):
 
 	def paint(self, painter, option, index):
 		super().paint(painter, option, index)
-		pts = self.win.profiles.get(index.data(Qt.ItemDataRole.UserRole)) if self.win.profiles else None
+		pts = self.win.profileof(index.data(Qt.ItemDataRole.UserRole))
 		r = option.rect
 		box = QRectF(r.right() - 150, r.top() + 4, 140, r.height() - 8)
 		if pts:
 			drawprofile(painter, box, pts, option.palette,
 				bool(option.state & QStyle.StateFlag.State_Selected), self.win.matchend)
+
+class MatchDayDialog(QDialog):
+	"""the days of the data like day d up to a time, best first: click one to show it"""
+	def __init__(self, win, d, cap=None):
+		super().__init__(win)
+		self.win, self.d, self.cap = win, d, cap
+		self.setWindowTitle("Match Day")
+		self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+		lay = QVBoxLayout(self)
+		src = QHBoxLayout()
+		src.addWidget(QLabel(f"Days like {d:%a %d %b %Y}, from"))
+		self.source = QComboBox()
+		data = win.data
+		if cap:
+			self.source.addItem("the capture, so far", "capture")
+		if d in data.days():
+			self.source.addItem("the m15 data", "data")
+		self.source.currentIndexChanged.connect(self.refill)
+		src.addWidget(self.source)
+		src.addStretch()
+		lay.addLayout(src)
+		top = QHBoxLayout()
+		top.addWidget(QLabel("up to"))
+		self.until = QComboBox()
+		end = data.end("d", d) or m15.DAYEND
+		h = m15.DAYSTART + 1
+		while h <= end + 1e-9:
+			self.until.addItem(f"{int(h % 24):02d}:{int(round(h % 1 * 60)):02d}", h)
+			h += 0.5
+		if self.until.count() == 0 or self.until.itemData(self.until.count() - 1) < end - 1e-9:
+			self.until.addItem(f"{int(end % 24):02d}:{int(round(end % 1 * 60)):02d}", end)
+		self.until.setCurrentIndex(self.until.count() - 1)
+		self.until.setToolTip("New York time; the part of the day compared (in red)")
+		self.until.currentIndexChanged.connect(self.refill)
+		top.addWidget(self.until)
+		top.addWidget(QLabel("(New York)"))
+		top.addStretch()
+		lay.addLayout(top)
+		self.lst = QListWidget()
+		self.lst.setItemDelegate(MatchDayDelegate(self.lst, self))
+		self.lst.currentItemChanged.connect(self.picked)
+		self.lst.itemClicked.connect(lambda it: self.picked(it, None))	# the row current at first too
+		lay.addWidget(self.lst)
+		self.none = QLabel("No other day of the data to compare it with.")
+		lay.addWidget(self.none)
+		self.resize(440, 420)
+		self.refill()
+
+	def refill(self):
+		data, d = self.win.data, self.d
+		if self.source.currentData() == "capture":
+			pts = self.cap
+			self.upto = pts[-1][0]
+			self.until.setEnabled(False)
+		else:
+			self.upto = self.until.currentData()
+			self.until.setEnabled(True)
+			pts = data.profile("d", d, until=self.upto)
+		others = {x: data.profile("d", x) for x in data.days() if x != d}
+		others = {x: p for x, p in others.items() if p and p[-1][0] >= m15.DAYEND - 0.5}	# whole days
+		found = []
+		for x, p in others.items():
+			s = similarity(pts, p) if pts else None
+			if s is not None:
+				found.append((s, x))
+		found.sort(reverse=True)
+		self.lst.blockSignals(True)
+		self.lst.clear()
+		for s, x in found[:12]:
+			it = QListWidgetItem(f"{x:%a %d %b %Y}   {s:.0%}")
+			it.setData(Qt.ItemDataRole.UserRole, x)
+			self.lst.addItem(it)
+		self.lst.setCurrentRow(-1)	# none picked yet, so any click picks
+		self.lst.blockSignals(False)
+		self.none.setVisible(not found)
+
+	def picked(self, it, _prev):
+		if it is not None:
+			self.win.showday(it.data(Qt.ItemDataRole.UserRole))
+
+class MatchDayDelegate(QStyledItemDelegate):
+	"""a row of Match Day: the day, how well it matches, and its profile, the part compared in red"""
+	def __init__(self, lst, dlg):
+		super().__init__(lst)
+		self.dlg = dlg
+
+	def sizeHint(self, option, index):
+		s = super().sizeHint(option, index)
+		s.setHeight(max(s.height(), 2 * option.fontMetrics.height() + 8))
+		return s
+
+	def paint(self, painter, option, index):
+		super().paint(painter, option, index)
+		pts = self.dlg.win.data.profile("d", index.data(Qt.ItemDataRole.UserRole))
+		r = option.rect
+		box = QRectF(r.right() - 170, r.top() + 4, 160, r.height() - 8)
+		if pts:
+			drawpts(painter, box, "d", pts, option.palette,
+				bool(option.state & QStyle.StateFlag.State_Selected), upto=self.dlg.upto)
 
 def daytime(t):
 	"""day t of a week profile (days from Monday 00:00) as 'Tue 04:00'"""
@@ -485,6 +589,10 @@ class MainWindow(QMainWindow):
 		self.matchend = None
 		self.matching = {}
 		self.adjuster = None	# the ProfileEditor while adjusting a week profile
+		self.data = None		# the m15 data of the journal (m15.Data)
+		self.datamode = False	# the data view is shown instead of the captures
+		self.datakey = None		# ("w" or "d", date) shown in the data view
+		self.datadir = tempfile.mkdtemp(prefix="dj-data-")	# where its charts are drawn
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -596,8 +704,13 @@ class MainWindow(QMainWindow):
 			"scale one of two charts of a capture vertically, so its price levels match the other one")
 		self.matchact = self.mkaction("&Match Week…", self.matchweek, None, "Ctrl+Shift+M",
 			"compare the week profile shown, a week in progress, with the same days of the other weeks, and list the closest")
-		self.adjustact = self.mkaction("Adjust Week P&rofile…", self.adjustprofile, None, "Ctrl+Shift+R",
-			"draw the profile of the week shown on its capture, to move its points, add or remove some")
+		self.resetprofact = self.mkaction("Find the Data Profile Again", self.resetprofile, None, None,
+			"forget the profile adjusted by hand for the day or week of the data shown")
+		self.matchdayact = self.mkaction("Match &Day…", self.matchday, None, "Ctrl+Shift+Y",
+			"compare the day shown (a capture's day or a day of the data), up to a time, with the other days of the m15 data, and list the closest")
+		self.adjustact = self.mkaction("Adjust P&rofile…", self.adjustprofile, None, "Ctrl+Shift+R",
+			"draw the profile of the week shown on its capture, or of the day or week of the data on its chart, "
+			"to move its points, add or remove some")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -617,6 +730,13 @@ class MainWindow(QMainWindow):
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
+		self.importdataact = self.mkaction("Import m&15 Data…", self.choosedata, None, None,
+			"add the candles of an m15 CSV exported from TradingView (or a zip with it) to the journal's data; "
+			"only those after the last one kept are added")
+		self.dataact = self.mkaction("&Data View", lambda: self.setdatamode(not self.datamode), None,
+			"Ctrl+Shift+D", "switch between the captures and the weeks and days of the m15 data, "
+			"drawn from the candles with their profiles")
+		self.dataact.setIconText("Data")
 		self.recentmenu = QMenu("Open &Recent", self)
 		self.recentmenu.aboutToShow.connect(self.fillrecent)
 
@@ -641,7 +761,7 @@ class MainWindow(QMainWindow):
 		tb.addAction(self.reloadact)
 		tb.addAction(self.newwinact)
 		tb.addSeparator()
-		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact):
+		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact, self.dataact):
 			tb.addAction(a)
 		tb.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
@@ -656,6 +776,7 @@ class MainWindow(QMainWindow):
 		f.addMenu(self.recentmenu)
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
+		f.addAction(self.importdataact)
 		f.addAction(self.reloadact)
 		f.addSeparator()
 		f.addAction(self.exportselact)
@@ -672,7 +793,9 @@ class MainWindow(QMainWindow):
 		e.addAction(self.copyimgact)
 		e.addAction(self.scaleact)
 		e.addAction(self.matchact)
+		e.addAction(self.matchdayact)
 		e.addAction(self.adjustact)
+		e.addAction(self.resetprofact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
@@ -688,6 +811,7 @@ class MainWindow(QMainWindow):
 		v = mb.addMenu("&View")
 		v.addAction(self.listact)
 		v.addAction(self.notespanelact)
+		v.addAction(self.dataact)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -770,9 +894,20 @@ class MainWindow(QMainWindow):
 		left = self.left = QWidget()
 		ll = QVBoxLayout(left)
 		ll.setContentsMargins(4, 4, 4, 4)
-		ll.addWidget(self.searchbox)
-		ll.addLayout(kinds)
-		ll.addWidget(self.list, 1)
+		caps = QWidget()	# the captures, or the data view
+		cl = QVBoxLayout(caps)
+		cl.setContentsMargins(0, 0, 0, 0)
+		cl.addWidget(self.searchbox)
+		cl.addLayout(kinds)
+		cl.addWidget(self.list, 1)
+		self.datapanel = DataPanel(self)
+		self.datapanel.picked.connect(lambda kind, d: self.showdata((kind, d)))
+		self.datapanel.importbtn.clicked.connect(self.choosedata)
+		self.datapanel.backbtn.clicked.connect(lambda: self.setdatamode(False))
+		self.leftstack = QStackedWidget()
+		self.leftstack.addWidget(caps)
+		self.leftstack.addWidget(self.datapanel)
+		ll.addWidget(self.leftstack, 1)
 		ll.addWidget(self.calendar)
 
 		# right: title, image, tags, notes
@@ -844,6 +979,175 @@ class MainWindow(QMainWindow):
 		self.setcolor = tb.setcolor
 		return tb
 
+	# ---- the data view ----
+	def loaddata(self):
+		"""read the m15 data of the journal, if it has any"""
+		try:
+			self.data = m15.Data(self.journal.dir) if self.journal else None
+		except (OSError, ValueError) as x:
+			self.data = None
+			self.statusBar().showMessage(f"Can't read the m15 data: {x}", 5000)
+		self.datapanel.fill(self.data)
+		self.dataact.setEnabled(self.journal is not None)
+		if self.datamode:
+			keys = self.datapanel.keys()
+			self.showdata(self.datakey if self.datakey in keys else (keys[-1] if keys else None), force=True)
+
+	def choosedata(self):
+		if self.journal is None:
+			return
+		path, _ = QFileDialog.getOpenFileName(self, "Import m15 Data", os.path.expanduser("~"),
+			"CSV or zip (*.csv *.zip);;All files (*)")
+		if path:
+			self.importdata([path])
+
+	def importdata(self, paths):
+		"""add the candles of the files at paths to the journal's data"""
+		if self.journal is None:
+			return
+		if self.data is None:
+			self.data = m15.Data(self.journal.dir)
+		msgs = []
+		for p in paths:
+			try:
+				added, skipped = self.data.add(p)
+			except (OSError, ValueError) as x:
+				QMessageBox.warning(self, "Import m15 Data", f"Can't import {os.path.basename(p)}: {x}")
+				continue
+			msgs.append(f"{os.path.basename(p)}: {added} candles added" + (f", {skipped} already there" if skipped else ""))
+		self.loaddata()
+		if msgs:
+			self.statusBar().showMessage("; ".join(msgs), 8000)
+			if self.data is not None and len(self.data):
+				self.setdatamode(True)
+				keys = self.datapanel.keys()
+				self.showdata(keys[-1] if keys else None, force=True)
+
+	def datafor(self, e):
+		"""the data row for capture e: its day, or its week"""
+		keys = self.datapanel.keys()
+		if not keys:
+			return None
+		if e is None:
+			return keys[-1]
+		if e.week:
+			k = ("w", e.weekmonday())
+			if k in keys:
+				return k
+		elif ("d", e.day) in keys:
+			return ("d", e.day)
+		d = e.weekmonday() if e.week else e.day
+		days = [k for k in keys if k[0] == ("w" if e.week else "d")] or keys
+		return min(days, key=lambda k: abs((k[1] - d).days))
+
+	def capturefor(self, key):
+		"""the capture for data row key: the week profile of its week, or the
+		capture of its day, or the nearest one"""
+		if self.journal is None or not self.shown or key is None:
+			return None
+		kind, d = key
+		if kind == "w":
+			l = [e for e in self.shown if e.week and e.weekmonday() == d]
+		else:
+			l = [e for e in self.shown if not e.week and e.day == d]
+		return l[0] if l else self.journal.nearest(d, self.shown)
+
+	def setdatamode(self, on):
+		"""show the data view, at the day or week of the capture shown, or
+		go back to the captures at the day or week shown"""
+		on = bool(on) and self.journal is not None
+		self.dataact.setText("&Capture View" if on else "&Data View")
+		self.dataact.setIconText("Captures" if on else "Data")
+		self.dataact.setToolTip("back to the captures, on this day or week" if on
+			else "the weeks and days of the m15 data, drawn from the candles with their profiles")
+		if on == self.datamode:
+			return
+		if on:
+			if self.adjuster is not None:
+				self.adjuster.finish(False)
+			self.savenotes()
+			self.view.commitedit()
+			back = self.current
+			self.datamode = True
+			self.current = None	# no notes or drawings are saved for the data
+			self.capturekey = back.name if back else None
+			self.leftstack.setCurrentIndex(1)
+			self.notes.setReadOnly(True)	# what the data says, not notes
+			self.markcalendar()
+			self.showdata(self.datafor(back), force=True)
+		else:
+			if self.adjuster is not None:
+				self.adjuster.finish(False)
+			self.datamode = False
+			self.notes.setReadOnly(False)
+			self.leftstack.setCurrentIndex(0)
+			self.markcalendar()
+			e = self.capturefor(self.datakey)
+			if e is None and getattr(self, "capturekey", None) and self.journal:
+				e = self.journal.find(self.capturekey)
+			self.show_(e, force=True)
+
+	def showdata(self, key, force=False):
+		"""show the chart of data row key, drawn from its candles"""
+		if not self.datamode:
+			return
+		if self.adjuster is not None and key != self.datakey:
+			self.adjuster.finish(False)	# leaving the chart drops the adjusting
+		if key == self.datakey and not force and self.view.hasimage():
+			self.datapanel.select(key)
+			return
+		self.datakey = key
+		self.notes.blockSignals(True)
+		self.notes.setPlainText("")
+		self.notes.blockSignals(False)
+		self.tagslabel.setText("<b>Data:</b> drawn from the m15 candles, in New York time")
+		if key is None or self.data is None:
+			self.view.setimage(None)
+			self.titlelabel.setText("No m15 data: File ▸ Import m15 Data…")
+			self.updateactions()
+			return
+		kind, d = key
+		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}.png")
+		render(self.data, kind, d, path)
+		name = DRAWPFX + f"{kind}:{d.isoformat()}"
+		self.view.setimage(path, self.pending[name] if name in self.pending else self.data.readdrawing(kind, d))
+		self.titlelabel.setText(("Data: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
+			else f"Data: {d:%a %d %b %Y}")
+		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
+			f"journal's {m15.DRAWDIR} folder")
+		self.notes.blockSignals(True)
+		self.notes.setPlainText(self.data.summary(kind, d))
+		self.notes.blockSignals(False)
+		self.notes.setEnabled(True)
+		self.datapanel.select(key)
+		self.calendar.blockSignals(True)
+		self.calendar.setSelectedDate(QDate(d.year, d.month, d.day))
+		self.calendar.blockSignals(False)
+		self.updateactions()
+
+	def datastep(self, delta=None, last=None, week=False):
+		"""move in the data view: delta rows, to the first or last, or
+		between a day and its week"""
+		keys = self.datapanel.keys()
+		if not keys:
+			return
+		k = self.datakey
+		if last is not None:
+			to = keys[-1] if last else keys[0]
+		elif week:
+			if k is None:
+				return
+			if k[0] == "d":
+				to = ("w", k[1] - timedelta(days=k[1].weekday()))
+			else:
+				days = [x for x in keys if x[0] == "d" and k[1] <= x[1] < k[1] + timedelta(days=7)]
+				to = days[0] if days else None
+		else:
+			i = keys.index(k) + delta if k in keys else 0
+			to = keys[i] if 0 <= i < len(keys) else None
+		if to in keys:
+			self.showdata(to)
+
 	def navigate(self, what):
 		{"prev": lambda: self.step(-1), "next": lambda: self.step(1),
 			"first": lambda: self.jump(False), "last": lambda: self.jump(True),
@@ -851,6 +1155,18 @@ class MainWindow(QMainWindow):
 
 	def drawchanged(self):
 		"""the drawing of the image shown changed: it is pending until saved"""
+		if self.datamode:
+			k = self.datakey
+			if self.view.loading or k is None or self.data is None or not self.view.hasimage():
+				return
+			name = DRAWPFX + f"{k[0]}:{k[1].isoformat()}"
+			data = self.view.drawingdata()
+			if data == self.data.readdrawing(*k):
+				self.pending.pop(name, None)
+			else:
+				self.pending[name] = data
+			self.updatetitle()
+			return
 		e = self.current
 		if self.view.loading or e is None or self.journal is None or not self.view.hasimage():
 			return
@@ -874,6 +1190,16 @@ class MainWindow(QMainWindow):
 		self.view.commitedit()
 		ok = True
 		for name, data in list(self.pending.items()):
+			if name.startswith(DRAWPFX):	# a chart of the data view
+				kind, d = name[len(DRAWPFX):].split(":")
+				try:
+					if self.data is not None:
+						self.data.savedrawing(kind, date.fromisoformat(d), data)
+					self.pending.pop(name)
+				except OSError as x:
+					ok = False
+					self.statusBar().showMessage(f"Can't save the drawing of {d}: {x}", 5000)
+				continue
 			e = self.journal.find(name) if self.journal else None
 			if e is None:
 				self.pending.pop(name)
@@ -884,6 +1210,8 @@ class MainWindow(QMainWindow):
 			except OSError as x:
 				ok = False
 				self.statusBar().showMessage(f"Can't save the drawing of {name}: {x}", 5000)
+		if self.data is not None:
+			self.datapanel.mark()
 		if ok:
 			self.statusBar().showMessage("Drawings saved", 1500)
 		self.updatetitle()
@@ -1020,10 +1348,18 @@ class MainWindow(QMainWindow):
 		self.applysearch()
 		self.reveal(self.journal.find(show), force=True)
 
+	def droppeddata(self, ev):
+		"""the m15 CSV files (or zips) dropped"""
+		md = ev.mimeData()
+		if not md.hasUrls():
+			return []
+		return [u.toLocalFile() for u in md.urls() if u.isLocalFile()
+			and u.toLocalFile().lower().endswith((".csv", ".zip"))]
+
 	def dragEnterEvent(self, ev):
 		if self.owndrag(ev.mimeData()) is not None:
 			ev.ignore()	# from the list, to the calendar only
-		elif self.journal is not None and self.droppedimages(ev):
+		elif self.journal is not None and (self.droppedimages(ev) or self.droppeddata(ev)):
 			ev.acceptProposedAction()
 		else:
 			ev.ignore()
@@ -1032,6 +1368,11 @@ class MainWindow(QMainWindow):
 		self.dragEnterEvent(ev)
 
 	def dropEvent(self, ev):
+		data = self.droppeddata(ev) if self.owndrag(ev.mimeData()) is None else []
+		if data:
+			ev.acceptProposedAction()
+			QTimer.singleShot(0, lambda: self.importdata(data))
+			return
 		paths = self.droppedimages(ev) if self.owndrag(ev.mimeData()) is None else []
 		if not paths:
 			ev.ignore()
@@ -1469,6 +1810,9 @@ class MainWindow(QMainWindow):
 		addrecent(j.dir)
 		self.current = None
 		self.initialgroups()
+		self.datamode = False
+		self.datapanel.expanded = None	# the last month open
+		self.loaddata()
 		self.applysearch(keep=False)
 		self.jump(True)
 		self.updatetitle()
@@ -1796,6 +2140,13 @@ class MainWindow(QMainWindow):
 		self.calendar.setDateTextFormat(QDate(), QTextCharFormat())	# clear
 		if self.journal is None:
 			return
+		if self.datamode:
+			has = QTextCharFormat()
+			has.setFontWeight(QFont.Weight.Bold)
+			has.setForeground(QColor("#089981"))
+			for d in (self.data.days() if self.data is not None else []):
+				self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), has)
+			return
 		shown = {e.day for e in self.shown if not e.week}
 		other = QTextCharFormat()
 		other.setForeground(Qt.GlobalColor.gray)
@@ -1806,6 +2157,12 @@ class MainWindow(QMainWindow):
 			self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), has if d in shown else other)
 
 	def calendarclicked(self, qd):
+		if self.datamode:
+			d = qd.toPython()
+			keys = [k for k in self.datapanel.keys() if k[0] == "d"]
+			if keys:
+				self.showdata(min(keys, key=lambda k: abs((k[1] - d).days)))
+			return
 		if self.journal is None or not self.shown:
 			return
 		d = qd.toPython()
@@ -1819,6 +2176,9 @@ class MainWindow(QMainWindow):
 
 	# ---- showing ----
 	def show_(self, e, force=False):
+		if self.datamode:	# the captures come back where the data view leaves them
+			self.capturekey = e.name if e is not None else None
+			return
 		if self.adjuster is not None and e is not self.current:
 			self.adjuster.finish(False)	# leaving the capture drops the adjusting
 		if e is self.current and not force:
@@ -1859,6 +2219,16 @@ class MainWindow(QMainWindow):
 			self.tagslabel.setText("<i>No tags found in the image</i>")
 
 	def updateactions(self):
+		if self.datamode:
+			keys = self.datapanel.keys()
+			i = keys.index(self.datakey) if self.datakey in keys else -1
+			self.prevact.setEnabled(i > 0)
+			self.nextact.setEnabled(0 <= i < len(keys) - 1)
+			self.weekact.setEnabled(i >= 0)
+			self.weekact.setText("Day" if i >= 0 and self.datakey[0] == "w" else "Week")
+			for a in (self.retagact, self.osviewact):
+				a.setEnabled(a is self.osviewact and i >= 0)
+			return
 		e = self.current
 		i = self.shown.index(e) if e in self.shown else -1
 		self.prevact.setEnabled(i > 0)
@@ -1869,6 +2239,9 @@ class MainWindow(QMainWindow):
 			a.setEnabled(e is not None)
 
 	def step(self, delta):
+		if self.datamode:
+			self.datastep(delta)
+			return
 		if not self.shown:
 			return
 		if self.current not in self.shown:
@@ -1879,6 +2252,9 @@ class MainWindow(QMainWindow):
 			self.show_(self.shown[i])
 
 	def jump(self, last):
+		if self.datamode:
+			self.datastep(last=last)
+			return
 		if self.shown:
 			self.show_(self.shown[-1] if last else self.shown[0])
 		else:
@@ -1894,6 +2270,9 @@ class MainWindow(QMainWindow):
 		return self.journal.weekof(e)
 
 	def toggleweek(self):
+		if self.datamode:
+			self.datastep(week=True)
+			return
 		e = self.current
 		if e is None:
 			return
@@ -1911,30 +2290,150 @@ class MainWindow(QMainWindow):
 		self.show_(to)
 
 	def matchweek(self):
-		"""list the weeks whose profiles look like the one shown so far"""
+		"""list the weeks whose profiles look like the one shown so far: the
+		week profiles of the captures and the weeks of the m15 data without
+		one; in the data view, the weeks of the data, to the end of the day
+		shown"""
 		e = self.current
-		if e is None or not e.week or self.journal is None:
-			QMessageBox.information(self, "Match Week", "Show the week profile of a week in progress first.")
+		k = self.datakey if self.datamode else (("d", e.day) if e is not None and not e.week else None)
+		if self.journal is None:
 			return
-		pts = self.profiles.get(e.name)
+		if k is not None:	# a day: its week up to the end of it, from the data
+			monday = k[1] - timedelta(days=k[1].weekday())
+			pts = self.data.profile("w", monday, upto=k[1] if k[0] == "d" else None) if self.data else None
+			src = DATAPFX + monday.isoformat()
+		elif e is not None and e.week:
+			pts = self.profiles.get(e.name)
+			monday, src = e.weekmonday(), e.name
+		else:
+			QMessageBox.information(self, "Match Week", "Show a week profile, a day, or a week or day of the data first.")
+			return
 		if not pts:
-			QMessageBox.information(self, "Match Week", f"No week profile found in {e.name}.")
+			QMessageBox.information(self, "Match Week", "No week profile found for this week"
+				+ ("" if self.data else ": import m15 data to match a day") + ".")
 			return
+		# the week profiles of the captures and the weeks of the data, but this one
 		others = {x.name: self.profiles.get(x.name) for x in self.journal.entries
-			if x.week and x.weekmonday() != e.weekmonday()}	# not the same week
+			if x.week and x.weekmonday() != monday}
+		if self.data is not None:
+			for w in self.data.weeks():
+				if w != monday:
+					others[DATAPFX + w.isoformat()] = self.data.profile("w", w)
 		others = {n: p for n, p in others.items() if p and not partial(p)}
 		self.profsave.start()
 		if getattr(self, "matchdlg", None) is not None:
 			self.matchdlg.close()	# clears the last match
 		found = matches(pts, others)
-		self.matchsrc, self.matchend = e.name, pts[-1][0]
+		self.matchsrc, self.matchend = src, pts[-1][0]
+		self.matchpts = pts
 		self.matching = dict((n, s) for s, n in found)
 		self.list.viewport().update()
-		self.matchdlg = MatchDialog(self, e.name, found[:8])
+		self.datapanel.tree.viewport().update()
+		self.matchdlg = MatchDialog(self, src, found[:8])
 		self.matchdlg.show()
 
+	def matchday(self):
+		"""list the days of the data like the one shown, up to a time"""
+		cap = None	# the profile of the day so far in the capture shown
+		if self.datamode and self.datakey is not None and self.datakey[0] == "d":
+			d = self.datakey[1]
+		elif not self.datamode and self.current is not None and not self.current.week:
+			d = self.current.day
+			try:
+				cap = dayprofile(self.journal.path(self.current))
+			except Exception:
+				cap = None
+		else:
+			QMessageBox.information(self, "Match Day", "Show a day, a capture or a day of the data, first.")
+			return
+		if self.data is None or not len(self.data):
+			QMessageBox.information(self, "Match Day", "Match Day compares a day with the days of the m15 data: "
+				"File ▸ Import m15 Data… adds it.")
+			return
+		if cap is None and d not in self.data.days():
+			QMessageBox.information(self, "Match Day", f"No m15 data for {d:%a %d %b %Y}, and the day can't be "
+				"read from this capture: it takes an m15 chart in New York time with the dotted lines at midnight "
+				"(and the one before, or the dashed one of the week).")
+			return
+		if getattr(self, "matchdaydlg", None) is not None:
+			self.matchdaydlg.close()
+		self.matchdaydlg = MatchDayDialog(self, d, cap)
+		self.matchdaydlg.show()
+
+	def showday(self, d):
+		"""show day d from Match Day: its capture in the captures, or its chart"""
+		if not self.datamode:
+			e = [x for x in self.shown if not x.week and x.day == d]
+			if e:
+				self.show_(e[0])
+				return
+			self.setdatamode(True)
+		self.showdata(("d", d))
+
+	def matchmonday(self, name):
+		"""the Monday of the week of a capture or a data week (DATAPFX)"""
+		if name.startswith(DATAPFX):
+			return date.fromisoformat(name[len(DATAPFX):])
+		e = self.journal.find(name) if self.journal else None
+		return e.weekmonday() if e else None
+
+	def profileof(self, name):
+		"""the week profile of a capture or a data week"""
+		if name == self.matchsrc and getattr(self, "matchpts", None):
+			return self.matchpts	# so far
+		if name.startswith(DATAPFX):
+			return self.data.profile("w", self.matchmonday(name)) if self.data else None
+		return self.profiles.get(name) if self.profiles else None
+
+	def showmatch(self, name):
+		"""show a week of Match Week: its capture, or its chart from the data"""
+		if name.startswith(DATAPFX):
+			self.setdatamode(True)
+			self.showdata(("w", self.matchmonday(name)))
+			return
+		e = self.journal.find(name) if self.journal else None
+		if e is not None:
+			self.setdatamode(False)
+			self.show_(e)
+			self.selectitem(e)
+
+	def resetprofile(self):
+		k = self.datakey if self.datamode else None
+		if k is None or self.data is None:
+			QMessageBox.information(self, "Find the Data Profile Again", "Show a day or week of the data first.")
+			return
+		if self.adjuster is not None:
+			self.adjuster.finish(False)
+		self.data.adjust(*k, None)
+		self.datapanel.tree.viewport().update()
+		self.showdata(k, force=True)
+
 	def adjustprofile(self):
-		"""adjust the profile of the week shown on its capture"""
+		"""adjust the profile of the week shown on its capture, or of the
+		day or week of the data shown on its chart"""
+		if self.datamode:
+			k = self.datakey
+			if k is None or self.data is None or self.view.pixitem is None or self.adjuster is not None:
+				return
+			pts = self.data.profile(*k, prices=True)
+			g = Geom(self.data, *k)
+			px = g.topx(pts) if pts else [[g.X(g.t0 + 0.05), g.Y((g.top + g.bot) / 2)], [g.X(g.t1 - 0.05), g.Y((g.top + g.bot) / 2)]]
+			self.statusBar().showMessage("Drag the profile's points, click a segment to add one, right click one to remove it; "
+				"double click or Return when done, Esc to cancel")
+			def done(px, k=k, g=g):
+				self.adjuster = None
+				self.statusBar().clearMessage()
+				if px and self.data is not None:
+					try:
+						self.data.adjust(*k, g.frompx(px))
+					except OSError as x:
+						self.statusBar().showMessage(f"Can't keep the profile: {x}", 5000)
+					self.datapanel.tree.viewport().update()
+					if self.datamode and self.datakey == k:
+						self.showdata(k, force=True)
+			self.adjuster = ProfileEditor(self.view, px, done)
+			self.view.setFocus()
+			return
 		e = self.current
 		if e is None or not e.week or self.journal is None or self.view.pixitem is None:
 			QMessageBox.information(self, "Adjust Week Profile", "Show a week profile first.")
@@ -2002,7 +2501,7 @@ class MainWindow(QMainWindow):
 			self.statusBar().showMessage(f"{e.name} scaled", 3000)
 
 	def osview(self):
-		if self.current is not None:
+		if self.current is not None or (self.datamode and self.view.hasimage()):
 			self.view.osview()	# with its drawings
 
 	# ---- notes ----
