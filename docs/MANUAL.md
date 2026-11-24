@@ -506,11 +506,16 @@ shows it.
 
 **Edit ▸ Match Day** (⇧⌘Y) compares the day shown, a capture's day or a day
 of the data, with the other whole days of the data, from 18:00 the day
-before up to the time picked in its window (New York time; the end of the
-data for a day still going on). The day's profile comes from the data, not
-from the capture, so the day needs m15 data. Picking one shows its capture,
-or its chart in the data view when there is none (in the data view, always
-its chart).
+before. On a capture of an m15 chart in New York time it reads the day so far
+from the capture itself: the day starts at the last dotted blue line
+(midnight) with candles after it, and the candles are placed by the line
+before it (a day is 92 candles) or the dashed line of the week, so take the
+capture with the previous Asia session and the midnight line before it.
+When the capture can't be read so (another time frame, no lines) or you pick
+**the m15 data** in its window, the day comes from the data, up to the time
+picked (New York time; the end of the data for a day still going on).
+Picking a day shows its capture, or its chart in the data view when there is
+none (in the data view, always its chart).
 
 ## Exporting
 

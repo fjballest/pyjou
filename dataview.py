@@ -16,7 +16,7 @@ import m15
 
 KEYROLE = Qt.ItemDataRole.UserRole + 10	# ("w" or "d", date) of a row
 
-UP, DOWN = QColor("#089981"), QColor("#f23645")
+UP, DOWN = QColor("#089981"), QColor("#2a2e39")	# green up, black down, as the charts
 PROFCOLOR = QColor("#26c6da")
 DAYLINE = QColor(41, 100, 249)	# the days' and the week's lines, as in the week captures
 

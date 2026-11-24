@@ -292,3 +292,53 @@ def matches(part, profiles):
 		if s is not None:
 			out.append((s, name))
 	return sorted(out, reverse=True)
+
+# ---- a day so far, in an m15 capture ----
+DAYCANDLES = 92	# m15 candles in a trading day: 18:00 to 17:00 New York
+
+def plotright(im):
+	"""the right edge of the chart, where the long horizontal lines end (the price scale is past it)"""
+	H, W, _ = im.shape
+	ends = []
+	for y in range(0, H, 2):
+		s, e = runs(im[y].min(1) < 230)
+		ends += [int(z) for a, z in zip(s, e) if z - a > W / 3]
+	return int(np.median(ends)) if ends else W
+
+def dayprofile(path, end=None, swing=0.25):
+	"""the profile of the day so far in an m15 capture in New York time:
+	[(t, v)], t in hours from the day's midnight (-6 is 18:00 the day
+	before), v from 0 (its low) to 1 (its high). The day starts at the last
+	dotted blue line (midnight) with candles after it; the candles are
+	placed by it and the one before (a day is 92 candles: there are none
+	from 17:00 to 18:00), the dashed line of the week (Sunday 18:00, 24
+	candles before Monday), or else by end, the time (hours) of the last
+	candle. None when the capture can't be placed so"""
+	im = np.asarray(Image.open(path).convert("RGB")).astype(int)
+	start, days = bluelines(im)
+	right = plotright(im)
+	xs, hi, lo = candles(im, 0, right)
+	if len(xs) < 8:
+		return None
+	last = xs[-1]
+	mids = [x for x in days if x < last - 10]
+	if not mids:
+		return None
+	x0 = mids[-1]
+	if len(mids) >= 2 and x0 - mids[-2] > 50:
+		pitch = (x0 - mids[-2]) / DAYCANDLES
+	elif start is not None and x0 - start > 20:
+		pitch = (x0 - start) / 24
+	elif end is not None and end > 0.5:
+		pitch = (last - x0) / (np.floor(end * 4) + 0.5)
+	else:
+		return None
+	xs = xs[xs >= x0 - 24 * pitch]	# from 18:00
+	if len(xs) < 8:
+		return None
+	pts, top, bot = zigzag(xs, hi, lo, swing)
+	tof = lambda x: (x - x0) / pitch * 0.25
+	pts = clean([(tof(x), y, x) for x, y in pts], 0.5)
+	ys = [y for _, y, _ in pts]
+	t, b = min(ys), max(ys)
+	return [(round(float(tt), 3), round(float((b - y) / max(1, b - t)), 3)) for tt, y, _ in pts]

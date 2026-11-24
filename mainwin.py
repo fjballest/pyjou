@@ -26,7 +26,7 @@ from ocrworker import startocr
 from search import Search
 from drawbar import DrawBar
 from viewer import ImageView, renderfile
-from weekprof import Profiles, matches, partial, similarity
+from weekprof import Profiles, dayprofile, matches, partial, similarity
 from weekedit import ProfileEditor
 from winlayout import windowmenu
 from version import VERSION
@@ -168,16 +168,27 @@ class MatchDelegate(QStyledItemDelegate):
 
 class MatchDayDialog(QDialog):
 	"""the days of the data like day d up to a time, best first: click one to show it"""
-	def __init__(self, win, d):
+	def __init__(self, win, d, cap=None):
 		super().__init__(win)
-		self.win, self.d = win, d
+		self.win, self.d, self.cap = win, d, cap
 		self.setWindowTitle("Match Day")
 		self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 		lay = QVBoxLayout(self)
-		top = QHBoxLayout()
-		top.addWidget(QLabel(f"Days like {d:%a %d %b %Y} up to"))
-		self.until = QComboBox()
+		src = QHBoxLayout()
+		src.addWidget(QLabel(f"Days like {d:%a %d %b %Y}, from"))
+		self.source = QComboBox()
 		data = win.data
+		if cap:
+			self.source.addItem("the capture, so far", "capture")
+		if d in data.days():
+			self.source.addItem("the m15 data", "data")
+		self.source.currentIndexChanged.connect(self.refill)
+		src.addWidget(self.source)
+		src.addStretch()
+		lay.addLayout(src)
+		top = QHBoxLayout()
+		top.addWidget(QLabel("up to"))
+		self.until = QComboBox()
 		end = data.end("d", d) or m15.DAYEND
 		h = m15.DAYSTART + 1
 		while h <= end + 1e-9:
@@ -203,8 +214,14 @@ class MatchDayDialog(QDialog):
 
 	def refill(self):
 		data, d = self.win.data, self.d
-		self.upto = self.until.currentData()
-		pts = data.profile("d", d, until=self.upto)
+		if self.source.currentData() == "capture":
+			pts = self.cap
+			self.upto = pts[-1][0]
+			self.until.setEnabled(False)
+		else:
+			self.upto = self.until.currentData()
+			self.until.setEnabled(True)
+			pts = data.profile("d", d, until=self.upto)
 		others = {x: data.profile("d", x) for x in data.days() if x != d}
 		others = {x: p for x, p in others.items() if p and p[-1][0] >= m15.DAYEND - 0.5}	# whole days
 		found = []
@@ -2303,20 +2320,30 @@ class MainWindow(QMainWindow):
 
 	def matchday(self):
 		"""list the days of the data like the one shown, up to a time"""
+		cap = None	# the profile of the day so far in the capture shown
 		if self.datamode and self.datakey is not None and self.datakey[0] == "d":
 			d = self.datakey[1]
 		elif not self.datamode and self.current is not None and not self.current.week:
 			d = self.current.day
+			try:
+				cap = dayprofile(self.journal.path(self.current))
+			except Exception:
+				cap = None
 		else:
 			QMessageBox.information(self, "Match Day", "Show a day, a capture or a day of the data, first.")
 			return
-		if self.data is None or ("d", d) not in set(self.datapanel.rows) | {("d", x) for x in self.data.days()}:
-			QMessageBox.information(self, "Match Day", f"No m15 data for {d:%a %d %b %Y}: "
+		if self.data is None or not len(self.data):
+			QMessageBox.information(self, "Match Day", "Match Day compares a day with the days of the m15 data: "
 				"File ▸ Import m15 Data… adds it.")
+			return
+		if cap is None and d not in self.data.days():
+			QMessageBox.information(self, "Match Day", f"No m15 data for {d:%a %d %b %Y}, and the day can't be "
+				"read from this capture: it takes an m15 chart in New York time with the dotted lines at midnight "
+				"(and the one before, or the dashed one of the week).")
 			return
 		if getattr(self, "matchdaydlg", None) is not None:
 			self.matchdaydlg.close()
-		self.matchdaydlg = MatchDayDialog(self, d)
+		self.matchdaydlg = MatchDayDialog(self, d, cap)
 		self.matchdaydlg.show()
 
 	def showday(self, d):
