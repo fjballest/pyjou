@@ -91,6 +91,8 @@ DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
 NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
 
 MATCHCOLOR = QColor("#e53935")
+DATAPFX = "m15:"	# a week of the m15 data in Match Week: m15:2026-11-16
+DRAWPFX = "m15draw:"	# the drawing of a data chart in pending: m15draw:w:2026-11-16
 
 def drawprofile(painter, box, pts, pal, selected=False, upto=None):
 	"""draw week profile pts in box, with the midnights faint behind it; the
@@ -124,13 +126,13 @@ class MatchDialog(QDialog):
 		self.setWindowTitle("Match Week")
 		self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 		lay = QVBoxLayout(self)
-		e = win.journal.find(src)
-		lay.addWidget(QLabel(f"Weeks like the week of {e.weekmonday():%d %b %Y} so far, "
+		lay.addWidget(QLabel(f"Weeks like the week of {win.matchmonday(src):%d %b %Y} so far, "
 			f"to {daytime(win.matchend)} (in red):"))
 		self.lst = QListWidget()
 		self.lst.setItemDelegate(MatchDelegate(self.lst, win))
 		for s, name in found:
-			it = QListWidgetItem(f"Week {win.journal.find(name).weekmonday():%d %b %Y}   {s:.0%}")
+			data = " (m15 data)" if name.startswith(DATAPFX) else ""
+			it = QListWidgetItem(f"Week {win.matchmonday(name):%d %b %Y}{data}   {s:.0%}")
 			it.setData(Qt.ItemDataRole.UserRole, name)
 			self.lst.addItem(it)
 		self.lst.currentItemChanged.connect(self.picked)
@@ -141,10 +143,8 @@ class MatchDialog(QDialog):
 		self.finished.connect(lambda _: win.clearmatch())
 
 	def picked(self, it, _prev):
-		e = self.win.journal.find(it.data(Qt.ItemDataRole.UserRole)) if it and self.win.journal else None
-		if e is not None:
-			self.win.show_(e)
-			self.win.selectitem(e)
+		if it is not None:
+			self.win.showmatch(it.data(Qt.ItemDataRole.UserRole))
 
 class MatchDelegate(QStyledItemDelegate):
 	"""a row of the match window: the week, how well it matches, and its profile"""
@@ -159,7 +159,7 @@ class MatchDelegate(QStyledItemDelegate):
 
 	def paint(self, painter, option, index):
 		super().paint(painter, option, index)
-		pts = self.win.profiles.get(index.data(Qt.ItemDataRole.UserRole)) if self.win.profiles else None
+		pts = self.win.profileof(index.data(Qt.ItemDataRole.UserRole))
 		r = option.rect
 		box = QRectF(r.right() - 150, r.top() + 4, 140, r.height() - 8)
 		if pts:
@@ -995,10 +995,12 @@ class MainWindow(QMainWindow):
 		kind, d = key
 		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}.png")
 		render(self.data, kind, d, path)
-		self.view.setimage(path)
+		name = DRAWPFX + f"{kind}:{d.isoformat()}"
+		self.view.setimage(path, self.pending[name] if name in self.pending else self.data.readdrawing(kind, d))
 		self.titlelabel.setText(("Data: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
 			else f"Data: {d:%a %d %b %Y}")
-		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; drawings made on it are not kept")
+		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
+			f"journal's {m15.DRAWDIR} folder")
 		self.notes.blockSignals(True)
 		self.notes.setPlainText(self.data.summary(kind, d))
 		self.notes.blockSignals(False)
@@ -1039,6 +1041,18 @@ class MainWindow(QMainWindow):
 
 	def drawchanged(self):
 		"""the drawing of the image shown changed: it is pending until saved"""
+		if self.datamode:
+			k = self.datakey
+			if self.view.loading or k is None or self.data is None or not self.view.hasimage():
+				return
+			name = DRAWPFX + f"{k[0]}:{k[1].isoformat()}"
+			data = self.view.drawingdata()
+			if data == self.data.readdrawing(*k):
+				self.pending.pop(name, None)
+			else:
+				self.pending[name] = data
+			self.updatetitle()
+			return
 		e = self.current
 		if self.view.loading or e is None or self.journal is None or not self.view.hasimage():
 			return
@@ -1062,6 +1076,16 @@ class MainWindow(QMainWindow):
 		self.view.commitedit()
 		ok = True
 		for name, data in list(self.pending.items()):
+			if name.startswith(DRAWPFX):	# a chart of the data view
+				kind, d = name[len(DRAWPFX):].split(":")
+				try:
+					if self.data is not None:
+						self.data.savedrawing(kind, date.fromisoformat(d), data)
+					self.pending.pop(name)
+				except OSError as x:
+					ok = False
+					self.statusBar().showMessage(f"Can't save the drawing of {d}: {x}", 5000)
+				continue
 			e = self.journal.find(name) if self.journal else None
 			if e is None:
 				self.pending.pop(name)
@@ -1072,6 +1096,8 @@ class MainWindow(QMainWindow):
 			except OSError as x:
 				ok = False
 				self.statusBar().showMessage(f"Can't save the drawing of {name}: {x}", 5000)
+		if self.data is not None:
+			self.datapanel.mark()
 		if ok:
 			self.statusBar().showMessage("Drawings saved", 1500)
 		self.updatetitle()
@@ -2149,27 +2175,77 @@ class MainWindow(QMainWindow):
 		self.show_(to)
 
 	def matchweek(self):
-		"""list the weeks whose profiles look like the one shown so far"""
-		e = self.current
-		if e is None or not e.week or self.journal is None:
-			QMessageBox.information(self, "Match Week", "Show the week profile of a week in progress first.")
-			return
-		pts = self.profiles.get(e.name)
+		"""list the weeks whose profiles look like the one shown so far: the
+		week profiles of the captures and the weeks of the m15 data without
+		one; in the data view, the weeks of the data, to the end of the day
+		shown"""
+		if self.datamode:
+			k = self.datakey
+			if k is None or self.data is None:
+				QMessageBox.information(self, "Match Week", "Show a week or a day of the data first.")
+				return
+			monday = k[1] - timedelta(days=k[1].weekday())
+			pts = self.data.profile("w", monday, upto=k[1] if k[0] == "d" else None)
+			src = DATAPFX + monday.isoformat()
+		else:
+			e = self.current
+			if e is None or not e.week or self.journal is None:
+				QMessageBox.information(self, "Match Week", "Show the week profile of a week in progress first.")
+				return
+			pts = self.profiles.get(e.name)
+			monday, src = e.weekmonday(), e.name
 		if not pts:
-			QMessageBox.information(self, "Match Week", f"No week profile found in {e.name}.")
+			QMessageBox.information(self, "Match Week", "No week profile found for this week.")
 			return
-		others = {x.name: self.profiles.get(x.name) for x in self.journal.entries
-			if x.week and x.weekmonday() != e.weekmonday()}	# not the same week
-		others = {n: p for n, p in others.items() if p and not partial(p)}
+		others = {}
+		if not self.datamode:
+			others = {x.name: self.profiles.get(x.name) for x in self.journal.entries
+				if x.week and x.weekmonday() != monday}	# not the same week
+			others = {n: p for n, p in others.items() if p and not partial(p)}
+		if self.data is not None:
+			have = {self.matchmonday(n) for n in others}	# a capture's profile wins over the data's
+			for w in self.data.weeks():
+				if w != monday and w not in have:
+					others[DATAPFX + w.isoformat()] = self.data.profile("w", w)
+			others = {n: p for n, p in others.items() if p and not partial(p)}
 		self.profsave.start()
 		if getattr(self, "matchdlg", None) is not None:
 			self.matchdlg.close()	# clears the last match
 		found = matches(pts, others)
-		self.matchsrc, self.matchend = e.name, pts[-1][0]
+		self.matchsrc, self.matchend = src, pts[-1][0]
+		self.matchpts = pts
 		self.matching = dict((n, s) for s, n in found)
 		self.list.viewport().update()
-		self.matchdlg = MatchDialog(self, e.name, found[:8])
+		self.datapanel.tree.viewport().update()
+		self.matchdlg = MatchDialog(self, src, found[:8])
 		self.matchdlg.show()
+
+	def matchmonday(self, name):
+		"""the Monday of the week of a capture or a data week (DATAPFX)"""
+		if name.startswith(DATAPFX):
+			return date.fromisoformat(name[len(DATAPFX):])
+		e = self.journal.find(name) if self.journal else None
+		return e.weekmonday() if e else None
+
+	def profileof(self, name):
+		"""the week profile of a capture or a data week"""
+		if name == self.matchsrc and getattr(self, "matchpts", None):
+			return self.matchpts	# so far
+		if name.startswith(DATAPFX):
+			return self.data.profile("w", self.matchmonday(name)) if self.data else None
+		return self.profiles.get(name) if self.profiles else None
+
+	def showmatch(self, name):
+		"""show a week of Match Week: its capture, or its chart from the data"""
+		if name.startswith(DATAPFX):
+			self.setdatamode(True)
+			self.showdata(("w", self.matchmonday(name)))
+			return
+		e = self.journal.find(name) if self.journal else None
+		if e is not None:
+			self.setdatamode(False)
+			self.show_(e)
+			self.selectitem(e)
 
 	def adjustprofile(self):
 		"""adjust the profile of the week shown on its capture"""

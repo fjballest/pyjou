@@ -241,17 +241,24 @@ class DataPanel(QWidget):
 			self.info.setText(f"<b>{data.symbol}</b> m15, {data.first():%d %b %Y} – {data.last():%d %b %Y}, "
 				f"{len(weeks)} weeks, {len(data.days())} days")
 			for w in weeks:
-				wi = QTreeWidgetItem([f"Week {w:%d %b %Y}"])
+				wi = QTreeWidgetItem([""])
 				wi.setFont(0, bold)
 				wi.setData(0, KEYROLE, ("w", w))
 				self.tree.addTopLevelItem(wi)
 				self.rows[("w", w)] = wi
 				for d in data.daysof(w):
-					di = QTreeWidgetItem([f"{d:%a %d}"])
+					di = QTreeWidgetItem([""])
 					di.setData(0, KEYROLE, ("d", d))
 					wi.addChild(di)
 					self.rows[("d", d)] = di
 		self.tree.blockSignals(False)
+		self.mark()
+
+	def mark(self):
+		"""the labels of the rows, with ✎ on those drawn on"""
+		for (kind, d), it in self.rows.items():
+			text = f"Week {d:%d %b %Y}" if kind == "w" else f"{d:%a %d}"
+			it.setText(0, text + ("  ✎" if self.data.drawn(kind, d) else ""))
 
 	def keys(self):
 		"""the rows in order: each week, then its days"""

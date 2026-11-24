@@ -1,7 +1,9 @@
 #
 # m15 data: the 15 minute candles of a market, imported from CSV files
 # exported from TradingView (time,open,high,low,close,... with the time in
-# seconds since 1970, UTC), kept in the journal as <SYMBOL>.m15.csv. A file
+# seconds since 1970, UTC), kept in the journal compressed, as
+# <SYMBOL>.m15.csv.gz. What is drawn on the chart of a day or week is kept
+# in DRAWDIR, a file per day (d261117.drw) or week (w261116.drw). A file
 # imported later adds only the candles after the last one kept (and before
 # the first one), so files that overlap don't make duplicates.
 #
@@ -15,6 +17,8 @@
 #
 import csv
 import glob
+import gzip
+import json
 import io
 import os
 import zipfile
@@ -24,18 +28,21 @@ import numpy as np
 
 import weekprof
 
-EXT = ".m15.csv"
+EXT = ".m15.csv.gz"
+OLDEXT = ".m15.csv"	# kept plain, before: compressed when found
+DRAWDIR = "m15draw"
 HEADER = ["time", "open", "high", "low", "close"]
 DAYSTART = -6	# hours from midnight a trading day starts at: 18:00 the day before
 DAYEND = 17		# and ends at, 17:00
 WEEKSWING = weekprof.SWING	# the smallest swing of a profile, as a part of the range
 DAYSWING = 0.25
 
-# sessions: name, start and end in hours from the day's midnight (New York), color
+# sessions: name, start and end in hours from the day's midnight (New York),
+# color; the times of the ICTlevels indicator (US hours)
 SESSIONS = [
 	("Asia", -4.0, 0.0, "#f23645"),
 	("London", 2.0, 5.0, "#089981"),
-	("NY AM", 9.5, 11.0, "#2962ff"),
+	("NY AM", 7.0, 11.5, "#2962ff"),
 ]
 
 EPOCH = date(1970, 1, 1)
@@ -79,7 +86,10 @@ def parsetime(s):
 def readrows(path):
 	"""the candles [(t, o, h, l, c)] in the CSV at path, or in the first
 	CSV in the zip at path, sorted by time"""
-	if zipfile.is_zipfile(path):
+	if path.lower().endswith(".gz"):
+		with gzip.open(path, "rt", encoding="utf-8-sig") as f:
+			text = f.read()
+	elif zipfile.is_zipfile(path):
 		with zipfile.ZipFile(path) as z:
 			names = [n for n in z.namelist() if n.lower().endswith(".csv") and not n.startswith("__MACOSX")]
 			if not names:
@@ -109,9 +119,28 @@ def symbolof(path):
 	return b.split(".")[0].split("_")[0] or "data"
 
 def storeof(dir):
-	"""the file of the data kept in journal dir, or None"""
+	"""the file of the data kept in journal dir, or None; one kept plain
+	is compressed first"""
 	l = sorted(glob.glob(os.path.join(glob.escape(dir), "*" + EXT)))
-	return l[0] if l else None
+	if l:
+		return l[0]
+	old = sorted(glob.glob(os.path.join(glob.escape(dir), "*" + OLDEXT)))
+	if not old:
+		return None
+	dest = old[0][:-len(OLDEXT)] + EXT
+	writerows(dest, readrows(old[0]))
+	os.remove(old[0])
+	return dest
+
+def writerows(dest, rows):
+	"""write the candles rows compressed at dest, through a temporary file"""
+	tmp = dest + ".tmp"
+	with gzip.open(tmp, "wt", newline="") as f:
+		w = csv.writer(f)
+		w.writerow(HEADER)
+		for t, o, h, l, c in rows:
+			w.writerow([t] + [repr(float(x)).removesuffix(".0") for x in (o, h, l, c)])
+	os.replace(tmp, dest)
 
 class Data:
 	"""the m15 candles kept in a journal"""
@@ -161,15 +190,7 @@ class Data:
 			keep = new
 		if keep:
 			rows = sorted(old + keep)
-			dest = self.path or os.path.join(self.dir, symbolof(path) + EXT)
-			tmp = dest + ".tmp"
-			with open(tmp, "w", newline="") as f:
-				w = csv.writer(f)
-				w.writerow(HEADER)
-				for t, o, h, l, c in rows:
-					w.writerow([t, repr(o).removesuffix(".0"), repr(h).removesuffix(".0"),
-						repr(l).removesuffix(".0"), repr(c).removesuffix(".0")])
-			os.replace(tmp, dest)
+			writerows(self.path or os.path.join(self.dir, symbolof(path) + EXT), rows)
 			self.load()
 		return len(keep), len(new) - len(keep)
 
@@ -216,17 +237,20 @@ class Data:
 		"""the t of candle i in a profile: days for a week, hours for a day"""
 		return (self.wall[i] - zero) / (3600 if kind == "d" else 86400)
 
-	def profile(self, kind, d, prices=False):
+	def profile(self, kind, d, prices=False, upto=None):
 		"""the profile of day d or week d: [(t, v)], or None. The points
-		are at the middle of their candles. With prices, [(t, price)]"""
-		k = (kind, d)
+		are at the middle of their candles. With prices, [(t, price)]. With
+		upto, that of the week only to the end of day upto"""
+		k = (kind, d, upto)
 		if k not in self.profs:
-			self.profs[k] = self.findprofile(kind, d)
+			self.profs[k] = self.findprofile(kind, d, upto)
 		p = self.profs[k]
 		return p and p[1 if prices else 0]
 
-	def findprofile(self, kind, d):
+	def findprofile(self, kind, d, upto=None):
 		i, j, zero = self.span(kind, d)
+		if upto is not None:
+			j = min(j, int(np.searchsorted(self.dayno, self.dayn(upto) + 1)))
 		if j - i < 4:
 			return None
 		xs = np.arange(j - i)
@@ -271,3 +295,32 @@ class Data:
 	def walltime(self, i):
 		"""New York's time of candle i, as a naive datetime"""
 		return datetime(1970, 1, 1) + timedelta(seconds=int(self.wall[i]))
+
+	# ---- drawings on the charts ----
+	def drawpath(self, kind, d):
+		return os.path.join(self.dir, DRAWDIR, f"{kind}{d:%y%m%d}.drw")
+
+	def readdrawing(self, kind, d):
+		"""what is drawn on the chart of day or week d, or None"""
+		try:
+			with open(self.drawpath(kind, d), encoding="utf-8") as f:
+				x = json.load(f)
+			return x if isinstance(x, dict) else None
+		except (OSError, ValueError):
+			return None
+
+	def drawn(self, kind, d):
+		return os.path.exists(self.drawpath(kind, d))
+
+	def savedrawing(self, kind, d, data):
+		"""keep what is drawn on the chart of day or week d; nothing removes it"""
+		p = self.drawpath(kind, d)
+		if not data or not data.get("shapes"):
+			if os.path.exists(p):
+				os.remove(p)
+			return
+		os.makedirs(os.path.dirname(p), exist_ok=True)
+		tmp = p + ".tmp"
+		with open(tmp, "w", encoding="utf-8") as f:
+			json.dump(data, f, ensure_ascii=False, indent=1)
+		os.replace(tmp, p)
