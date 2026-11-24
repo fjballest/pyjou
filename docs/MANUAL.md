@@ -177,7 +177,7 @@ in `.pyjou-weekprof.json` in the journal, and found again when an image
 changes. A chart with other kinds of candles, or the whole screen captured,
 may give a wrong profile or none.
 
-**Edit ▸ Adjust Week Profile…** (⇧⌘R) draws the profile of the week shown
+**Edit ▸ Adjust Profile…** (⇧⌘R) draws the profile of the week shown
 on its image, in red, to fix it by hand: drag a point to move it, click a
 segment to add a point there, right click a point to remove it. A double
 click (or Return) keeps the result, and Esc leaves the profile as it was. A
@@ -474,7 +474,8 @@ dropping the `.csv` (or a `.zip` with it) on the window, adds them to
 the candles after the last one kept (and any before the first), so
 exports that overlap don't make duplicates.
 
-**View ▸ Data View** (⇧⌘D, **Data** in the toolbar) shows, instead of the
+**View ▸ Data View** (⇧⌘D, **Data** in the toolbar, which says **Captures**
+while in the data view, to go back) shows, instead of the
 captures, the weeks with data by month, each with its days, and at the right of each
 row its profile. The **Weeks** and **Days** boxes list only the weeks or
 only the days, and **+**/**−**, **m** and **w** open and close the groups as in
@@ -497,6 +498,13 @@ the drawing of each day or week in a file of its own, in the journal's
 rows with ✎. The chart of a week or day still going on changes its price
 scale as candles are added, so what is drawn on it may no longer sit on the
 same prices.
+
+**Edit ▸ Adjust Profile…** (⇧⌘R) on the chart of a day or week of the data
+adjusts its profile as on a week capture: drag its points, click a segment
+to add one, right click one to remove it, double click or Return to keep
+it. It is kept in `m15draw` (`d261117.prof`) and used from then on, in the
+list and by Match Week and Match Day; **Edit ▸ Find the Data Profile Again**
+forgets it.
 
 **Edit ▸ Match Week** also uses the data: it compares the week with the week
 profiles of the captures and with the weeks of the data, marked *(m15

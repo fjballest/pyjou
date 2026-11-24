@@ -38,21 +38,48 @@ def title(data, kind, d):
 		return f"{data.symbol} m15 · Week {d:%d %b} – {d + timedelta(days=4):%d %b %Y}"
 	return f"{data.symbol} m15 · {d:%a %d %b %Y}"
 
+class Geom:
+	"""where the chart of day or week d puts times and prices"""
+	def __init__(self, data, kind, d):
+		i, j, zero = data.span(kind, d)
+		self.ok = j > i
+		self.W, self.H = (1800, 1000) if kind == "d" else (2400, 1100)
+		self.L, self.R, self.T, self.B = 16, 100, 44, 40
+		self.pw, self.ph = self.W - self.L - self.R, self.H - self.T - self.B
+		self.t0, self.t1 = trange(kind)
+		hi, lo = (float(data.h[i:j].max()), float(data.l[i:j].min())) if self.ok else (1, 0)
+		pad = (hi - lo) * 0.04 or 1
+		self.top, self.bot = hi + pad, lo - pad
+
+	def X(self, t):
+		return self.L + (t - self.t0) / (self.t1 - self.t0) * self.pw
+
+	def Y(self, p):
+		return self.T + (self.top - p) / (self.top - self.bot) * self.ph
+
+	def t(self, x):
+		return self.t0 + (x - self.L) / self.pw * (self.t1 - self.t0)
+
+	def price(self, y):
+		return self.top - (y - self.T) / self.ph * (self.top - self.bot)
+
+	def topx(self, pts):
+		"""profile [(t, price)] as points [x, y] of the image"""
+		return [[self.X(t), self.Y(p)] for t, p in pts]
+
+	def frompx(self, px):
+		return [(round(self.t(x), 4), round(self.price(y), 2)) for x, y in px]
+
 def render(data, kind, d, path=None):
 	"""the chart of day d or week d (its Monday) as a QImage, saved at path
 	when given; None without candles"""
 	i, j, zero = data.span(kind, d)
 	if j <= i:
 		return None
-	W, H = (1800, 1000) if kind == "d" else (2400, 1100)
-	L, R, T, B = 16, 100, 44, 40
-	pw, ph = W - L - R, H - T - B
-	t0, t1 = trange(kind)
-	hi, lo = float(data.h[i:j].max()), float(data.l[i:j].min())
-	pad = (hi - lo) * 0.04 or 1
-	top, bot = hi + pad, lo - pad
-	X = lambda t: L + (t - t0) / (t1 - t0) * pw
-	Y = lambda p: T + (top - p) / (top - bot) * ph
+	g = Geom(data, kind, d)
+	W, H, L, R, T, B, pw, ph = g.W, g.H, g.L, g.R, g.T, g.B, g.pw, g.ph
+	t0, t1, top, bot = g.t0, g.t1, g.top, g.bot
+	X, Y = g.X, g.Y
 	unit = 3600 if kind == "d" else 86400
 	slot = 900 / unit / (t1 - t0) * pw	# pixels per candle
 

@@ -32,7 +32,7 @@ from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
 import m15
-from dataview import DataPanel, drawpts, render
+from dataview import DataPanel, Geom, drawpts, render
 import tempfile
 
 RECENTMAX = 10
@@ -700,10 +700,13 @@ class MainWindow(QMainWindow):
 			"scale one of two charts of a capture vertically, so its price levels match the other one")
 		self.matchact = self.mkaction("&Match Week…", self.matchweek, None, "Ctrl+Shift+M",
 			"compare the week profile shown, a week in progress, with the same days of the other weeks, and list the closest")
+		self.resetprofact = self.mkaction("Find the Data Profile Again", self.resetprofile, None, None,
+			"forget the profile adjusted by hand for the day or week of the data shown")
 		self.matchdayact = self.mkaction("Match &Day…", self.matchday, None, "Ctrl+Shift+Y",
 			"compare the day shown (a capture's day or a day of the data), up to a time, with the other days of the m15 data, and list the closest")
-		self.adjustact = self.mkaction("Adjust Week P&rofile…", self.adjustprofile, None, "Ctrl+Shift+R",
-			"draw the profile of the week shown on its capture, to move its points, add or remove some")
+		self.adjustact = self.mkaction("Adjust P&rofile…", self.adjustprofile, None, "Ctrl+Shift+R",
+			"draw the profile of the week shown on its capture, or of the day or week of the data on its chart, "
+			"to move its points, add or remove some")
 		self.quitact = self.mkaction("&Quit", QApplication.closeAllWindows, None, QKeySequence.StandardKey.Quit)
 		self.quitact.setMenuRole(QAction.MenuRole.QuitRole)
 		# cut, copy and paste captures in the list, between journals too
@@ -726,10 +729,9 @@ class MainWindow(QMainWindow):
 		self.importdataact = self.mkaction("Import m&15 Data…", self.choosedata, None, None,
 			"add the candles of an m15 CSV exported from TradingView (or a zip with it) to the journal's data; "
 			"only those after the last one kept are added")
-		self.dataact = self.mkaction("&Data View", lambda: self.setdatamode(self.dataact.isChecked()), None,
+		self.dataact = self.mkaction("&Data View", lambda: self.setdatamode(not self.datamode), None,
 			"Ctrl+Shift+D", "switch between the captures and the weeks and days of the m15 data, "
 			"drawn from the candles with their profiles")
-		self.dataact.setCheckable(True)
 		self.dataact.setIconText("Data")
 		self.recentmenu = QMenu("Open &Recent", self)
 		self.recentmenu.aboutToShow.connect(self.fillrecent)
@@ -789,6 +791,7 @@ class MainWindow(QMainWindow):
 		e.addAction(self.matchact)
 		e.addAction(self.matchdayact)
 		e.addAction(self.adjustact)
+		e.addAction(self.resetprofact)
 		e.aboutToShow.connect(lambda: (self.updateclipacts(),
 			self.askdelact.setChecked(settings().value("askdelete", True) not in (False, "false"))))
 		e.addSeparator()
@@ -1049,7 +1052,10 @@ class MainWindow(QMainWindow):
 		"""show the data view, at the day or week of the capture shown, or
 		go back to the captures at the day or week shown"""
 		on = bool(on) and self.journal is not None
-		self.dataact.setChecked(on)
+		self.dataact.setText("&Capture View" if on else "&Data View")
+		self.dataact.setIconText("Captures" if on else "Data")
+		self.dataact.setToolTip("back to the captures, on this day or week" if on
+			else "the weeks and days of the m15 data, drawn from the candles with their profiles")
 		if on == self.datamode:
 			return
 		if on:
@@ -1066,6 +1072,8 @@ class MainWindow(QMainWindow):
 			self.markcalendar()
 			self.showdata(self.datafor(back), force=True)
 		else:
+			if self.adjuster is not None:
+				self.adjuster.finish(False)
 			self.datamode = False
 			self.notes.setReadOnly(False)
 			self.leftstack.setCurrentIndex(0)
@@ -1079,6 +1087,8 @@ class MainWindow(QMainWindow):
 		"""show the chart of data row key, drawn from its candles"""
 		if not self.datamode:
 			return
+		if self.adjuster is not None and key != self.datakey:
+			self.adjuster.finish(False)	# leaving the chart drops the adjusting
 		if key == self.datakey and not force and self.view.hasimage():
 			self.datapanel.select(key)
 			return
@@ -2383,8 +2393,43 @@ class MainWindow(QMainWindow):
 			self.show_(e)
 			self.selectitem(e)
 
+	def resetprofile(self):
+		k = self.datakey if self.datamode else None
+		if k is None or self.data is None:
+			QMessageBox.information(self, "Find the Data Profile Again", "Show a day or week of the data first.")
+			return
+		if self.adjuster is not None:
+			self.adjuster.finish(False)
+		self.data.adjust(*k, None)
+		self.datapanel.tree.viewport().update()
+		self.showdata(k, force=True)
+
 	def adjustprofile(self):
-		"""adjust the profile of the week shown on its capture"""
+		"""adjust the profile of the week shown on its capture, or of the
+		day or week of the data shown on its chart"""
+		if self.datamode:
+			k = self.datakey
+			if k is None or self.data is None or self.view.pixitem is None or self.adjuster is not None:
+				return
+			pts = self.data.profile(*k, prices=True)
+			g = Geom(self.data, *k)
+			px = g.topx(pts) if pts else [[g.X(g.t0 + 0.05), g.Y((g.top + g.bot) / 2)], [g.X(g.t1 - 0.05), g.Y((g.top + g.bot) / 2)]]
+			self.statusBar().showMessage("Drag the profile's points, click a segment to add one, right click one to remove it; "
+				"double click or Return when done, Esc to cancel")
+			def done(px, k=k, g=g):
+				self.adjuster = None
+				self.statusBar().clearMessage()
+				if px and self.data is not None:
+					try:
+						self.data.adjust(*k, g.frompx(px))
+					except OSError as x:
+						self.statusBar().showMessage(f"Can't keep the profile: {x}", 5000)
+					self.datapanel.tree.viewport().update()
+					if self.datamode and self.datakey == k:
+						self.showdata(k, force=True)
+			self.adjuster = ProfileEditor(self.view, px, done)
+			self.view.setFocus()
+			return
 		e = self.current
 		if e is None or not e.week or self.journal is None or self.view.pixitem is None:
 			QMessageBox.information(self, "Adjust Week Profile", "Show a week profile first.")

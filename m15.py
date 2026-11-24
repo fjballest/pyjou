@@ -244,7 +244,8 @@ class Data:
 		to time until (hours of a day, days of a week)"""
 		k = (kind, d, upto, until)
 		if k not in self.profs:
-			self.profs[k] = self.findprofile(kind, d, upto, until)
+			adj = self.adjusted(kind, d) if upto is None and until is None else None
+			self.profs[k] = self.normal(adj) if adj else self.findprofile(kind, d, upto, until)
 		p = self.profs[k]
 		return p and p[1 if prices else 0]
 
@@ -263,10 +264,40 @@ class Data:
 		half = 7.5 * 60 / (3600 if kind == "d" else 86400)
 		pts = [(float(self.tof(kind, i + x, zero)) + half, -y, x) for x, y in pts]
 		pts = weekprof.clean(pts, 0.05 if kind == "w" else 0.5)
-		ys = [y for _, y, _ in pts]
+		return self.normal([(t, y) for t, y, _ in pts])
+
+	@staticmethod
+	def normal(pts):
+		"""([(t, v)], [(t, price)]) of profile pts [(t, price)], v from 0 at its low to 1"""
+		ys = [y for _, y in pts]
 		low, high = min(ys), max(ys)
-		return ([(round(t, 3), round((y - low) / max(1e-9, high - low), 3)) for t, y, _ in pts],
-			[(t, y) for t, y, _ in pts])
+		return ([(round(t, 3), round((y - low) / max(1e-9, high - low), 3)) for t, y in pts], list(pts))
+
+	def adjpath(self, kind, d):
+		return os.path.join(self.dir, DRAWDIR, f"{kind}{d:%y%m%d}.prof")
+
+	def adjusted(self, kind, d):
+		"""the profile of day or week d as adjusted by hand, [(t, price)], or None"""
+		try:
+			with open(self.adjpath(kind, d)) as f:
+				pts = [(float(t), float(p)) for t, p in json.load(f)]
+			return pts if len(pts) >= 2 else None
+		except (OSError, ValueError, TypeError):
+			return None
+
+	def adjust(self, kind, d, pts):
+		"""keep pts [(t, price)] as the profile of day or week d; None goes back to the one found"""
+		p = self.adjpath(kind, d)
+		for k in [k for k in self.profs if k[:2] == (kind, d)]:
+			del self.profs[k]
+		if not pts:
+			if os.path.exists(p):
+				os.remove(p)
+			return
+		os.makedirs(os.path.dirname(p), exist_ok=True)
+		with open(p + ".tmp", "w") as f:
+			json.dump([[t, v] for t, v in sorted(pts)], f)
+		os.replace(p + ".tmp", p)
 
 	def end(self, kind, d):
 		"""the time the last candle of day or week d ends, in its t"""
