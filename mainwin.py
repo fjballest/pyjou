@@ -135,7 +135,9 @@ class MatchDialog(QDialog):
 			it = QListWidgetItem(f"Week {win.matchmonday(name):%d %b %Y}{data}   {s:.0%}")
 			it.setData(Qt.ItemDataRole.UserRole, name)
 			self.lst.addItem(it)
+		self.lst.setCurrentRow(-1)
 		self.lst.currentItemChanged.connect(self.picked)
+		self.lst.itemClicked.connect(lambda it: self.picked(it, None))	# the row current at first too
 		lay.addWidget(self.lst)
 		if not found:
 			lay.addWidget(QLabel("No full week with a profile to compare it with."))
@@ -206,6 +208,7 @@ class MatchDayDialog(QDialog):
 		self.lst = QListWidget()
 		self.lst.setItemDelegate(MatchDayDelegate(self.lst, self))
 		self.lst.currentItemChanged.connect(self.picked)
+		self.lst.itemClicked.connect(lambda it: self.picked(it, None))	# the row current at first too
 		lay.addWidget(self.lst)
 		self.none = QLabel("No other day of the data to compare it with.")
 		lay.addWidget(self.none)
@@ -236,6 +239,7 @@ class MatchDayDialog(QDialog):
 			it = QListWidgetItem(f"{x:%a %d %b %Y}   {s:.0%}")
 			it.setData(Qt.ItemDataRole.UserRole, x)
 			self.lst.addItem(it)
+		self.lst.setCurrentRow(-1)	# none picked yet, so any click picks
 		self.lst.blockSignals(False)
 		self.none.setVisible(not found)
 
