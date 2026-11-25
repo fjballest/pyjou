@@ -21,7 +21,7 @@ pylg, and uses easyocr for the OCR.
 | `drawing.py` | the shapes (`LineShape`, `PencilShape`, `CircleShape`, `RectShape`, `TextShape`, `FibShape`), the fib level sets, their JSON form and the undo commands |
 | `weekprof.py` | `profile`: the swings of a week found in its week profile's image; `Profiles`, their cache |
 | `weekedit.py` | `ProfileEditor`: adjusting a week profile on its image, with event filters on the view |
-| `m15.py` | `Data`: the m15 candles of the journal, imported from CSV, their trading days and weeks in New York time, profiles and sessions. No widgets |
+| `m15.py` | `Data`: the m15 candles of the journal, imported from CSV and kept in files of at most `MAXFILE` bytes named after their first day (`storeof`, `Data.write`), their trading days and weeks in New York time, profiles and sessions. No widgets |
 | `dataview.py` | `render` (the chart of a day or week from the candles) and `DataPanel`, the list of the data view; `MainWindow.setdatamode` and `showdata` switch to it |
 | `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo, delete) |
 | `tests/` | headless tests; the OCR is faked |

@@ -1,8 +1,10 @@
 #
 # m15 data: the 15 minute candles of a market, imported from CSV files
 # exported from TradingView (time,open,high,low,close,... with the time in
-# seconds since 1970, UTC), kept in the journal compressed, as
-# <SYMBOL>.m15.csv.gz. What is drawn on the chart of a day or week is kept
+# seconds since 1970, UTC), kept in the journal compressed, in files of
+# at most about MAXFILE bytes named after the trading day of their first
+# candle: MNQ-260102.m15.csv.gz. Files named otherwise (from before) are
+# renamed so, and plain ones compressed. What is drawn on the chart of a day or week is kept
 # in DRAWDIR, a file per day (d261117.drw) or week (w261116.drw). A file
 # imported later adds only the candles after the last one kept (and before
 # the first one), so files that overlap don't make duplicates.
@@ -17,6 +19,7 @@
 #
 import csv
 import glob
+import re
 import gzip
 import json
 import io
@@ -30,6 +33,7 @@ import weekprof
 
 EXT = ".m15.csv.gz"
 OLDEXT = ".m15.csv"	# kept plain, before: compressed when found
+MAXFILE = 512 * 1024	# a data file is not made larger than this, compressed: about a year and a half of m15
 DRAWDIR = "m15draw"
 HEADER = ["time", "open", "high", "low", "close"]
 DAYSTART = -6	# hours from midnight a trading day starts at: 18:00 the day before
@@ -118,19 +122,39 @@ def symbolof(path):
 	b = os.path.basename(path)
 	return b.split(".")[0].split("_")[0] or "data"
 
+def dayof(t):
+	"""the trading day (New York) of the candle at UTC time t"""
+	return EPOCH + timedelta(days=(int(t) + nyoffset(t) - DAYSTART * 3600) // 86400)
+
+def filename(symbol, t):
+	"""the name of a data file of symbol whose first candle is at time t"""
+	return f"{symbol}-{dayof(t):%y%m%d}{EXT}"
+
+def symbolin(name):
+	"""the symbol of a data file name: MNQ for MNQ-260102.m15.csv.gz or MNQ.m15.csv"""
+	b = name[:-len(EXT)] if name.endswith(EXT) else name[:-len(OLDEXT)]
+	return re.sub(r"-\d{6}$", "", b) or "data"
+
 def storeof(dir):
-	"""the file of the data kept in journal dir, or None; one kept plain
-	is compressed first"""
-	l = sorted(glob.glob(os.path.join(glob.escape(dir), "*" + EXT)))
-	if l:
-		return l[0]
-	old = sorted(glob.glob(os.path.join(glob.escape(dir), "*" + OLDEXT)))
-	if not old:
-		return None
-	dest = old[0][:-len(OLDEXT)] + EXT
-	writerows(dest, readrows(old[0]))
-	os.remove(old[0])
-	return dest
+	"""the data files in journal dir, in order; plain ones are compressed
+	and those not named after their first day renamed so first"""
+	esc = glob.escape(dir)
+	for p in sorted(glob.glob(os.path.join(esc, "*" + OLDEXT))):
+		rows = readrows(p)
+		if rows:
+			writerows(os.path.join(dir, filename(symbolin(os.path.basename(p)), rows[0][0])), rows)
+		os.remove(p)
+	out = []
+	for p in sorted(glob.glob(os.path.join(esc, "*" + EXT))):
+		rows = readrows(p)
+		if not rows:
+			continue
+		want = os.path.join(dir, filename(symbolin(os.path.basename(p)), rows[0][0]))
+		if want != p and not os.path.exists(want):
+			os.rename(p, want)
+			p = want
+		out.append((rows[0][0], p, rows))
+	return [(p, rows) for _, p, rows in sorted(out)]
 
 def writerows(dest, rows):
 	"""write the candles rows compressed at dest, through a temporary file"""
@@ -149,10 +173,14 @@ class Data:
 		self.load()
 
 	def load(self):
-		self.path = storeof(self.dir)
-		self.symbol = os.path.basename(self.path)[:-len(EXT)] if self.path else None
-		rows = readrows(self.path) if self.path else []
-		self.setrows(rows)
+		files = storeof(self.dir)
+		self.files = [p for p, _ in files]
+		self.symbol = symbolin(os.path.basename(self.files[0])) if files else None
+		rows = {}
+		for _, rs in files:
+			for r in rs:
+				rows[r[0]] = r
+		self.setrows([rows[t] for t in sorted(rows)])
 
 	def setrows(self, rows):
 		a = np.array(rows, dtype=float).reshape(-1, 5)
@@ -189,10 +217,34 @@ class Data:
 		else:
 			keep = new
 		if keep:
-			rows = sorted(old + keep)
-			writerows(self.path or os.path.join(self.dir, symbolof(path) + EXT), rows)
+			sym = self.symbol or symbolof(path)
+			after = [r for r in keep if not old or r[0] > old[-1][0]]
+			before = [r for r in keep if old and r[0] < old[0][0]]
+			if before:	# a file of their own, or more
+				self.write(sym, before, [])
+			if after:	# the last file, while it is not too large, then new ones
+				last = self.files[-1] if self.files else None
+				self.write(sym, after, readrows(last) if last else [], last)
 			self.load()
 		return len(keep), len(new) - len(keep)
+
+	def write(self, sym, rows, kept, path=None):
+		"""write rows after the candles kept in the file at path (or in new
+		files), starting a new file named after its first day each time one
+		would go over MAXFILE"""
+		while rows:
+			n = len(rows)
+			if kept and path:	# how many fit, by the bytes a candle takes in the file
+				per = os.path.getsize(path) / max(1, len(kept))
+				n = max(0, min(n, int((MAXFILE - os.path.getsize(path)) / max(1, per))))
+			elif len(rows) * 17 > MAXFILE:	# about 17 bytes a candle, compressed
+				n = MAXFILE // 17
+			if n == 0:	# that one is full
+				kept, path = [], None
+				continue
+			chunk, rows = rows[:n], rows[n:]
+			writerows(path or os.path.join(self.dir, filename(sym, chunk[0][0])), kept + chunk)
+			kept, path = [], None
 
 	def first(self):
 		return self.daydate(int(self.dayno[0])) if len(self) else None

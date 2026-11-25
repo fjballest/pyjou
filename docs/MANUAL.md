@@ -470,7 +470,11 @@ Besides the captures, a journal can keep the 15 minute candles of its
 market, exported from TradingView as a CSV (`time,open,high,low,close`, the
 time in seconds, as TradingView writes it). **File ▸ Import m15 Data…**, or
 dropping the `.csv` (or a `.zip` with it) on the window, adds them to
-`<SYMBOL>.m15.csv.gz` (compressed) in the journal directory. A file imported later adds only
+compressed files in the journal directory named after the day of their first
+candle, `MNQ-260102.m15.csv.gz`. A file is not made larger than about 512 KB
+(a year and a half of m15 candles): when it is full, the candles that come
+after start a new file. Data files named otherwise, from before, are renamed
+so when the journal opens. A file imported later adds only
 the candles after the last one kept (and any before the first), so
 exports that overlap don't make duplicates.
 
