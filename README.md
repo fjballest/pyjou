@@ -53,6 +53,12 @@ profile of each week, the part matched in red:
 
 ![Match Week](screenshots/matchweek.png)
 
+The data view with the ICTlevels and FVGS+IFVG+OTE indicators on, the main
+window in m15 with the inputs of ICTlevels, and synced windows in m5 and m3
+on the same day:
+
+![Indicators](screenshots/indicators.png)
+
 ## Running
 
 It needs Python 3.12 or later (the releases are built with 3.14) and

@@ -658,6 +658,9 @@ chart, its sharp redraw when zoomed in, and **Add Chart as Capture**.
 Indicators run in the background: while a chart is scaled or moved, or
 another day is shown, the chart keeps what its indicators drew last and is
 drawn again when their new runs are done (a capture waits for them).
+While a chart is being scrolled, scaled or dragged they are not run at
+all: it shows what they drew last, runs going on are stopped, and they are
+run where the chart went once it has been still for a second.
 When an indicator draws past the last candle (a label or line ahead of
 it), the chart keeps room for it right of that candle, up to a quarter of
 the times shown, with no candles in it.

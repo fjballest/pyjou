@@ -1337,7 +1337,8 @@ class MainWindow(QMainWindow):
 		self.dataoverlay = None
 		self.datapending = False
 		if g.ok and indicators.enabled():
-			self.dataoverlay, self.datapending, bad = indicators.overlay(self.data, self.getlow, g, tf, wait=wait)
+			moving = getattr(self, "datamoving", False) and not wait
+			self.dataoverlay, self.datapending, bad = indicators.overlay(self.data, self.getlow, g, tf, wait=wait, run=not moving)
 			if bad and not self.datapending:
 				self.statusBar().showMessage("; ".join(bad), 10000)
 		margin = 0
@@ -1543,12 +1544,33 @@ class MainWindow(QMainWindow):
 		cur.t1 = cur.vt1
 		return cur
 
+	QUIET = 1000	# ms without scrolls or drags before the indicators are run on where the chart went
+
+	def datamoved(self):
+		"""the chart is being scrolled, scaled or dragged: its indicators are
+		drawn as they were, runs going on are stopped, and they are run
+		again once it is quiet for QUIET ms"""
+		self.datamoving = True
+		indicators.cancel()
+		t = getattr(self, "quiettimer", None)
+		if t is None:
+			t = self.quiettimer = QTimer(self)
+			t.setSingleShot(True)
+			t.timeout.connect(self.dataquiet)
+		t.start(self.QUIET)
+
+	def dataquiet(self):
+		self.datamoving = False
+		if self.datamode and self.datakey is not None and indicators.enabled():
+			self.redrawdata()
+
 	def setdataview(self, v):
 		"""show view v (see Geom) of the data chart, soon: a burst of
 		scrolls or pinches is drawn once"""
 		key = (*self.datakey, self.datashowntf)
 		if v == (self.datazooms.get(key)):
 			return
+		self.datamoved()
 		if v is None:
 			self.datazooms.pop(key, None)
 		else:
@@ -1683,6 +1705,7 @@ class MainWindow(QMainWindow):
 		v, key = p["view"], p["key"]
 		if key != (*self.datakey, self.datashowntf) if self.datakey else True:
 			return
+		self.datamoved()
 		if v is None:
 			self.datazooms.pop(key, None)
 		else:
