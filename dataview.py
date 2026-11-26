@@ -46,7 +46,8 @@ def source(data, low, tf):
 
 class Geom:
 	"""where the chart of day or week d in time frame tf puts times and
-	prices: wider for the lower time frames, so their candles fit"""
+	prices: the same size in every time frame (the lower ones are seen
+	zooming in, on the image or its time axis)"""
 	def __init__(self, data, kind, d, tf=15, low=None, view=None):
 		"""view, when given, is the (top, bottom, t0, t1) shown instead of
 		the whole day or week (see zoomed)"""
@@ -56,9 +57,6 @@ class Geom:
 		self.kind, self.d = kind, d
 		self.W, self.H = (1800, 1000) if kind == "d" else (2400, 1100)
 		self.L, self.R, self.T, self.B = 16, 100, 44, 40
-		ncandles = (m15.DAYEND - m15.DAYSTART) * 60 / tf * (1 if kind == "d" else 5)
-		least = 4 if kind == "d" else 2	# pixels a candle at least
-		self.W = int(min(9000, max(self.W, self.L + self.R + ncandles * least)))
 		self.pw, self.ph = self.W - self.L - self.R, self.H - self.T - self.B
 		self.t0, self.t1 = trange(kind)
 		hi, lo = (float(h.max()), float(l.min())) if self.ok else (1, 0)
@@ -316,6 +314,25 @@ class ChartItem(QGraphicsPixmapItem):
 		painter.fillRect(r, QColor("white"))
 		paintchart(painter, *self.args, clip=r)
 		painter.restore()
+
+def oldwidth(kind, tf):
+	"""the width of the charts of the lower time frames before they were all
+	the same size: what is drawn on them is moved from it (see widened)"""
+	W, L, R = (1800 if kind == "d" else 2400), 16, 100
+	n = (m15.DAYEND - m15.DAYSTART) * 60 / tf * (1 if kind == "d" else 5)
+	return int(min(9000, max(W, L + R + n * (4 if kind == "d" else 2))))
+
+def widened(data, g, tf):
+	"""a drawing saved on a chart of time frame tf that was wider (see
+	oldwidth), moved to the chart of g; as it is when it says its width"""
+	if not data or not data.get("shapes") or "width" in data:
+		return data
+	W = oldwidth(g.kind, tf)
+	if W == g.W:
+		return data
+	old = copy.copy(g)
+	old.W, old.pw = W, W - g.L - g.R
+	return mapdrawing(data, old, g)
 
 def mapdrawing(data, g1, g2):
 	"""drawing data (see viewer.drawingdata) on the chart of geometry g1

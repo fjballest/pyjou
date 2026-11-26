@@ -33,7 +33,7 @@ from version import VERSION
 from helpwin import addtopics, showguide
 import m15
 import news
-from dataview import ChartItem, DataPanel, Geom, drawpts, mapdrawing, render
+from dataview import ChartItem, DataPanel, Geom, drawpts, mapdrawing, render, widened
 import tempfile
 
 RECENTMAX = 10
@@ -1222,6 +1222,8 @@ class MainWindow(QMainWindow):
 		name = self.drawkey(key, tf)
 		drawing = self.pending[name] if name in self.pending else self.data.readdrawing(kind, d, tf)
 		g = self.datageom
+		if g is not None:
+			drawing = widened(drawing, g.unzoomed(), tf)
 		self.view.setimage(path, mapdrawing(drawing, g.unzoomed(), g) if g is not None and g.view() else drawing)
 		self.sharpchart()
 		self.titlelabel.setText((f"Data {m15.tfname(tf)}: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
@@ -1355,7 +1357,12 @@ class MainWindow(QMainWindow):
 			g = self.datageom
 			if g is not None and g.view():	# kept as on the whole chart
 				data = mapdrawing(data, g, g.unzoomed())
-			if data == self.data.readdrawing(*k, tf):
+			saved = self.data.readdrawing(*k, tf)
+			if data and tf < 15 and g is not None:	# so it isn't taken for one of the wider charts of before
+				data = {**data, "width": g.W}
+				if saved and "width" not in saved:
+					saved = {**widened(saved, g.unzoomed(), tf), "width": g.W}
+			if data == saved:
 				self.pending.pop(name, None)
 			else:
 				self.pending[name] = data
