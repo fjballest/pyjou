@@ -433,7 +433,12 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 	f.setBold(True)
 	p.setFont(f)
 	p.setPen(QColor(40, 40, 40))
-	p.drawText(QRectF(L, 8, pw, 30), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title(data, kind, d, tf) + "   (New York time)")
+	hol = ""
+	if news is not None and hasattr(news, "holiday") and not g.periods:
+		days = [d] if kind == "d" else [d + timedelta(days=k) for k in range(5)]
+		hs = [(day, news.holiday(day)) for day in days if news.holiday(day)]
+		hol = "   · " + ", ".join(h if kind == "d" else f"{day:%a} {h}" for day, h in hs) if hs else ""
+	p.drawText(QRectF(L, 8, pw, 30), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title(data, kind, d, tf) + "   (New York time)" + hol)
 
 class ChartItem(QGraphicsPixmapItem):
 	"""the image of a data chart in the view, that paints the chart again,
@@ -777,12 +782,11 @@ class DataPanel(QWidget):
 				g.setText(0, f"{date(k[1], k[2], 1):%B %Y}   ({count(g)})")
 
 	def newsof(self, kind, d):
-		"""the names of the news of day d, or of the week of d"""
+		"""the names of the news of day d, or of the week of d, and their holidays abbreviated"""
 		n = getattr(getattr(self.win, "journal", None), "news", None)
 		if n is None:
 			return ""
-		names = n.names(d) if kind == "d" else [x for _, _, x in n.inweek(d)]
-		return " ".join(dict.fromkeys(names))
+		return n.marks(d, kind == "w")
 
 	def keys(self):
 		"""the rows in order, as the list shows them"""

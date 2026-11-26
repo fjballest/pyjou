@@ -43,7 +43,7 @@ app.processEvents()
 
 # a row a day, with a chip for each capture
 row = w.items["day261014.png"]
-check(row is w.items["day261014c.png"] and row.text(0) == "Wed 14" and len(w.list.chips(row)) == 3, "one row for the day, three chips")
+check(row is w.items["day261014c.png"] and row.text(0) == "Wed 14  · CPI" and len(w.list.chips(row)) == 3, "one row for the day, three chips")
 check(w.list.chips(w.items["day261013.png"]) == [], "a day with one capture has no chips")
 vp = w.list.viewport()
 QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, w.list.chiprect("day261014b.png").center())
