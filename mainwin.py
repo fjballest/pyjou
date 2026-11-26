@@ -3,6 +3,7 @@
 # and a calendar, and the image with its tags and notes on the right
 #
 import html
+from types import SimpleNamespace
 from datetime import date, timedelta
 import json
 import os
@@ -28,6 +29,9 @@ from drawbar import DrawBar
 from viewer import ImageView, renderfile
 from weekprof import Profiles, dayprofile, matches, partial, similarity
 from weekedit import ProfileEditor
+from rail import withrail
+import winlayout
+from shiboken6 import isValid
 from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
@@ -782,7 +786,14 @@ class MainWindow(QMainWindow):
 		tb.addWidget(ob)
 		tb.addAction(self.saveact)
 		tb.addAction(self.reloadact)
-		tb.addAction(self.newwinact)
+		nb = QToolButton(tb)	# with a menu of time frames, in the data view
+		nb.setDefaultAction(self.newwinact)
+		self.newwinmenu = QMenu(nb)
+		self.newwinmenu.aboutToShow.connect(self.filltfwindows)
+		nb.setMenu(self.newwinmenu)
+		nb.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+		nb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+		tb.addWidget(nb)
 		tb.addAction(self.syncact)
 		tb.addSeparator()
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact, self.dataact):
@@ -857,7 +868,7 @@ class MainWindow(QMainWindow):
 			tools.addAction(a)
 		v.addSeparator()
 		v.addAction(self.osviewact)
-		mb.addMenu(windowmenu(self))
+		mb.addMenu(windowmenu(self, self.mainwindow))
 		h = mb.addMenu("&Help")
 		guide = h.addAction("DayJournal &User Guide")
 		guide.setShortcut(QKeySequence.StandardKey.HelpContents)
@@ -933,9 +944,8 @@ class MainWindow(QMainWindow):
 		caps = QWidget()	# the captures, or the data view
 		cl = QVBoxLayout(caps)
 		cl.setContentsMargins(0, 0, 0, 0)
-		cl.addWidget(self.searchbox)
 		cl.addLayout(kinds)
-		cl.addWidget(self.list, 1)
+		cl.addWidget(withrail(self.list), 1)
 		self.datapanel = DataPanel(self)
 		self.datapanel.picked.connect(lambda kind, d: self.showdata((kind, d)))
 		self.datapanel.importbtn.clicked.connect(self.choosedata)
@@ -945,6 +955,7 @@ class MainWindow(QMainWindow):
 		self.leftstack = QStackedWidget()
 		self.leftstack.addWidget(caps)
 		self.leftstack.addWidget(self.datapanel)
+		ll.addWidget(self.searchbox)	# searching the captures, or the days and weeks of the data
 		ll.addWidget(self.leftstack, 1)
 		ll.addWidget(self.calendar)
 
@@ -1206,14 +1217,13 @@ class MainWindow(QMainWindow):
 			self.current = None	# no notes or drawings are saved for the data
 			self.capturekey = back.name if back else None
 			self.leftstack.setCurrentIndex(1)
-			self.notes.setReadOnly(True)	# what the data says, not notes
 			self.markcalendar()
 			self.showdata(self.datafor(back), force=True)
 		else:
 			if self.adjuster is not None:
 				self.adjuster.finish(False)
+			self.savenotes()
 			self.datamode = False
-			self.notes.setReadOnly(False)
 			self.leftstack.setCurrentIndex(0)
 			self.markcalendar()
 			e = self.capturefor(self.datakey)
@@ -1230,7 +1240,10 @@ class MainWindow(QMainWindow):
 		if key == self.datakey and not force and self.view.hasimage():
 			self.datapanel.select(key)
 			return
+		if key != self.datakey:
+			self.savenotes()
 		self.datakey = key
+		self.datanoteskey = None
 		self.notes.blockSignals(True)
 		self.notes.setPlainText("")
 		self.notes.blockSignals(False)
@@ -1263,12 +1276,17 @@ class MainWindow(QMainWindow):
 			else f"Data {m15.tfname(tf)}: {d:%a %d %b %Y}")
 		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
 			f"journal's {m15.DRAWDIR} folder")
-		self.notes.blockSignals(True)
 		news = self.journal.news if self.journal else None
-		lines = [f"{day:%a %d}  {int(h):02d}:{int(h % 1 * 60):02d} {n}" for day, h, n in
+		lines = [f"{day:%a %d} {int(h):02d}:{int(h % 1 * 60):02d} {n}" for day, h, n in
 			([(d, h, n) for h, n in news.of(d)] if kind == "d" else news.inweek(d))] if news else []
-		self.notes.setPlainText(("News: " + ", ".join(lines) + "\n" if lines else "") + self.data.summary(kind, d))
+		tags = self.dataentry(kind, d).tags
+		links = " ".join(f'<a href="{html.escape(t)}" style="text-decoration:none">{html.escape(t)}</a>' for t in tags)
+		self.tagslabel.setText((f"<b>Tags:</b> {links}<br>" if tags else "") + (f"<b>News:</b> {html.escape(', '.join(lines))}<br>" if lines else "")
+			+ html.escape(self.data.summary(kind, d)))
+		self.notes.blockSignals(True)
+		self.notes.setPlainText(self.data.readnotes(kind, d))
 		self.notes.blockSignals(False)
+		self.datanoteskey = key
 		self.notes.setEnabled(True)
 		self.datapanel.select(key)
 		self.calendar.blockSignals(True)
@@ -2147,9 +2165,38 @@ class MainWindow(QMainWindow):
 			self.notes.blockSignals(False)
 		self.startocr()
 
-	def newwindow(self):
+	def filltfwindows(self):
+		"""the New Window menu: a window in each time frame, in the data view"""
+		m = self.newwinmenu
+		m.clear()
+		if not self.datamode:
+			a = m.addAction("New windows in other time frames are for the data view")
+			a.setEnabled(False)
+			return
+		for i in range(self.tfcombo.count()):
+			t = self.tfcombo.itemData(i)
+			a = m.addAction(f"New Window in {m15.tfname(t)}")
+			a.triggered.connect(lambda _=False, t=t: self.tfwindow(t))
+
+	def tfwindow(self, tf):
+		"""a new window on this chart in time frame tf, and this window and
+		those made so laid out together, when the screen has room"""
+		w = self.newwindow(tf)
+		self.tfkids = [k for k in getattr(self, "tfkids", []) if isValid(k) and k.isVisible()] + [w]
+		scr = winlayout.screenof(self)
+		group = [self] + self.tfkids
+		if scr.width() < 1200 or scr.height() < 700:
+			return w	# no room: they stay one over the other
+		rects = winlayout.mainleft(scr, len(group)) if len(group) <= 4 else winlayout.grid(scr, len(group))
+		for x, r in zip(group, rects):
+			winlayout.place(x, r, scr)
+		w.raise_()
+		return w
+
+	def newwindow(self, tf=None):
 		"""another window, on the same journal and image, a bit lower and to
-		the right; it can browse it or open another journal"""
+		the right; it can browse it or open another journal. In the data
+		view, on the same chart, in time frame tf (or this one's)"""
 		self.savenotes()
 		self.view.commitedit()
 		w = MainWindow(self.journal.dir if self.journal else None)
@@ -2168,8 +2215,8 @@ class MainWindow(QMainWindow):
 			if self.current is not None:
 				w.reveal(w.journal.find(self.current.name), force=True)
 			if self.datamode:	# on the same chart, to look at it in another time frame
-				w.datatf = self.datatf
-				w.settfs(None, self.datatf)
+				w.datatf = tf or self.datatf
+				w.settfs(None, w.datatf)
 				w.setdatamode(True)
 				w.showdata(self.datakey, force=True)
 				w.syncact.setChecked(True)	# on the data, synced; on a capture, not
@@ -2208,6 +2255,24 @@ class MainWindow(QMainWindow):
 		self.datapanel.mark()
 		if self.datamode and self.datakey is not None:
 			self.showdata(self.datakey, force=True)
+
+	def dataentry(self, kind, d):
+		"""the day or week d of the data as the search sees it: its news as
+		tags, and its notes"""
+		n = self.journal.news if self.journal else None
+		tags = (n.names(d) if kind == "d" else list(dict.fromkeys(x for _, _, x in n.inweek(d)))) if n else []
+		notes = self.data.readnotes(kind, d) if self.data is not None else ""
+		return SimpleNamespace(tags=tags, notes=notes, drawtext="")
+
+	def mainwindow(self):
+		"""the main window, for the Window menu's layouts: one with its list
+		and calendar shown, this one if it has them, else the first made"""
+		ws = [w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w.isVisible()]
+		withlist = [w for w in ws if w.left.isVisible()]
+		if self in withlist:
+			return self
+		withlist.sort(key=lambda w: w.child)
+		return withlist[0] if withlist else self
 
 	# ---- synced windows ----
 	def insync(self):
@@ -2369,6 +2434,10 @@ class MainWindow(QMainWindow):
 			for e in self.shown:
 				self.expanded.update(k for k, _ in groupkeys(e))
 		self.fillist()
+		search = self.search
+		self.datapanel.match = (lambda kind, d: search.match(self.dataentry(kind, d))) if search.expr is not None else None
+		if self.data is not None:
+			self.datapanel.refill()
 		if keep and self.current is not None and self.current in self.shown:
 			self.selectitem(self.current)
 		elif keep and self.shown and self.current is not None:
@@ -2947,6 +3016,21 @@ class MainWindow(QMainWindow):
 
 	def savenotes(self):
 		self.savetimer.stop()
+		if self.datamode:	# the notes of a day or week of the data
+			k = getattr(self, "datanoteskey", None)
+			if k is None or self.data is None:
+				return
+			text = self.notes.toPlainText()
+			if text == self.data.readnotes(*k):
+				return
+			try:
+				self.data.savenotes(*k, text)
+			except OSError as x:
+				self.statusBar().showMessage(f"Can't save the notes: {x}", 5000)
+				return
+			self.datapanel.mark()
+			self.statusBar().showMessage("Notes saved", 1500)
+			return
 		e = self.current
 		if e is None or self.journal is None:
 			return

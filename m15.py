@@ -476,6 +476,30 @@ class Data:
 		frame tf: d261117.drw in m15, d261117-m5.drw in m5"""
 		return os.path.join(self.dir, DRAWDIR, f"{kind}{d:%y%m%d}" + ("" if tf == 15 else "-" + tfname(tf)) + ".drw")
 
+	def notespath(self, kind, d):
+		"""the file of the notes of day or week d: d261117.txt, w261116.txt"""
+		return os.path.join(self.dir, DRAWDIR, f"{kind}{d:%y%m%d}.txt")
+
+	def readnotes(self, kind, d):
+		try:
+			with open(self.notespath(kind, d), encoding="utf-8") as f:
+				return f.read()
+		except OSError:
+			return ""
+
+	def savenotes(self, kind, d, text):
+		"""keep the notes of day or week d; empty ones remove the file"""
+		p = self.notespath(kind, d)
+		if not text.strip():
+			if os.path.exists(p):
+				os.remove(p)
+			return
+		os.makedirs(os.path.dirname(p), exist_ok=True)
+		tmp = p + ".tmp"
+		with open(tmp, "w", encoding="utf-8") as f:
+			f.write(text)
+		os.replace(tmp, p)
+
 	def readdrawing(self, kind, d, tf=15):
 		"""what is drawn on the chart of day or week d, or None"""
 		try:

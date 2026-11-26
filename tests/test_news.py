@@ -92,7 +92,7 @@ w.setdatamode(True)
 w.showdata(("d", date(2026, 11, 10)), force=True)
 app.processEvents()
 check("CPI" in w.datapanel.rows[("d", date(2026, 11, 10))].text(0), "the news in the data list")
-check(w.notes.toPlainText().startswith("News: Tue 10  08:30 CPI"), "and in the summary")
+check("CPI" in w.tagslabel.text() and "Tue 10 08:30 CPI" in w.tagslabel.text(), "and as a tag and in the summary")
 g = w.datageom
 d0 = {"version": 1, "shapes": [{"kind": "line", "p1": [g.X(2), g.Y(1010)], "p2": [g.X(9), g.Y(1030)], "color": "#e53935", "width": 3}]}
 w.view.setimage(w.datapath, d0)

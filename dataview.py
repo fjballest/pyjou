@@ -5,6 +5,7 @@
 # view instead of a capture.
 #
 import copy
+import os
 from datetime import date, timedelta
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 import m15
+from rail import withrail
 
 KEYROLE = Qt.ItemDataRole.UserRole + 10	# ("w" or "d", date) of a row
 
@@ -438,6 +440,7 @@ class DataPanel(QWidget):
 		self.rows = {}	# (kind, date) -> its row
 		self.groups = {}	# ("m", y, m) and ("w", date) -> the item that holds others
 		self.expanded = None	# keys of the groups open; None: the last ones
+		self.match = None	# fn(kind, date) of the rows the search shows; None: all
 		lay = QVBoxLayout(self)
 		lay.setContentsMargins(0, 0, 0, 0)
 		self.info = QLabel()
@@ -493,7 +496,7 @@ class DataPanel(QWidget):
 		self.tree.currentItemChanged.connect(self.changed)
 		self.tree.itemExpanded.connect(lambda it: self.groupopen(it, True))
 		self.tree.itemCollapsed.connect(lambda it: self.groupopen(it, False))
-		lay.addWidget(self.tree, 1)
+		lay.addWidget(withrail(self.tree), 1)
 		self.updateallbtn()
 
 	def settfs(self, tfs, tf):
@@ -553,8 +556,15 @@ class DataPanel(QWidget):
 					self.tree.addTopLevelItem(m)
 					self.groups[mk] = m
 				return m
+			ok = lambda kind, d: self.match is None or self.match(kind, d)
+			found = set()	# the groups with something found, opened
 			for w in allweeks:
 				parent = None
+				wdays = [d for d in data.daysof(w) if ok("d", d)] if days else []
+				if self.match is not None:
+					if not (weeks and ok("w", w)) and not wdays:
+						continue
+					found.update({("m", w.year, w.month), ("w", w)} | {("m", d.year, d.month) for d in wdays})
 				if weeks:	# a week goes in the month of its Monday
 					wi = QTreeWidgetItem([""])
 					wi.setFont(0, bold)
@@ -566,7 +576,7 @@ class DataPanel(QWidget):
 						self.groups[("w", w)] = wi
 						parent = wi
 				if days:
-					for d in data.daysof(w):
+					for d in wdays:
 						di = QTreeWidgetItem([""])
 						di.setData(0, KEYROLE, ("d", d))
 						(parent or month(d)).addChild(di)
@@ -574,6 +584,7 @@ class DataPanel(QWidget):
 			if self.expanded is None:	# the last month and its last week open
 				self.expanded = set()
 				self.lastopen("m")
+			self.expanded |= found
 			for k, g in self.groups.items():
 				g.setExpanded(k in self.expanded)
 		self.tree.blockSignals(False)
@@ -619,13 +630,15 @@ class DataPanel(QWidget):
 		self.allbtn.setToolTip("expand all the groups" if self.allcollapsed() else "collapse all the groups")
 
 	def mark(self):
-		"""the labels of the rows, with ✎ on those drawn on"""
+		"""the labels of the rows, with their news, ✎ on those drawn on and
+		¶ on those with notes"""
 		for (kind, d), it in self.rows.items():
 			text = f"Week {d:%d %b %Y}" if kind == "w" else f"{d:%a %d}"
 			if kind == "d" and not self.weeksbox.isChecked():
 				text = f"{d:%a %d %b}"
 			news = self.newsof(kind, d)
-			it.setText(0, text + (f"  · {news}" if news else "") + ("  ✎" if self.data.drawn(kind, d) else ""))
+			notes = os.path.exists(self.data.notespath(kind, d))
+			it.setText(0, text + (f"  · {news}" if news else "") + ("  ✎" if self.data.drawn(kind, d) else "") + ("  ¶" if notes else ""))
 		kind = "w" if self.weeksbox.isChecked() else "d"
 		def count(it):
 			k = it.data(0, KEYROLE)

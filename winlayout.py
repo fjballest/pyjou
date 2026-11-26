@@ -150,9 +150,11 @@ def layoutone(fn, active=None):
 		place(ws[0], fn(scr), scr)
 		ws[0].raise_()
 
-def windowmenu(win):
+def windowmenu(win, main=None):
 	"""the Window menu for window win: the layouts, minimize, and the
-	windows shown, to bring one to the front"""
+	windows shown, to bring one to the front. main, when given, says
+	which window the layouts of them all put first (the main one): by
+	default, win"""
 	m = QMenu("&Window", win)
 	def act(text, fn, shortcut=None, tip=None):
 		a = QAction(text, win)
@@ -167,7 +169,7 @@ def windowmenu(win):
 	act("&Minimize", win.showMinimized, "Ctrl+M")
 	m.addSeparator()
 	for text, fn, key, tip in ALL:
-		act(text, lambda fn=fn: layout(fn, win), key, tip)
+		act(text, lambda fn=fn: layout(fn, (main() if main else None) or win), key, tip)
 	m.addSeparator()
 	for text, fn, key in ONE:
 		act(text, lambda fn=fn: layoutone(fn, win), key, "this window alone")
