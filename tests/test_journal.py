@@ -217,7 +217,7 @@ w.jump(True)
 check(w.groups[("w", 2026, 10, date(2026, 10, 12))].text(0).startswith("1. Week 12 Oct") and
 	w.groups[("w", 2026, 10, date(2026, 10, 19))].text(0).startswith("2. Week 19 Oct"), "weeks numbered")
 check(w.countlabel.text().endswith(", 2 weeks"), "the weeks counted")
-check(w.items["day261014b.png"] is w.items["day261014.png"] and w.items["day261014b.png"].text(0) == "Wed 14"
+check(w.items["day261014b.png"] is w.items["day261014.png"] and w.items["day261014b.png"].text(0) == "Wed 14  · CPI"
 	and w.chiplabel(w.journal.find("day261014b.png")).startswith("b"), "a second image of a day, in the row of its day")
 w.collapseto("w")
 check(isopen("y", 2026) and isopen("m", 2026, 10) and isopen("w", 2026, 10, date(2026, 10, 19)) and

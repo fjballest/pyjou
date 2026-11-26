@@ -2538,6 +2538,7 @@ class MainWindow(QMainWindow):
 		if self.current is not None and not self.datamode:
 			self.showtags(self.current)
 		self.datapanel.mark()
+		self.markcalendar()
 		if self.datamode and self.datakey is not None:
 			self.showdata(self.datakey, force=True)
 
@@ -2788,10 +2789,17 @@ class MainWindow(QMainWindow):
 		self.countlabel.setText(f"{len(self.shown)} of {total}, {len(weeks)} week{'s' if len(weeks) != 1 else ''}")
 		self.countlabel.setToolTip("images shown of all the images, and the weeks with images")
 
-	@staticmethod
-	def rowlabel(e):
+	def rowlabel(self, e):
 		"""the label of a row with several captures"""
-		return "Week profile" if e.week else e.day.strftime("%a %d")
+		return ("Week profile" if e.week else e.day.strftime("%a %d")) + self.marksof(e)
+
+	def marksof(self, e):
+		"""the news and holidays of the day (or week) of capture e, as the lists show them"""
+		n = getattr(self.journal, "news", None) if self.journal else None
+		if n is None:
+			return ""
+		m = n.marks(e.weekmonday(), True) if e.week else n.marks(e.day)
+		return f"  · {m}" if m else ""
 
 	@staticmethod
 	def chiplabel(e):
@@ -2799,13 +2807,12 @@ class MainWindow(QMainWindow):
 		first), marked when it has notes or drawings"""
 		return (e.extra or "a") + ("✎" if e.notes.strip() or e.drawn else "")
 
-	@staticmethod
-	def itemtext(e):
+	def itemtext(self, e):
 		if e.week:
 			s = "Week profile"
 		else:
 			s = e.day.strftime("%a %d") + e.extra	# Tue 26, Tue 26b
-		return s + ("  ✎" if e.notes.strip() or e.drawn else "")	# notes or drawings
+		return s + self.marksof(e) + ("  ✎" if e.notes.strip() or e.drawn else "")	# news, holidays, notes or drawings
 
 	@staticmethod
 	def itemtip(e):
@@ -2926,25 +2933,40 @@ class MainWindow(QMainWindow):
 		if e is not None:
 			self.show_(e)
 
+	HOLIDAYBG = QColor(255, 205, 205)	# the calendar's holidays
+	NEWSBG = QColor(200, 240, 210)	# and news days
+
 	def markcalendar(self):
+		"""the days with captures (or data) in bold, and the holidays in red
+		and the news days in green behind them"""
 		self.calendar.setDateTextFormat(QDate(), QTextCharFormat())	# clear
 		if self.journal is None:
 			return
+		fmts = {}
 		if self.datamode:
 			has = QTextCharFormat()
 			has.setFontWeight(QFont.Weight.Bold)
 			has.setForeground(QColor("#089981"))
 			for d in (self.data.days() if self.data is not None else []):
-				self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), has)
-			return
-		shown = {e.day for e in self.shown if not e.week}
-		other = QTextCharFormat()
-		other.setForeground(Qt.GlobalColor.gray)
-		has = QTextCharFormat()
-		has.setFontWeight(QFont.Weight.Bold)
-		has.setForeground(Qt.GlobalColor.darkBlue)
-		for d in self.journal.days():
-			self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), has if d in shown else other)
+				fmts[d] = has
+		else:
+			shown = {e.day for e in self.shown if not e.week}
+			other = QTextCharFormat()
+			other.setForeground(Qt.GlobalColor.gray)
+			has = QTextCharFormat()
+			has.setFontWeight(QFont.Weight.Bold)
+			has.setForeground(Qt.GlobalColor.darkBlue)
+			for d in self.journal.days():
+				fmts[d] = has if d in shown else other
+		n = getattr(self.journal, "news", None)
+		if n is not None:
+			for days, bg in ((n.days, self.NEWSBG), (n.hol, self.HOLIDAYBG)):	# a holiday's red over the green
+				for d in days:
+					f = QTextCharFormat(fmts.get(d, QTextCharFormat()))
+					f.setBackground(bg)
+					fmts[d] = f
+		for d, f in fmts.items():
+			self.calendar.setDateTextFormat(QDate(d.year, d.month, d.day), f)
 
 	def calendarclicked(self, qd):
 		if self.datamode:

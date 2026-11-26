@@ -9,6 +9,13 @@
 # takes one away. They are shown on the data charts and list, and are tags
 # of the captures of those days.
 #
+# The market and bank holidays and the special days (early closes) are
+# marked too, all day: the US ones are reckoned from their rules (see
+# holidays), the Federal Reserve's holiday calendar fetched adds those it
+# names (kept in FETCHEDHOL), and a line of NEWSFILE with a name of HOLIDAYS
+# or "Hday" adds one (e.g. "2027-01-09 Mourning"). They are tags of the
+# captures by their names, and shown on the lists by their abbreviations.
+#
 import os
 import re
 import urllib.request
@@ -52,6 +59,88 @@ NFP = """
 2026-01-09 2026-02-11 2026-03-06 2026-04-03 2026-05-08 2026-06-05 2026-07-02 2026-08-07 2026-09-04 2026-10-02 2026-11-06 2026-12-04
 2027-01-08 2027-02-05 2027-03-05 2027-04-02 2027-05-07 2027-06-04 2027-07-02 2027-08-06 2027-09-03 2027-10-08 2027-11-05 2027-12-03
 """
+# the holidays and special days: name (a tag) -> abbreviation (on the lists)
+HOLIDAYS = {
+	"NewYear": "NewYr", "MLKDay": "MLK", "PresidentsDay": "Pres", "GoodFriday": "GdFri", "MemorialDay": "Memor",
+	"Juneteenth": "Jun19", "IndependenceDay": "Jul4", "LaborDay": "Labor", "ColumbusDay": "Colum",
+	"VeteransDay": "Vets", "Thanksgiving": "Thksg", "Christmas": "Xmas",
+	"BlackFriday": "BlkFri", "ChristmasEve": "XmEve", "July3": "Jul3", "NewYearsEve": "NYEve",
+	"Mourning": "Mourn", "EarlyClose": "Early", "Hday": "Hday",
+}
+# days the markets closed, or closed early, out of the rules
+SPECIAL = {"2025-01-09": "Mourning", "2018-12-05": "Mourning"}
+FETCHEDHOL = None	# the holidays fetch writes (next to FETCHED when not set)
+
+def observed(d, saturday=True):
+	"""the weekday a holiday of date d is kept on: Sunday's on Monday,
+	Saturday's on Friday (none with saturday False)"""
+	if d.weekday() == 6:
+		return d + timedelta(days=1)
+	if d.weekday() == 5:
+		return d - timedelta(days=1) if saturday else None
+	return d
+
+def nth(year, month, weekday, n):
+	"""the nth weekday (0 Monday) of month; n -1 the last"""
+	if n > 0:
+		d = date(year, month, 1)
+		return d + timedelta(days=(weekday - d.weekday()) % 7 + 7 * (n - 1))
+	d = date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+	return d - timedelta(days=(d.weekday() - weekday) % 7)
+
+def easter(year):
+	"""Easter Sunday (the Gregorian computus)"""
+	a, b, c = year % 19, year // 100, year % 100
+	d, e = b // 4, b % 4
+	f = (b + 8) // 25
+	g = (b - f + 1) // 3
+	h = (19 * a + b - d - g + 15) % 30
+	i, k = c // 4, c % 4
+	l = (32 + 2 * e + 2 * i - h - k) % 7
+	m = (a + 11 * h + 22 * l) // 451
+	month = (h + l - 7 * m + 114) // 31
+	day = (h + l - 7 * m + 114) % 31 + 1
+	return date(year, month, day)
+
+def holidays(year):
+	"""the US market and bank holidays and special days of year, as kept:
+	{date: name}"""
+	out = {}
+	def put(d, name):
+		if d is not None and d.year == year:
+			out.setdefault(d, name)
+	put(observed(date(year, 1, 1), False), "NewYear")
+	put(nth(year, 1, 0, 3), "MLKDay")
+	put(nth(year, 2, 0, 3), "PresidentsDay")
+	put(easter(year) - timedelta(days=2), "GoodFriday")
+	put(nth(year, 5, 0, -1), "MemorialDay")
+	if year >= 2022:
+		put(observed(date(year, 6, 19)), "Juneteenth")
+	jul4 = observed(date(year, 7, 4))
+	put(jul4, "IndependenceDay")
+	put(nth(year, 9, 0, 1), "LaborDay")
+	put(nth(year, 10, 0, 2), "ColumbusDay")
+	put(observed(date(year, 11, 11), False), "VeteransDay")
+	thanks = nth(year, 11, 3, 4)
+	put(thanks, "Thanksgiving")
+	put(thanks + timedelta(days=1), "BlackFriday")
+	xmas = observed(date(year, 12, 25))
+	put(xmas, "Christmas")
+	eve = date(year, 12, 24)
+	if eve.weekday() < 5 and eve != xmas:
+		put(eve, "ChristmasEve")
+	j3 = date(year, 7, 3)
+	if j3.weekday() < 5 and j3 != jul4:
+		put(j3, "July3")
+	for k, name in SPECIAL.items():
+		put(date.fromisoformat(k), name)
+	return out
+
+def holname(name):
+	"""the name of HOLIDAYS name is (in any case), or None"""
+	low = name.lower()
+	return next((h for h in HOLIDAYS if h.lower() == low), None)
+
 LINE = re.compile(r"^(-?)(\d{4}-\d{2}-\d{2})\s+([A-Za-z][\w&.-]*)(?:\s+(\d{1,2}):(\d{2}))?\s*(?:#.*)?$")
 
 def builtin():
@@ -65,9 +154,14 @@ class News:
 	"""the news of each day: {date: {name: New York hour}}"""
 	def __init__(self, dir=None):
 		self.days = builtin()
+		self.hol = {}	# {date: holiday name}, see holidays
+		for y in range(2015, date.today().year + 3):
+			self.hol.update(holidays(y))
 		self.bad = []	# lines of NEWSFILE not understood
 		if FETCHED:
 			self.read(FETCHED)
+		if holpath():
+			self.read(holpath())
 		if dir:
 			self.read(os.path.join(dir, NEWSFILE))
 
@@ -91,6 +185,14 @@ class News:
 			except ValueError:
 				self.bad.append(ln)
 				continue
+			h = holname(name)
+			if h is not None:
+				if minus:
+					if self.hol.get(d) == h:
+						del self.hol[d]
+				else:
+					self.hol[d] = h
+				continue
 			name = name.upper()
 			if minus:
 				self.days.get(d, {}).pop(name, None)
@@ -105,11 +207,33 @@ class News:
 		return sorted((h, n) for n, h in self.days.get(d, {}).items())
 
 	def names(self, d):
-		return [n for _, n in self.of(d)]
+		"""the names of the news of day d, and of its holiday (and Holiday): its tags"""
+		return [n for _, n in self.of(d)] + ([self.hol[d], "Holiday"] if d in self.hol else [])
+
+	def holiday(self, d):
+		"""the name of the holiday of day d, or None"""
+		return self.hol.get(d)
 
 	def inweek(self, monday):
 		"""the news of the week of monday: [(date, hour, name)]"""
 		return [(monday + timedelta(days=k), h, n) for k in range(5) for h, n in self.of(monday + timedelta(days=k))]
+
+	def marks(self, d, week=False):
+		"""what the lists show of day d (or of the week of monday d): the
+		news names and the holidays' abbreviations, as one string"""
+		days = [d + timedelta(days=k) for k in range(5)] if week else [d]
+		out = []
+		for day in days:
+			out += [n for _, n in self.of(day)]
+			if day in self.hol:
+				out.append(HOLIDAYS.get(self.hol[day], "Hday"))
+		return " ".join(dict.fromkeys(out))
+
+def holpath():
+	"""where the fetched holidays are kept"""
+	if FETCHEDHOL:
+		return FETCHEDHOL
+	return os.path.join(os.path.dirname(FETCHED), "holidays.txt") if FETCHED else None
 
 # ---- fetching the calendars ----
 SOURCES = {
@@ -196,5 +320,123 @@ def fetch(path=None, get=get):
 		tmp = path + ".tmp"
 		with open(tmp, "w", encoding="utf-8") as f:
 			f.write("# news dates read from the Federal Reserve's and the BLS's calendars\n" + "\n".join(lines) + "\n")
+		os.replace(tmp, path)
+	res.update(fetchholidays(os.path.join(os.path.dirname(path), "holidays.txt") if path != FETCHED else holpath(), get))
+	return res
+
+# ---- fetching the holidays ----
+HOLSOURCES = {
+	"Holidays (NYSE)": "https://www.nyse.com/markets/hours-calendars",
+	"Holidays (Fed)": "https://www.federalreserve.gov/aboutthefed/k8.htm",
+}
+HOLWORDS = [("new year", "NewYear"), ("king", "MLKDay"), ("washington", "PresidentsDay"), ("president", "PresidentsDay"),
+	("good friday", "GoodFriday"), ("memorial", "MemorialDay"), ("juneteenth", "Juneteenth"),
+	("independence", "IndependenceDay"), ("labor", "LaborDay"), ("columbus", "ColumbusDay"), ("veterans", "VeteransDay"),
+	("thanksgiving", "Thanksgiving"), ("christmas", "Christmas")]
+DAYDATE = re.compile(r"(" + MONTH + r")\s+(\d{1,2})(?:,\s+(\d{4}))?")
+EARLY = re.compile(r"[Ee]arly close[^*]*?\bon\s+((?:(?:Monday|Tuesday|Wednesday|Thursday|Friday),\s+" + MONTH +
+	r"\s+\d{1,2},\s+\d{4}(?:,\s+(?:and\s+)?)?)+)([^.*]*)")
+
+def holkey(name):
+	low = text(name).lower()
+	return next((k for w, k in HOLWORDS if w in low), None)
+
+def tables(page):
+	"""the rows of the first table of page: [[cell text]], the header first"""
+	m = re.search(r"<table.*?</table>", page, re.S | re.I)
+	if m is None:
+		return []
+	rows = []
+	for r in re.findall(r"<tr.*?</tr>", m.group(0), re.S | re.I):
+		rows.append([text(c).strip() for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", r, re.S | re.I)])
+	return rows
+
+def tabledates(page, fed=False):
+	"""the holidays of the table of the NYSE's or the Fed's calendar:
+	[(date, name)]. The NYSE's give the day kept; the Fed's the date, kept
+	on the Monday when a Sunday and not by the banks when a Saturday"""
+	rows = tables(page)
+	if not rows:
+		return []
+	years = [int(y) if re.fullmatch(r"\d{4}", y) else None for y in rows[0]]
+	out = []
+	for r in rows[1:]:
+		if not r:
+			continue
+		name = holkey(r[0])
+		if name is None:
+			continue
+		for k, cell in enumerate(r[1:], 1):
+			y = years[k] if k < len(years) else None
+			m = DAYDATE.search(cell)
+			if y is None or m is None:
+				continue
+			try:
+				d = date(y, month(m.group(1)), int(m.group(2)))
+			except ValueError:
+				continue
+			if fed:
+				d = observed(d, False)
+				if d is None:
+					continue
+			out.append((d, name))
+	return out
+
+def earlycloses(page):
+	"""the days the NYSE closes early, from the notes of its calendar: [(date, name)]"""
+	out = []
+	for m in EARLY.finditer(text(page)):
+		days, rest = m.group(1), m.group(2).lower()
+		for dm in DAYDATE.finditer(days):
+			if not dm.group(3):
+				continue
+			try:
+				d = date(int(dm.group(3)), month(dm.group(1)), int(dm.group(2)))
+			except ValueError:
+				continue
+			if "thanksgiving" in rest or (d.month == 11 and d.weekday() == 4 and d.day >= 23):
+				name = "BlackFriday"
+			elif (d.month, d.day) == (12, 24):
+				name = "ChristmasEve"
+			elif (d.month, d.day) == (7, 3):
+				name = "July3"
+			else:
+				name = "EarlyClose"
+			out.append((d, name))
+	return out
+
+def fetchholidays(path, get=get):
+	"""read the NYSE's and the Fed's holiday calendars and keep the days
+	they give in path, as lines of NEWSFILE: {source: number of days, or the
+	error}"""
+	res, found = {}, []
+	for name, url in HOLSOURCES.items():
+		try:
+			page = get(url)
+			got = tabledates(page, fed="federalreserve" in url)
+			if "nyse" in url:
+				got += earlycloses(page)
+		except Exception as x:
+			res[name] = str(x) or type(x).__name__
+			continue
+		res[name] = len(got)
+		found += got
+	if found and path:
+		old = []
+		try:
+			with open(path, encoding="utf-8") as f:
+				old = [ln for ln in f.read().splitlines() if ln.strip() and not ln.startswith("#")]
+		except OSError:
+			pass
+		seen = {}
+		for d, n in sorted(found):
+			seen.setdefault(d, n)	# the NYSE's name of a day first
+		years = {d.year for d in seen}
+		keep = [ln for ln in old if ln[:4].isdigit() and int(ln[:4]) not in years]	# years not read now stay
+		lines = keep + [f"{d.isoformat()} {n}" for d, n in sorted(seen.items())]
+		os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+		tmp = path + ".tmp"
+		with open(tmp, "w", encoding="utf-8") as f:
+			f.write("# holidays read from the NYSE's and the Federal Reserve's calendars\n" + "\n".join(lines) + "\n")
 		os.replace(tmp, path)
 	return res

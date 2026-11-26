@@ -633,6 +633,20 @@ and the captures of those days have them as tags, so searching `CPI` or
 `2027-01-08 NFP 08:30` (the time is 08:30 when left out), and a line that
 starts with `-` takes one away (`-2026-12-10 CPI`), for a date that moves.
 
+Holidays and special days are marked too: the days the markets close or
+close early (New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial
+Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas, the
+day after Thanksgiving, Christmas Eve, July 3) and the bank holidays
+(Columbus Day, Veterans Day), reckoned from their rules, as the NYSE keeps
+them. Their captures have the holiday's name as a tag (`Thanksgiving`),
+and `Holiday`; the data and capture lists show it abbreviated after the
+day (`Thu 26 · Thksg`), the chart's title names it, and **File ▸ Update
+News Dates** also reads the NYSE's and the Federal Reserve's holiday
+calendars. In `news.txt`, a holiday's name adds one (`2027-01-09
+Mourning`, or just `Hday`) and `-` takes one away. The captures list shows
+the news days as well. In the calendar, holidays have a red background
+and news days a green one.
+
 ### Indicators
 
 TradingView Pine indicators can be drawn on the data charts. **View ▸
