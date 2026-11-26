@@ -547,7 +547,8 @@ imported prices are moved by it: the earliest offset for the candles before
 the data there, the latest for those after. The status bar says the offsets
 used. Roll days and a bad tick may still differ.
 
-The box over the data list picks the time frame of the charts: m15 and
+The time frame box on the toolbar (or View ▸ Time Frame), in the data
+view, picks the time frame of the charts: m15 and
 above (m30, h1, h4) always, and with m1 data also m1, m3 and m5, drawn the same
 size as the others: zoom in on the image or scroll on its time axis to see
 their candles. The profiles, the sessions and the summary still come from

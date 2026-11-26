@@ -786,6 +786,13 @@ class MainWindow(QMainWindow):
 		tb.addSeparator()
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact, self.dataact):
 			tb.addAction(a)
+		self.tfcombo = QComboBox(tb)
+		self.tfcombo.setToolTip("the time frame of the data charts; a lower one than m15 takes data of it "
+			"(File ▸ Import Data… with an m1 CSV)")
+		self.tfcombo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+		self.tfcombo.activated.connect(lambda i: self.setdatatf(self.tfcombo.itemData(i)))
+		self.tfcomboact = tb.addWidget(self.tfcombo)
+		self.tfcomboact.setVisible(False)	# in the data view
 		tb.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			tb.addAction(a)
@@ -838,6 +845,8 @@ class MainWindow(QMainWindow):
 		v.addAction(self.listact)
 		v.addAction(self.notespanelact)
 		v.addAction(self.dataact)
+		self.tfmenu = v.addMenu("&Time Frame")
+		self.tfmenu.setEnabled(False)	# in the data view
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -930,7 +939,7 @@ class MainWindow(QMainWindow):
 		self.datapanel.picked.connect(lambda kind, d: self.showdata((kind, d)))
 		self.datapanel.importbtn.clicked.connect(self.choosedata)
 		self.datapanel.backbtn.clicked.connect(lambda: self.setdatamode(False))
-		self.datapanel.tfbox.activated.connect(lambda i: self.setdatatf(self.datapanel.tfbox.itemData(i)))
+		self.datapanel.tfbox.setVisible(False)	# it is on the toolbar, and in View ▸ Time Frame
 		self.datapanel.capbtn.clicked.connect(self.addchart)
 		self.leftstack = QStackedWidget()
 		self.leftstack.addWidget(caps)
@@ -1022,7 +1031,7 @@ class MainWindow(QMainWindow):
 		tfs = [t for t in m15.TFS if t >= 15 or (low and t >= low[0] and t % low[0] == 0)]
 		if self.datatf not in tfs:
 			self.datatf = 15
-		self.datapanel.settfs(tfs, self.datatf)
+		self.settfs(tfs, self.datatf)
 		self.datapanel.fill(self.data)
 		self.dataact.setEnabled(self.journal is not None)
 		if self.datamode:
@@ -1043,6 +1052,27 @@ class MainWindow(QMainWindow):
 					QApplication.restoreOverrideCursor()
 		return self.lowdata
 
+	def settfs(self, tfs, tf):
+		"""the time frames to pick (None keeps them), and tf picked, on the
+		toolbar and in View ▸ Time Frame"""
+		self.datapanel.settfs(tfs, tf)
+		self.tfcombo.blockSignals(True)
+		if tfs is not None:
+			self.tfcombo.clear()
+			self.tfmenu.clear()
+			for t in tfs:
+				self.tfcombo.addItem(m15.tfname(t), t)
+				a = self.tfmenu.addAction(m15.tfname(t))
+				a.setCheckable(True)
+				a.setData(t)
+				a.triggered.connect(lambda _=False, t=t: self.setdatatf(t))
+		i = self.tfcombo.findData(tf)
+		if i >= 0:
+			self.tfcombo.setCurrentIndex(i)
+		self.tfcombo.blockSignals(False)
+		for a in self.tfmenu.actions():
+			a.setChecked(a.data() == tf)
+
 	def setdatatf(self, tf):
 		"""draw the charts of the data view in time frame tf"""
 		if tf == self.datatf:
@@ -1050,7 +1080,7 @@ class MainWindow(QMainWindow):
 		if self.adjuster is not None:
 			self.adjuster.finish(False)
 		self.datatf = tf
-		self.datapanel.settfs(None, tf)
+		self.settfs(None, tf)
 		if self.datamode:
 			self.showdata(self.datakey, force=True)
 
@@ -1158,6 +1188,8 @@ class MainWindow(QMainWindow):
 		go back to the captures at the day or week shown"""
 		on = bool(on) and self.journal is not None
 		self.dataact.setText("&Capture View" if on else "&Data View")
+		self.tfcomboact.setVisible(on)
+		self.tfmenu.setEnabled(on)
 		self.dataact.setIconText("Captures" if on else "Data")
 		self.dataact.setToolTip("back to the captures, on this day or week" if on
 			else "the weeks and days of the m15 data, drawn from the candles with their profiles")
@@ -2075,7 +2107,7 @@ class MainWindow(QMainWindow):
 				w.reveal(w.journal.find(self.current.name), force=True)
 			if self.datamode:	# on the same chart, to look at it in another time frame
 				w.datatf = self.datatf
-				w.datapanel.settfs(None, self.datatf)
+				w.settfs(None, self.datatf)
 				w.setdatamode(True)
 				w.showdata(self.datakey, force=True)
 				w.syncact.setChecked(True)	# on the data, synced; on a capture, not
