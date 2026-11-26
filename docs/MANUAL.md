@@ -601,6 +601,10 @@ toolbar opens a new window in another time frame, on the same chart: this
 window and those it opened so are then laid out together, this one on the
 left half and the others on the right, when the screen has room.
 
+**View ▸ Session Rectangles**, on by default, draws the Asia, London and NY
+AM sessions of the days as rectangles; turned off, the charts show the
+candles alone (or the sessions the indicators draw).
+
 ### News days
 
 The days of FOMC decisions (14:00 New York), and of CPI, PPI and NFP
@@ -613,6 +617,37 @@ and the captures of those days have them as tags, so searching `CPI` or
 `FOMC` finds them. A `news.txt` in the journal adds others, one a line:
 `2027-01-08 NFP 08:30` (the time is 08:30 when left out), and a line that
 starts with `-` takes one away (`-2026-12-10 CPI`), for a date that moves.
+
+### Indicators
+
+TradingView Pine indicators can be drawn on the data charts. **View ▸
+Indicators ▸ Import Indicators…** takes their source (the `.txt` or `.pine`
+files of the script, as copied from the Pine editor), keeps a copy for
+every journal and turns them on; the menu lists them, checked when on, and
+remembers which are. **Remove** forgets one, and **Show Indicators Folder**
+opens where they are kept.
+
+An indicator is run on the candles as if the last candle shown were the
+last one: on the whole day or week, its last candle; zoomed in, the last
+one at the right edge. It runs on up to 5000 candles of the chart's time
+frame before that one (as TradingView does), with its default inputs, and
+the time frames it asks for (`request.security`, `request.security_lower_tf`)
+come from the journal's m15 and lower data, cut at the same candle. What
+it draws (lines, boxes, labels, tables, shapes, backgrounds) goes on the
+chart, its sharp redraw when zoomed in, and **Add Chart as Capture**.
+Indicators run in the background: while a chart is scaled or moved, or
+another day is shown, the chart keeps what its indicators drew last and is
+drawn again when their new runs are done (a capture waits for them).
+
+**Indicators ▸ Settings** shows the inputs of an indicator as TradingView
+does, in their groups and rows, with their tooltips: numbers, choices,
+checkboxes, colors (with their opacity), texts and times. **Restore
+Defaults** puts back the script's values. The values changed are kept for
+every journal, and the charts are drawn again with them.
+
+Only the part of Pine the journal's indicators use is understood: a script
+that uses something else, or fails as it runs, says why at the bottom of
+the chart and in the status bar.
 
 ## Exporting
 
