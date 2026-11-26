@@ -22,8 +22,10 @@ Each window has its own search, list and drawings; notes and drawings saved
 in one show up in the others on the same journal. **Quit** closes them all.
 The **Window** button in the toolbar does the same.
 
-**Window** arranges the windows shown on the screen of the one you are in,
-which goes first:
+**Window** arranges the windows shown on the screen of the one you are in.
+The main window goes first: the one you are in when it shows its list and
+calendar, else the first one that does (the windows made with New Window
+show only the image):
 
 | Entry | What it does |
 |-------|--------------|
@@ -31,8 +33,8 @@ which goes first:
 | Tile (⌥⌘T) | all the windows as a mosaic: two side by side, three with one wide below, four in a 2×2 grid, and so on |
 | Side by Side | all the windows in columns |
 | Stacked | all the windows in rows |
-| Main on the Left | this window on the left half, the others one over the other on the right |
-| Main on Top | this window on the top half, the others side by side below |
+| Main on the Left | the main window on the left half, the others one over the other on the right |
+| Main on Top | the main window on the top half, the others side by side below |
 | Cascade | all the windows a bit apart, one over the other |
 | Fill the Screen, Left Half, Right Half, Top Half, Bottom Half, Center | this window alone |
 
@@ -154,6 +156,13 @@ all when some are open. At start only the last year, month and week are
 open, and the week before too when the last one has a single day. Moving to
 an image opens its groups, and a search opens the groups of what it finds.
 A week that spans two months shows up in both, with the days of each.
+
+The thin line on the left of the list (and of the data list) has a circle
+by each row that opens or closes. Scrolling on it zooms the list there:
+scrolling up on a closed group opens it, and on an open one opens the
+groups in it; scrolling down closes the groups open in the row, then the
+row, then the group it is in. The row under the mouse stays where it is.
+The calendar below the list goes to any date.
 
 Weeks are numbered in calendar weeks from the first one in the journal,
 which is 1: `5. Week 26 Oct` is the fifth week since then, counting weeks
@@ -587,7 +596,10 @@ main window and the other synced ones: going to a day or week in any of
 them takes the others there, each staying on days or on weeks as it shows
 them, and on the data charts the crosshair of one shows in the others at
 the same time and price. A new window on the data is synced; one on a
-capture is not.
+capture is not. In the data view, the menu of the **Window** button on the
+toolbar opens a new window in another time frame, on the same chart: this
+window and those it opened so are then laid out together, this one on the
+left half and the others on the right, when the screen has room.
 
 ### News days
 
@@ -616,7 +628,11 @@ are hidden ones. A capture with nothing drawn goes as it is.
 
 Write under the image. Notes are saved as you type, in a file with the
 image's name and a `.txt` extension (`day261014.txt`). Emptying the notes
-removes the file. Images with notes or drawings have a ✎ in the list, and
+removes the file. The days and weeks of the data view have notes too, kept
+in the journal's `m15draw` folder (`d261117.txt`, `w261116.txt`), marked ¶
+in the data list; their tags are their news (CPI, FOMC...), shown over the
+notes with the summary of the day. The search box works in the data view as
+well, finding days and weeks by their news and notes. Images with notes or drawings have a ✎ in the list, and
 their notes show in its tooltip.
 
 ## Help
