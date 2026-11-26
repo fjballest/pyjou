@@ -192,6 +192,7 @@ def runner():
 				super().__init__()
 				self.jobs = {}	# {chart key: Job}, the last asked for each chart
 				self.current = None	# the Job being made
+				self.quit = False	# set by shutdown
 				self.cond = threading.Condition()
 				self.thread = threading.Thread(target=self.loop, daemon=True, name="indicators")
 				self.thread.start()
@@ -205,8 +206,10 @@ def runner():
 			def loop(self):
 				while True:
 					with self.cond:
-						while not self.jobs:
+						while not self.jobs and not self.quit:
 							self.cond.wait()
+						if self.quit:
+							return
 						chart = next(iter(self.jobs))
 						job = self.current = self.jobs[chart]
 					try:
@@ -252,6 +255,17 @@ def needed(data, low, g, tf):
 			json.dumps(values, sort_keys=True))
 		todo.append((name, p, key, values))
 	return chart, upto, todo
+
+def shutdown(timeout=2):
+	"""stop the runs and the background thread, on quitting"""
+	r = _runner
+	if r is None:
+		return
+	r.cancel()
+	with r.cond:
+		r.quit = True
+		r.cond.notify_all()
+	r.thread.join(timeout)
 
 def cancel():
 	"""stop the runs in the background (the chart is being moved)"""
