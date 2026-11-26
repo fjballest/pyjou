@@ -125,7 +125,8 @@ w.pending.clear()
 check(news.News().names(date(2026, 12, 4)) == ["NFP"], "NFP days")
 pages = {
 	news.SOURCES["FOMC"]: "<h4>2027 FOMC Meetings</h4><div><strong>January</strong></div><div>26-27</div>"
-		"<div><strong>Apr/May</strong></div><div>30-1*</div><p>Last Update: November 18, 2026</p>",
+		"<div><strong>Apr/May</strong></div><div>30-1*</div><p>Last Update: November 18, 2026</p>"
+		"<p>January 25-26 (tentative)</p>",
 	news.SOURCES["CPI"]: "<p>Last Modified Date: Nov. 18, 2026</p><table><tr><td>December 2027</td><td>Jan. 12, 2028</td><td>08:30 AM</td></tr></table>",
 	news.SOURCES["NFP"]: "<table><tr><td>December 2027</td><td>Jan. 07, 2028</td><td>08:30&nbsp;AM</td></tr></table>",
 }
@@ -140,7 +141,7 @@ news.FETCHED = fetched
 n = news.News()
 check(n.names(date(2027, 5, 1)) == ["FOMC"] and n.of(date(2028, 1, 12)) == [(8.5, "CPI")] and n.names(date(2028, 1, 7)) == ["NFP"],
 	"their dates used, the FOMC on the last day of the meeting")
-check(n.names(date(2026, 11, 18)) == [], "and not the dates of the pages themselves")
+check(n.names(date(2026, 11, 18)) == [] and n.names(date(2027, 1, 26)) == [], "and not the dates of the pages themselves, nor a meeting twice")
 
 # a new window: the image almost all of it, and synced on the data
 w.setdatamode(True)

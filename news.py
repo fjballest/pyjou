@@ -160,7 +160,8 @@ def feddates(page):
 				out.append(date(int(y.group(1)), mo, int(d2)))
 			except ValueError:
 				pass
-	return out
+	out = sorted(set(out))	# a meeting given twice, as days a day apart: its last day
+	return [d for k, d in enumerate(out) if k + 1 == len(out) or (out[k + 1] - d).days > 3]
 
 def get(url, timeout=20):
 	req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh) DayJournal", "Accept": "text/html"})
