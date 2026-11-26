@@ -605,6 +605,7 @@ class MainWindow(QMainWindow):
 		self.datadir = tempfile.mkdtemp(prefix="dj-data-")	# where its charts are drawn
 		self.datageom = None	# the Geom of the chart shown
 		self.datazooms = {}		# (kind, date, tf) -> the part of the chart shown (see Geom.zoomed)
+		self.panning = None		# dragging a zoomed data chart: see datapan
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -1349,6 +1350,65 @@ class MainWindow(QMainWindow):
 		self.showdata(self.datakey, force=True)
 		return True
 
+	def datapan(self, ev):
+		"""dragging a data chart scaled on its axes moves it over its data,
+		in the directions the image itself can't be scrolled; True when taken"""
+		t = ev.type()
+		if t == QEvent.Type.MouseButtonPress:
+			self.panning = None
+			g = self.datageom
+			if (not self.datamode or g is None or g.view() is None or ev.button() != Qt.MouseButton.LeftButton
+					or self.view.tool != "select" or self.adjuster is not None):
+				return False
+			at = ev.position().toPoint()
+			q = self.view.mapToScene(at)
+			if g.inplot(q.x(), q.y()) != "c" or self.view.itemAt(at) not in (None, self.view.pixitem):
+				return False
+			self.panning = {"at": QPointF(at), "g": g, "key": (*self.datakey, self.datashowntf), "on": False, "view": None}
+			return False	# the view sees the press, and the release
+		p = self.panning
+		if p is None:
+			return False
+		if t == QEvent.Type.MouseButtonRelease:
+			self.panning = None
+			return False
+		if not ev.buttons() & Qt.MouseButton.LeftButton:
+			self.panning = None
+			return False
+		d = ev.position() - p["at"]
+		if not p["on"]:
+			if abs(d.x()) + abs(d.y()) < 4:
+				return False
+			p["on"] = True
+		g, s = p["g"], self.view.transform().m11() or 1
+		h, v = self.view.horizontalScrollBar(), self.view.verticalScrollBar()
+		dx = d.x() / s if h.maximum() == 0 else 0	# the image can't scroll that way: the data moves
+		dy = d.y() / s if v.maximum() == 0 else 0
+		if not dx and not dy:
+			return False
+		dt = -dx / g.pw * (g.t1 - g.t0)
+		dp = dy / g.ph * (g.top - g.bot)
+		p["view"] = g.panned(dt, dp)
+		if not p.get("timer"):
+			p["timer"] = True
+			QTimer.singleShot(30, self.panapply)
+		return True
+
+	def panapply(self):
+		"""show the chart where the drag took it"""
+		p = self.panning
+		if p is None:
+			return
+		p["timer"] = False
+		v, key = p["view"], p["key"]
+		if key != (*self.datakey, self.datashowntf) if self.datakey else True:
+			return
+		if v is None:
+			self.datazooms.pop(key, None)
+		else:
+			self.datazooms[key] = v
+		self.showdata(self.datakey, force=True)
+
 	def datastep(self, delta=None, last=None, week=False):
 		"""move in the data view: delta rows, to the first or last, or
 		between a day and its week"""
@@ -1508,6 +1568,8 @@ class MainWindow(QMainWindow):
 				QTimer.singleShot(0, self.sendcross)	# once the view has moved its own
 			if t in (QEvent.Type.Wheel, QEvent.Type.MouseButtonDblClick):
 				return self.dataaxis(ev)
+			if t in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease):
+				return self.datapan(ev)
 			return False
 		if hasattr(self, "calview") and obj is self.calview.viewport():
 			t = ev.type()

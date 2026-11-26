@@ -114,6 +114,16 @@ class Geom:
 		v = (top, bot, t0, t1)
 		return None if all(abs(a - b) < 1e-9 for a, b in zip(v, self.whole)) else v
 
+	def panned(self, dt, dp):
+		"""the view moved dt in time and dp in price: the times stay in
+		the day or week"""
+		top, bot, t0, t1 = self.top + dp, self.bot + dp, self.t0 + dt, self.t1 + dt
+		w0, w1 = self.whole[2], self.whole[3]
+		span = t1 - t0
+		t0 = min(max(t0, w0), w1 - span)
+		v = (top, bot, t0, t0 + span)
+		return None if all(abs(a - b) < 1e-9 for a, b in zip(v, self.whole)) else v
+
 	def inplot(self, x, y):
 		"""where scene point x, y is: "p" over the price axis, "t" over the
 		time axis, "c" in the chart, None elsewhere"""

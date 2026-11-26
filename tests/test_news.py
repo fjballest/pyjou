@@ -200,6 +200,32 @@ next(a for a in w.tfmenu.actions() if a.text() == "h1").trigger()
 check(w.datatf == 60 and w.tfcombo.currentText() == "h1" and w.datashowntf == 60, "picked in the menu")
 w.tfcombo.activated.emit(w.tfcombo.findData(15))
 check(w.datatf == 15 and [a.text() for a in w.tfmenu.actions() if a.isChecked()] == ["m15"], "and on the toolbar")
+# dragging a zoomed chart moves it over its data
+from PySide6.QtGui import QMouseEvent
+import time
+w.view.fit()
+g = w.datageom
+wheel(g.L + g.pw + 20, g.Y((g.top + g.bot) / 2), 360)
+wheel(g.L + g.pw / 2, g.T + g.ph + 15, 360)
+w.view.fit()
+app.processEvents()
+z = w.datageom
+check(z.view() is not None and z.t1 - z.t0 < z.whole[3] - z.whole[2], "zoomed on both axes")
+def mouse(kind, x, y, buttons):
+	pos = QPointF(w.view.mapFromScene(QPointF(x, y)))
+	ev = QMouseEvent(kind, pos, QPointF(w.view.viewport().mapToGlobal(pos.toPoint())), Qt.MouseButton.LeftButton, buttons,
+		Qt.KeyboardModifier.NoModifier)
+	return w.eventFilter(w.view.viewport(), ev)
+x0, y0 = z.L + z.pw / 2, z.T + z.ph / 2
+mouse(QEvent.Type.MouseButtonPress, x0, y0, Qt.MouseButton.LeftButton)
+check(mouse(QEvent.Type.MouseMove, x0 + 200, y0 + 100, Qt.MouseButton.LeftButton), "a drag on the chart taken")
+t = time.time()
+while time.time() - t < 0.3:
+	app.processEvents()
+n = w.datageom
+check(n.t0 < z.t0 and n.top > z.top, "the chart moved to earlier times and higher prices")
+mouse(QEvent.Type.MouseButtonRelease, x0 + 200, y0 + 100, Qt.MouseButton.NoButton)
+check(w.panning is None, "until released")
 w.setdatamode(False)
 check(not w.tfcomboact.isVisible() and not w.tfmenu.isEnabled(), "not with the captures")
 print("ALL OK")

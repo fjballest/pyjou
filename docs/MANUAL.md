@@ -568,7 +568,10 @@ Scrolling over the price axis of a data chart (its right edge) shows more
 or fewer prices around the one under the mouse, and scrolling over the time
 axis (its bottom edge) shows more or fewer hours, down to half an hour of a
 day or two hours of a week, which then label their hours. A double click
-on an axis shows all of it again. Each window keeps the scale of each chart
+on an axis shows all of it again. Dragging a chart scaled so moves it over its
+data, to the times and prices out of view; when the image is zoomed in
+larger than the window, dragging moves the image instead, in the
+directions it can. Each window keeps the scale of each chart
 while it is open. What is drawn stays at its prices and times, and is
 saved as on the whole chart, so it shows right at any scale. Hiding the
 drawings (**Hide**, or H on the image) hides the profile line too. Zooming in on
