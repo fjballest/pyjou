@@ -2,6 +2,7 @@
 # the main window: the images of a journal on the left, found by a search
 # and a calendar, and the image with its tags and notes on the right
 #
+import copy
 import html
 from types import SimpleNamespace
 from datetime import date, timedelta
@@ -693,7 +694,7 @@ class MainWindow(QMainWindow):
 			"Ctrl+End", "the last image")
 		self.firstact = self.mkaction("First", lambda: self.jump(False), S.SP_MediaSkipBackward,
 			"Ctrl+Home", "the first image")
-		self.fitact = self.mkaction("Fit", lambda: self.view.fit(), None, "Ctrl+0", "fit the image in the window")
+		self.fitact = self.mkaction("Fit", lambda: self.datazoom(None) or self.view.fit(), None, "Ctrl+0", "fit the image in the window")
 		self.realact = self.mkaction("Real Size", lambda: self.view.realsize(), None, "Ctrl+1", "show the image at its size")
 		self.zoominact = self.mkaction("Zoom +", lambda: self.view.zoom(1.25), None,
 			QKeySequence.StandardKey.ZoomIn, "zoom in")
@@ -766,6 +767,11 @@ class MainWindow(QMainWindow):
 		self.sessionsact.setCheckable(True)
 		dataview.SHOWSESSIONS = settings().value("datasessions", True) not in (False, "false")
 		self.sessionsact.setChecked(dataview.SHOWSESSIONS)
+		self.profileact = self.mkaction("&Profile Lines", lambda: self.setprofilelines(self.profileact.isChecked()), None, None,
+			"Draw the profile lines (the ones adjusted) on the data charts; the drawings are shown or hidden on their own")
+		self.profileact.setCheckable(True)
+		dataview.SHOWPROFILE = settings().value("dataprofile", True) not in (False, "false")
+		self.profileact.setChecked(dataview.SHOWPROFILE)
 		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
 			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
 		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
@@ -875,6 +881,7 @@ class MainWindow(QMainWindow):
 		self.indmenu = v.addMenu("&Indicators")
 		self.indmenu.aboutToShow.connect(self.fillindicators)
 		v.addAction(self.sessionsact)
+		v.addAction(self.profileact)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -988,6 +995,7 @@ class MainWindow(QMainWindow):
 		self.view.hint.connect(lambda t: self.statusBar().showMessage(t) if t else self.statusBar().clearMessage())
 		self.view.drawchanged.connect(self.drawchanged)
 		self.view.hiddenchanged.connect(self.datahidden)
+		self.view.zoomhook = self.datazoom	# zooming a data chart scales its axes, which stay in the window
 		self.view.viewport().installEventFilter(self)	# scrolling on the axes of the data charts
 		drawbar = self.mkdrawbar()
 		self.tagslabel = QLabel()
@@ -1292,7 +1300,7 @@ class MainWindow(QMainWindow):
 		g = self.datageom
 		if g is not None:
 			drawing = widened(drawing, g.unzoomed(), tf)
-		self.view.setimage(path, mapdrawing(drawing, g.unzoomed(), g) if g is not None and g.view() else drawing)
+		self.view.setimage(path, mapdrawing(drawing, g.unzoomed(), g) if g is not None and g.mapped() else drawing)
 		self.sharpchart()
 		self.titlelabel.setText((f"Data {m15.tfname(tf)}: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
 			else f"Data {m15.tfname(tf)}: {d:%a %d %b %Y}")
@@ -1332,8 +1340,14 @@ class MainWindow(QMainWindow):
 			self.dataoverlay, self.datapending, bad = indicators.overlay(self.data, self.getlow, g, tf, wait=wait)
 			if bad and not self.datapending:
 				self.statusBar().showMessage("; ".join(bad), 10000)
-		img = render(self.data, kind, d, path, tf, low, view, not self.view.hidden,
-			self.journal.news if self.journal else None, self.dataoverlay)
+		margin = 0
+		far = getattr(self.dataoverlay, "reach", None)
+		if far is not None and g.ok:	# room right of the last candle for what they draw there
+			margin = max(0.0, g.tx(far / 1000) + 3 * g.cw - g.vt1)
+			if margin:
+				g = Geom(self.data, kind, d, tf, low, view, margin)
+		img = render(self.data, kind, d, path, tf, low, view, self.profileshown(),
+			self.journal.news if self.journal else None, self.dataoverlay, margin)
 		self.datageom = g if img is not None else None
 		return img
 
@@ -1357,10 +1371,12 @@ class MainWindow(QMainWindow):
 			for name, _ in have:
 				st.addAction(name + "…", lambda n=name: self.indicatorinputs(n))
 		m.addAction("&Import Indicators…", self.importindicators)
-		if have:
+		own = [name for name, _ in have if indicators.imported(name)]
+		if own:
 			rm = m.addMenu("&Remove")
-			for name, _ in have:
+			for name in own:
 				rm.addAction(name, lambda n=name: self.removeindicator(n))
+		m.addAction("Indicator Fol&ders…", lambda: indicators.foldersdialog(self) and self.indicatorschanged())
 		m.addAction("Show Indicators &Folder", lambda: (os.makedirs(indicators.DIR, exist_ok=True),
 			QDesktopServices.openUrl(QUrl.fromLocalFile(indicators.DIR))))
 
@@ -1387,6 +1403,20 @@ class MainWindow(QMainWindow):
 				w.sessionsact.setChecked(bool(on))
 				if w.datamode and w.datakey is not None:
 					w.showdata(w.datakey, force=True)
+
+	def setprofilelines(self, on):
+		"""draw the profile lines on the data charts or not, in every window"""
+		settings().setValue("dataprofile", bool(on))
+		dataview.SHOWPROFILE = bool(on)
+		for w in QApplication.topLevelWidgets():
+			if isinstance(w, MainWindow):
+				w.profileact.setChecked(bool(on))
+				if w.datamode and w.datakey is not None:
+					w.showdata(w.datakey, force=True)
+
+	def profileshown(self):
+		"""whether the data chart draws its profile: with the drawings, when Profile Lines is on"""
+		return dataview.SHOWPROFILE and not self.view.hidden
 
 	def setindicator(self, name, on):
 		indicators.toggle(name, on)
@@ -1433,7 +1463,11 @@ class MainWindow(QMainWindow):
 			return
 		kind, d = self.datakey
 		tf = self.datashowntf
+		was = self.datageom.margin
 		if self.renderdata(kind, d, self.datapath, tf, self.getlow() if tf < 15 else None, wait) is not None and self.view.pixitem is not None:
+			if self.datageom.margin != was:	# the drawings are put where they go now
+				self.showdata(self.datakey, force=True)
+				return
 			self.view.pixitem.setPixmap(QPixmap(self.datapath))
 			self.sharpchart()
 
@@ -1449,7 +1483,7 @@ class MainWindow(QMainWindow):
 		if old is None or g is None or self.datakey is None:
 			return
 		args = (g, self.data, *self.datakey, self.datashowntf,
-			not self.view.hidden, self.journal.news if self.journal else None)
+			self.profileshown(), self.journal.news if self.journal else None)
 		if isinstance(old, ChartItem):
 			old.args = args
 			old.overlay = self.dataoverlay
@@ -1463,24 +1497,123 @@ class MainWindow(QMainWindow):
 		sc.addItem(it)
 		self.view.pixitem = it
 
+	BORDER = 70	# pixels of the window by the edges of a data chart where a scroll scales its axes
+
+	def wheelzone(self, g, q):
+		"""what a scroll at scene point q of the chart of g does: "p" scale
+		the prices (on the price axis, or by the left or right edge), "t"
+		the times (on the time axis, or by the top or bottom edge), "z"
+		zoom (around the center), "s" scroll, None off the chart"""
+		where = g.inplot(q.x(), q.y())
+		if where != "c":
+			return where
+		s = self.view.transform().m11() or 1
+		bx, by = min(self.BORDER / s, g.pw / 5), min(self.BORDER / s, g.ph / 5)
+		dl, dr = q.x() - g.L, g.L + g.pw - q.x()
+		dt, db = q.y() - g.T, g.T + g.ph - q.y()
+		side, edge = min(dl, dr) / bx, min(dt, db) / by
+		if min(side, edge) < 1:
+			return "p" if side <= edge else "t"
+		cx, cy = (q.x() - g.L) / g.pw - 0.5, (q.y() - g.T) / g.ph - 0.5
+		return "z" if abs(cx) < 0.25 and abs(cy) < 0.25 else "s"
+
+	def datazoom(self, factor, at=None):
+		"""zoom the data chart by factor on both axes around viewport point
+		at (the center without it), keeping its axes in the window; factor
+		None shows all of it again. True when taken"""
+		g = self.datageom
+		if not self.datamode or g is None or self.datakey is None or self.adjuster is not None or not self.view.hasimage():
+			return False
+		if self.view.mode != "fit":
+			self.view.fit()
+		if at is None:
+			q = QPointF(g.L + g.pw / 2, g.T + g.ph / 2)
+		else:
+			q = self.view.mapToScene(at)
+			q = QPointF(min(max(q.x(), g.L), g.L + g.pw), min(max(q.y(), g.T), g.T + g.ph))
+		v = None if factor is None else self.pendinggeom(g).zoomedat(g.t(q.x()), g.price(q.y()), 1 / factor)
+		self.setdataview(v)
+		return True
+
+	def pendinggeom(self, g):
+		"""g with the view the chart is to show (scrolls not drawn yet included)"""
+		cur = copy.copy(g)
+		v = self.datazooms.get((*self.datakey, self.datashowntf))
+		cur.top, cur.bot, cur.t0, cur.vt1 = v or g.whole
+		cur.t1 = cur.vt1
+		return cur
+
+	def setdataview(self, v):
+		"""show view v (see Geom) of the data chart, soon: a burst of
+		scrolls or pinches is drawn once"""
+		key = (*self.datakey, self.datashowntf)
+		if v == (self.datazooms.get(key)):
+			return
+		if v is None:
+			self.datazooms.pop(key, None)
+		else:
+			self.datazooms[key] = v
+		if getattr(self, "dataviewsoon", False):	# drawn when the last one is a moment old
+			self.dataviewdirty = True
+			return
+		self.dataviewsoon, self.dataviewdirty = True, False
+		self.showdata(self.datakey, force=True)
+		QTimer.singleShot(15, self.dataviewnow)
+
+	def dataviewnow(self):
+		if not isValid(self):
+			return
+		self.dataviewsoon = False
+		if self.dataviewdirty and self.datamode and self.datakey is not None:
+			self.dataviewdirty = False
+			self.showdata(self.datakey, force=True)
+
 	def dataaxis(self, ev):
-		"""a scroll on the price or time axis of a data chart scales it
-		there, a double click on one shows all of it again; True when taken"""
+		"""a scroll on the price or time axis of a data chart, or by its
+		edges, scales it there; around its center it zooms, and elsewhere
+		it scrolls the chart; a double click on an axis shows all of it
+		again; True when taken"""
 		g = self.datageom
 		if not self.datamode or g is None or self.datakey is None or self.adjuster is not None or not self.view.hasimage():
 			return False
 		q = self.view.mapToScene(ev.position().toPoint())
-		axis = g.inplot(q.x(), q.y())
-		if axis not in ("p", "t"):
-			return False
-		key = (*self.datakey, self.datashowntf)
 		if ev.type() == QEvent.Type.Wheel:
-			dy = ev.angleDelta().y() or ev.angleDelta().x()
+			if self.view.scaler is not None:
+				return False
+			axis = self.wheelzone(g, q)
+			if axis is None:
+				return False
+			if self.view.mode != "fit":	# the axes stay in the window
+				self.view.fit()
+				q = self.view.mapToScene(ev.position().toPoint())
+			ad, pd = ev.angleDelta(), ev.pixelDelta()
+			if axis == "s":
+				s = self.view.transform().m11() or 1
+				dx, dy = (pd.x(), pd.y()) if not pd.isNull() else (ad.x() / 3, ad.y() / 3)
+				if ev.modifiers() & Qt.KeyboardModifier.ShiftModifier and not dx:
+					dx, dy = dy, 0
+				if not dx and not dy:
+					return True
+				cur = self.pendinggeom(g)
+				dt = -dx / s / g.pw * (cur.vt1 - cur.t0)
+				dp = dy / s / g.ph * (cur.top - cur.bot)
+				self.setdataview(cur.panned(dt, dp))
+				return True
+			dy = ad.y() or ad.x()
 			if not dy:
 				return True
-			at = g.price(q.y()) if axis == "p" else g.t(q.x())
-			v = g.zoomed(axis, at, 0.85 ** (dy / 120))
+			f = 0.85 ** (dy / 120)
+			at, price = g.t(min(q.x(), g.X(g.vt1))), g.price(q.y())	# where the mouse is, as drawn
+			cur = self.pendinggeom(g)
+			if axis == "z":
+				self.setdataview(cur.zoomedat(at, price, f))
+			else:
+				self.setdataview(cur.zoomed(axis, price if axis == "p" else at, f))
+			return True
 		else:	# the whole of that axis again
+			axis = g.inplot(q.x(), q.y())
+			if axis not in ("p", "t"):
+				return False
 			v = g.view()
 			if v is None:
 				return True
@@ -1594,7 +1727,7 @@ class MainWindow(QMainWindow):
 			name = self.drawkey(k, tf)
 			data = self.view.drawingdata()
 			g = self.datageom
-			if g is not None and g.view():	# kept as on the whole chart
+			if g is not None and g.mapped():	# kept as on the whole chart
 				data = mapdrawing(data, g, g.unzoomed())
 			saved = self.data.readdrawing(*k, tf)
 			if data and tf < 15 and g is not None:	# so it isn't taken for one of the wider charts of before

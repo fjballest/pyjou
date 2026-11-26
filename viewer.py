@@ -88,6 +88,7 @@ class ImageView(QGraphicsView):
 		self.undo.indexChanged.connect(self.undochanged)
 		self.loading = False
 		self.navkeys = NAVKEYS
+		self.zoomhook = None	# zoomhook(factor, viewport point), True when it zoomed instead (factor None: all again)
 		self.dclickzoom = True	# double clicks on the image zoom; a trackpad double tap always does
 		# the crosshair: a horizontal and a vertical line through the mouse,
 		# across the image, to compare levels; cross is where, in the scene
@@ -302,6 +303,8 @@ class ImageView(QGraphicsView):
 	def zoom(self, factor, at=None):
 		"""zoom by factor keeping the image point at viewport point at in place"""
 		if not self.pixitem:
+			return
+		if self.zoomhook is not None and self.zoomhook(factor, at):
 			return
 		self.mode = "zoom"
 		if at is None:
@@ -1000,6 +1003,9 @@ class ImageView(QGraphicsView):
 			self.dstep += 1
 			self.zoom(DCLICKZOOM, at)
 		else:
+			if self.zoomhook is not None and self.zoomhook(None, at):
+				self.dstep = 0
+				return
 			self.fit()
 
 	def viewportEvent(self, ev):

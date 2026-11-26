@@ -32,15 +32,45 @@ def setup(dirpath, settings):
 	DIR = dirpath
 	_settings = settings
 
-def scripts():
-	"""[(name, path)] of the imported scripts, by name"""
-	if not DIR or not os.path.isdir(DIR):
+def folders():
+	"""the other folders searched for scripts, in order (after DIR)"""
+	if _settings is None:
 		return []
-	out = []
-	for f in sorted(os.listdir(DIR), key=str.lower):
-		if f.lower().endswith(EXTS) and not f.startswith("."):
-			out.append((os.path.splitext(f)[0], os.path.join(DIR, f)))
-	return out
+	v = _settings().value("indicators/folders", [])
+	if isinstance(v, str):
+		v = [v] if v else []
+	return [str(f) for f in (v or []) if f]
+
+def setfolders(paths):
+	if _settings is not None:
+		_settings().setValue("indicators/folders", [p for p in dict.fromkeys(paths) if p])
+
+def searched():
+	"""the folders scripts are looked for in, in order: DIR, then folders()"""
+	return [f for f in [DIR] + folders() if f]
+
+def scripts():
+	"""[(name, path)] of the scripts, by name: those imported (in DIR) and
+	those in the other folders; the first one found of a name, in the order
+	of searched(), is the one"""
+	found = {}
+	for d in searched():
+		try:
+			files = os.listdir(d)
+		except OSError:
+			continue
+		for f in files:
+			if f.lower().endswith(EXTS) and not f.startswith("."):
+				name = os.path.splitext(f)[0]
+				p = os.path.join(d, f)
+				if name not in found and os.path.isfile(p):
+					found[name] = p
+	return sorted(found.items(), key=lambda x: x[0].lower())
+
+def imported(name):
+	"""whether script name is one imported (in DIR), which can be removed"""
+	p = dict(scripts()).get(name)
+	return p is not None and DIR is not None and os.path.dirname(os.path.abspath(p)) == os.path.abspath(DIR)
 
 def enabled():
 	"""the names of the scripts that are on"""
@@ -96,8 +126,9 @@ def importfiles(paths):
 	return names
 
 def remove(name):
+	"""remove script name, if imported (the other folders are left alone)"""
 	for n, p in scripts():
-		if n == name:
+		if n == name and imported(n):
 			os.remove(p)
 	setenabled([n for n in enabled() if n != name])
 	setinputs(name, {})
@@ -241,7 +272,7 @@ def painter(rs, tf):
 	"""a function painting runs rs over a chart (fn(painter, geometry)), or None"""
 	if not rs:
 		return None
-	from pine.draw import paint
+	from pine.draw import paint, reach
 	from PySide6.QtCore import QRectF, Qt
 	from PySide6.QtGui import QColor, QFont
 
@@ -261,6 +292,9 @@ def painter(rs, tf):
 					f"{r.title}: {r.error}")
 				y += 18
 			p.restore()
+	far = [x for x in (reach(r, tf) for r in rs) if x is not None]
+	fn.reach = max(far) if far else None	# the latest time drawn past the last bar (ms), for room there
+	fn.last = max(int(r.S.t[-1]) for r in rs if r.S is not None and r.S.n) if any(r.S is not None and r.S.n for r in rs) else None
 	return fn
 
 def overlay(data, low, g, tf, wait=True):
@@ -466,3 +500,65 @@ def inputsdialog(parent, name, specs, title, accept=None):
 	old = {k: list(v) if isinstance(v, tuple) else v for k, v in inputs(name).items()}
 	setinputs(name, out)
 	return out != old
+
+# ---------------------------------------------------------------- the other folders
+
+def foldersdialog(parent):
+	"""edit the other folders searched for indicators: True when they changed"""
+	from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
+		QPushButton, QVBoxLayout)
+	dlg = QDialog(parent)
+	dlg.setWindowTitle("Indicator Folders")
+	lay = QVBoxLayout(dlg)
+	note = QLabel("Indicators (.txt or .pine) are looked for in the imported ones first, then in these "
+		"folders, in this order: the first one found of a name is the one used.")
+	note.setWordWrap(True)
+	lay.addWidget(note)
+	first = QLabel(f"1. {DIR}  (imported)")
+	first.setEnabled(False)
+	lay.addWidget(first)
+	row = QHBoxLayout()
+	lst = QListWidget()
+	lst.addItems(folders())
+	row.addWidget(lst, 1)
+	col = QVBoxLayout()
+	def add():
+		d = QFileDialog.getExistingDirectory(dlg, "Add Indicator Folder", os.path.expanduser("~"))
+		if d and d not in [lst.item(i).text() for i in range(lst.count())]:
+			lst.addItem(d)
+			lst.setCurrentRow(lst.count() - 1)
+	def drop():
+		r = lst.currentRow()
+		if r >= 0:
+			lst.takeItem(r)
+	def move(k):
+		r = lst.currentRow()
+		if 0 <= r + k < lst.count() and r >= 0:
+			it = lst.takeItem(r)
+			lst.insertItem(r + k, it)
+			lst.setCurrentRow(r + k)
+	for text, fn in (("Add…", add), ("Remove", drop), ("Up", lambda: move(-1)), ("Down", lambda: move(1))):
+		b = QPushButton(text)
+		b.clicked.connect(fn)
+		col.addWidget(b)
+	col.addStretch(1)
+	row.addLayout(col)
+	lay.addLayout(row)
+	bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+	bb.accepted.connect(dlg.accept)
+	bb.rejected.connect(dlg.reject)
+	lay.addWidget(bb)
+	dlg.resize(560, 320)
+	dlg.list = lst	# for the tests
+	if parent is not None:
+		parent.foldersdlg = dlg
+	ok = dlg.exec()
+	if parent is not None:
+		parent.foldersdlg = None
+	if not ok:
+		return False
+	new = [lst.item(i).text() for i in range(lst.count())]
+	if new == folders():
+		return False
+	setfolders(new)
+	return True
