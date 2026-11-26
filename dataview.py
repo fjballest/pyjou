@@ -42,6 +42,8 @@ def nicestep(span, n):
 	return 10 * p
 
 SHOWSESSIONS = True	# the session rectangles of the days are drawn (View ▸ Session Rectangles)
+SHOWPROFILE = True	# the profile lines are drawn, with the drawings (View ▸ Profile Lines)
+MAXMARGIN = 0.25	# of the times shown, at most, kept right of the last candle for what indicators draw there
 
 def title(data, kind, d, tf=15):
 	if tf in m15.PERIODS:
@@ -59,9 +61,11 @@ class Geom:
 	"""where the chart of day or week d in time frame tf puts times and
 	prices: the same size in every time frame (the lower ones are seen
 	zooming in, on the image or its time axis)"""
-	def __init__(self, data, kind, d, tf=15, low=None, view=None):
+	def __init__(self, data, kind, d, tf=15, low=None, view=None, margin=0):
 		"""view, when given, is the (top, bottom, t0, t1) shown instead of
-		the whole day or week (see zoomed)"""
+		the whole day or week (see zoomed); margin, in t, is room right of
+		t1 for what indicators draw past the last candle: t1 moves right
+		by it, and the candles, profile and sessions end at vt1"""
 		self.kind, self.d, self.tf = kind, d, tf
 		self.periods = tf in m15.PERIODS	# candles of days, weeks or months, up to d: t counts them
 		if self.periods:
@@ -85,11 +89,20 @@ class Geom:
 		self.whole = (self.top, self.bot, self.t0, self.t1)
 		if view:
 			self.top, self.bot, self.t0, self.t1 = view
+		self.margin = 0
+		self.vt1 = self.t1
+		if margin > 0:
+			self.margin = min(float(margin), MAXMARGIN * (self.t1 - self.t0))
+			self.t1 = self.vt1 + self.margin
 
 	def view(self):
 		"""the prices and times shown: None for the whole day or week"""
-		v = (self.top, self.bot, self.t0, self.t1)
+		v = (self.top, self.bot, self.t0, self.vt1)
 		return None if v == self.whole else v
+
+	def mapped(self):
+		"""whether its points aren't those of the whole day or week"""
+		return self.view() is not None or self.margin > 0
 
 	def when(self, x, y):
 		"""the time (hours since day 1, New York clock) and price at point x, y"""
@@ -126,7 +139,7 @@ class Geom:
 		if not len(wall):
 			return None
 		t = (wall - self.bars[5]) / self.unit
-		k = int(np.searchsorted(t, self.t1, "left")) - 1	# the last starting before the right edge
+		k = int(np.searchsorted(t, self.vt1, "left")) - 1	# the last starting before the right edge
 		if k < 0:
 			return None
 		if self.periods:
@@ -153,12 +166,13 @@ class Geom:
 		"""this geometry for the whole day or week"""
 		g = copy.copy(self)
 		g.top, g.bot, g.t0, g.t1 = self.whole
+		g.vt1, g.margin = g.t1, 0
 		return g
 
 	def zoomed(self, axis, at, factor):
 		"""the view with the prices (axis "p") or the times ("t") scaled by
 		factor around at, a price or a time: under 1 shows less of them"""
-		top, bot, t0, t1 = self.top, self.bot, self.t0, self.t1
+		top, bot, t0, t1 = self.top, self.bot, self.t0, self.vt1
 		if axis == "p":
 			span = (top - bot) * factor
 			if span < 1 or span > 20 * (self.whole[0] - self.whole[1]):
@@ -178,10 +192,17 @@ class Geom:
 		v = (top, bot, t0, t1)
 		return None if all(abs(a - b) < 1e-9 for a, b in zip(v, self.whole)) else v
 
+	def zoomedat(self, at, price, factor):
+		"""the view scaled by factor on both axes around time at and price"""
+		v = self.zoomed("t", at, factor)
+		g = copy.copy(self)
+		g.top, g.bot, g.t0, g.vt1 = v or self.whole
+		return g.zoomed("p", price, factor)
+
 	def panned(self, dt, dp):
 		"""the view moved dt in time and dp in price: the times stay in
 		the day or week"""
-		top, bot, t0, t1 = self.top + dp, self.bot + dp, self.t0 + dt, self.t1 + dt
+		top, bot, t0, t1 = self.top + dp, self.bot + dp, self.t0 + dt, self.vt1 + dt
 		w0, w1 = self.whole[2], self.whole[3]
 		span = t1 - t0
 		t0 = min(max(t0, w0), w1 - span)
@@ -218,14 +239,14 @@ class Geom:
 	def frompx(self, px):
 		return [(round(self.t(x), 4), round(self.price(y), 2)) for x, y in px]
 
-def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None, overlay=None):
+def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None, overlay=None, margin=0):
 	"""the chart of day d or week d (its Monday) in time frame tf (from
 	low, the data of a lower time frame, under m15) as a QImage, saved at
 	path when given; None without candles. view is the part shown (see
 	Geom), profile whether its profile is drawn, news a news.News whose
 	releases are marked, overlay a function painting more on it (painter,
-	geometry)"""
-	g = Geom(data, kind, d, tf, low, view)
+	geometry), margin room right of the last candle (see Geom)"""
+	g = Geom(data, kind, d, tf, low, view, margin)
 	if not g.ok:
 		return None
 	img = QImage(g.W, g.H, QImage.Format.Format_RGB32)
@@ -345,7 +366,7 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 	p.restore()
 
 	p.save()
-	p.setClipRect(QRectF(L, T, pw, ph))	# levels of the m15 data may be off a lower time frame's
+	p.setClipRect(QRectF(L, T, min(pw, X(g.vt1) - L), ph))	# levels of the m15 data may be off a lower time frame's; none in the margin
 	# the sessions of a day, as boxes from their high to their low
 	if kind == "d" and SHOWSESSIONS and not g.periods:
 		for name, a, b, sh, sl, _, _, color in data.sessions(d):

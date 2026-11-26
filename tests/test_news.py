@@ -4,6 +4,7 @@
 # charts scaled on their axes, with what is drawn on them, in the window.
 #
 import os
+import time
 import sys
 import tempfile
 
@@ -101,6 +102,9 @@ w.drawchanged()
 key = w.drawkey(w.datakey, 15)
 check(key in w.pending, "drawn on the chart")
 def wheel(x, y, dy):
+	end = time.time() + 0.05	# a moment after the last one: drawn at once
+	while time.time() < end:
+		app.processEvents()
 	pos = QPointF(w.view.mapFromScene(QPointF(x, y)))
 	ev = QWheelEvent(pos, QPointF(w.view.viewport().mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, dy),
 		Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
@@ -111,7 +115,8 @@ check(z.view() is not None and z.top - z.bot < g.top - g.bot, "the prices zoomed
 line = w.view.drawingdata()["shapes"][0]
 check(abs(line["p1"][1] - z.Y(1010)) < 0.5, "the drawing at the same prices")
 check(abs(w.pending[key]["shapes"][0]["p1"][1] - g.Y(1010)) < 0.5, "and kept as on the whole chart")
-check(not wheel(g.L + 100, g.T + 100, 120), "a scroll on the chart left to the view")
+check(wheel(g.L + g.pw * 0.22, g.T + g.ph * 0.22, 120) and w.datageom.view()[2:] == (z.t0, z.t1)
+	and abs((w.datageom.top - w.datageom.bot) - (z.top - z.bot)) < 1e-6 and w.datageom.top > z.top, "a scroll on the chart moves its prices")
 check(wheel(g.L + 300, g.T + g.ph + 15, -120) and w.datageom.view()[2:] == (z.t0, z.t1), "zooming out the times no wider than the day")
 w.view.setdrawingsshown(False)
 app.processEvents()

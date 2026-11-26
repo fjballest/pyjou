@@ -402,3 +402,24 @@ def table(p, g, t):
 	if edge is not None and (t.frame_width or 0) > 0:
 		p.setPen(QPen(edge, t.frame_width))
 		p.drawRect(QRectF(x, y, W, H))
+
+def reach(res, tf):
+	"""the latest time (ms) res draws at past its last bar's start, or None:
+	the right ends of its lines, boxes and labels, but not those extended
+	to the right, which go on anyway"""
+	if res is None or res.S is None or not res.S.n:
+		return None
+	m = Mapper.__new__(Mapper)
+	m.S, m.tfms = res.S, tf * 60000
+	last = res.S.t[-1]
+	xs = []
+	for ln in res.lines:
+		if ln.extend not in ("r", "b"):
+			xs += [m.ms(ln.x1, ln.xloc), m.ms(ln.x2, ln.xloc)]
+	for b in res.boxes:
+		if b.extend not in ("r", "b"):
+			xs += [m.ms(b.left, b.xloc), m.ms(b.right, b.xloc)]
+	for lb in res.labels:
+		xs.append(m.ms(lb.x, lb.xloc))
+	xs = [x for x in xs if x is not None and x > last]
+	return max(xs) if xs else None

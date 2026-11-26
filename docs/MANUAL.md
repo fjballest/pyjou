@@ -559,7 +559,7 @@ used. Roll days and a bad tick may still differ.
 The time frame box on the toolbar (or View ▸ Time Frame), in the data
 view, picks the time frame of the charts: m15 and
 above (m30, h1, h4) always, and with m1 data also m1, m3 and m5, drawn the same
-size as the others: zoom in on the image or scroll on its time axis to see
+size as the others: zoom in or scroll on its time axis to see
 their candles. The profiles, the sessions and the summary still come from
 the m15 data. A day without data in the time frame picked is drawn in m15.
 **D**, **W** and **M** chart days, weeks and months, made from the m15 data:
@@ -581,19 +581,26 @@ there.
 
 ### Scaling a chart
 
-Scrolling over the price axis of a data chart (its right edge) shows more
-or fewer prices around the one under the mouse, and scrolling over the time
-axis (its bottom edge) shows more or fewer hours, down to half an hour of a
-day or two hours of a week, which then label their hours. A double click
-on an axis shows all of it again. Dragging a chart scaled so moves it over its
-data, to the times and prices out of view; when the image is zoomed in
-larger than the window, dragging moves the image instead, in the
-directions it can. Each window keeps the scale of each chart
-while it is open. What is drawn stays at its prices and times, and is
-saved as on the whole chart, so it shows right at any scale. Hiding the
-drawings (**Hide**, or H on the image) hides the profile line too. Zooming in on
-the image (not on its axes) draws the chart again at that size, so the
-candles of the lower time frames stay sharp.
+Scrolling over the price axis of a data chart (its right edge), or inside
+the chart by its left or right edge, shows more or fewer prices around the
+one under the mouse; scrolling over the time axis (its bottom edge), or
+inside by the top or bottom edge, shows more or fewer hours, down to half
+an hour of a day or two hours of a week, which then label their hours.
+Scrolling around the center of the chart zooms in or out on both, there.
+Scrolling anywhere else moves the chart: up and down over its prices,
+sideways (or with ⇧) over its times. A double click on an axis shows all of
+it again.
+
+Zooming in a data chart (**Zoom +**/**Zoom −**, a double click, pinching
+on a trackpad) scales its prices and times instead of enlarging the image,
+so its axes are always in the window; **Fit** shows all of it again.
+Dragging a chart scaled so moves it over its data, to the times and prices
+out of view. Each window keeps the scale of each chart while it is open.
+What is drawn stays at its prices and times, and is saved as on the whole
+chart, so it shows right at any scale. Hiding the drawings (**Hide**, or H
+on the image) hides the profile line too; **View ▸ Profile Lines** (on by
+default) shows or hides the profile lines on their own, so the drawings
+can be shown without them.
 
 ### Synced windows
 
@@ -633,7 +640,12 @@ Indicators ▸ Import Indicators…** takes their source (the `.txt` or `.pine`
 files of the script, as copied from the Pine editor), keeps a copy for
 every journal and turns them on; the menu lists them, checked when on, and
 remembers which are. **Remove** forgets one, and **Show Indicators Folder**
-opens where they are kept.
+opens where they are kept. **Indicator Folders…** adds other folders to
+look for indicators in (a folder of Pine scripts kept elsewhere, say): the
+imported ones are looked for first, then those folders in the order listed
+(**Up** and **Down** change it), and the first one found of a name is the
+one used. Indicators of those folders are not removed from the menu; take
+the folder out instead.
 
 An indicator is run on the candles as if the last candle shown were the
 last one: on the whole day or week, its last candle; zoomed in, the last
@@ -646,6 +658,9 @@ chart, its sharp redraw when zoomed in, and **Add Chart as Capture**.
 Indicators run in the background: while a chart is scaled or moved, or
 another day is shown, the chart keeps what its indicators drew last and is
 drawn again when their new runs are done (a capture waits for them).
+When an indicator draws past the last candle (a label or line ahead of
+it), the chart keeps room for it right of that candle, up to a quarter of
+the times shown, with no candles in it.
 
 **Indicators ▸ Settings** shows the inputs of an indicator as TradingView
 does, in their groups and rows, with their tooltips: numbers, choices,
