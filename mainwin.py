@@ -3050,6 +3050,9 @@ class MainWindow(QMainWindow):
 			k = self.datakey
 			if k is None or self.data is None or self.view.pixitem is None or self.adjuster is not None:
 				return
+			if self.datageom is None or self.datageom.periods:
+				self.statusBar().showMessage("Profiles are adjusted on the charts of m15 and lower", 5000)
+				return
 			pts = self.data.profile(*k, prices=True)
 			g = self.datageom
 			px = g.topx(pts) if pts else [[g.X(g.t0 + 0.05), g.Y((g.top + g.bot) / 2)], [g.X(g.t1 - 0.05), g.Y((g.top + g.bot) / 2)]]

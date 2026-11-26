@@ -35,11 +35,44 @@ EXT = ".m15.csv.gz"
 OLDEXT = ".m15.csv"	# kept plain, before: compressed when found
 MAXFILE = 512 * 1024	# a data file is not made larger than this, compressed: about a year and a half of m15
 MAXLOW = 2 * 1024 * 1024	# nor one of a lower time frame: about four months of m1
-TFS = [1, 3, 5, 15, 30, 60, 240]	# the time frames charts are drawn in, minutes
+DAILY, WEEKLY, MONTHLY = 1440, 10080, 43200	# the time frames of days, weeks and months, as minutes
+TFS = [1, 3, 5, 15, 30, 60, 240, DAILY, WEEKLY, MONTHLY]	# the time frames charts are drawn in, minutes
+PERIODS = {DAILY: 130, WEEKLY: 104, MONTHLY: 120}	# the candles a chart of days, weeks or months shows
 
 def tfname(tf):
-	"""m1, m15, h1, h4"""
+	"""m1, m15, h1, h4, D, W, M"""
+	if tf in PERIODS:
+		return {DAILY: "D", WEEKLY: "W", MONTHLY: "M"}[tf]
 	return f"h{tf // 60}" if tf >= 60 and tf % 60 == 0 else f"m{tf}"
+
+def periodkeys(dayno, tf):
+	"""the day (D), week (W) or month (M) of each trading day of array dayno, as numbers"""
+	dayno = np.asarray(dayno, dtype=np.int64)
+	if tf == DAILY:
+		return dayno
+	if tf == WEEKLY:
+		return (dayno - 4) // 7	# weeks from Monday
+	return dayno.astype("datetime64[D]").astype("datetime64[M]").astype(np.int64)
+
+def periodlast(key, tf):
+	"""the last trading day (dayno) of the periods key of tf"""
+	key = np.asarray(key, dtype=np.int64)
+	if tf == DAILY:
+		return key
+	if tf == WEEKLY:
+		return key * 7 + 4 + 4	# its Friday
+	last = (key + 1).astype("datetime64[M]").astype("datetime64[D]").astype(np.int64) - 1
+	wd = (last + 3) % 7	# 0 Monday
+	return last - np.where(wd == 5, 1, np.where(wd == 6, 2, 0))
+
+def daystart(dayno):
+	"""the UTC seconds when trading days dayno (an array) start: 18:00 New York the day before"""
+	wall = np.asarray(dayno, dtype=np.int64) * 86400 + DAYSTART * 3600
+	return wall - nyoffsets(wall)
+
+def dayend(dayno):
+	wall = np.asarray(dayno, dtype=np.int64) * 86400 + DAYEND * 3600
+	return wall - nyoffsets(wall)
 
 def extof(tf):
 	return f".{tfname(tf)}.csv.gz"
@@ -526,6 +559,18 @@ class Data:
 			json.dump(data, f, ensure_ascii=False, indent=1)
 		os.replace(tmp, p)
 
+	def periodbars(self, kind, d, tf, n=None):
+		"""the candles of days, weeks or months (tf DAILY, WEEKLY, MONTHLY)
+		up to the end of day d or of the week of Monday d: (start, o, h, l,
+		c, end) arrays, start and end in UTC seconds, the last n (PERIODS)"""
+		last = self.dayn(d) + (4 if kind == "w" else 0)
+		j = int(np.searchsorted(self.dayno, last, "right"))
+		r = periodrows(self.t[:j], self.o[:j], self.h[:j], self.l[:j], self.c[:j], self.dayno[:j], tf)
+		if len(r[0]):
+			r[5][-1] = min(int(r[5][-1]), int(dayend(np.array([last]))[0]))
+		n = PERIODS[tf] if n is None else n
+		return tuple(a[-n:] for a in r)
+
 	def bars(self, kind, d, tf=15):
 		"""the candles of day or week d in tf minutes (tf a multiple of this
 		data's): (wall, o, h, l, c) arrays, wall each candle's start in New
@@ -537,6 +582,19 @@ class Data:
 		t = a[:, 0].astype(np.int64)
 		wall = t + nyoffsets(t) if len(t) else t
 		return wall, a[:, 1], a[:, 2], a[:, 3], a[:, 4], zero
+
+def periodrows(t, o, h, l, c, dayno, tf):
+	"""candles t, o, h, l, c (of trading days dayno) as candles of days,
+	weeks or months: (start, o, h, l, c, end) arrays, start and end in UTC
+	seconds (end that of the period's last trading day)"""
+	if not len(t):
+		e = np.zeros(0)
+		return e.astype(np.int64), e, e, e, e, e.astype(np.int64)
+	key = periodkeys(dayno, tf)
+	starts = np.flatnonzero(np.r_[True, key[1:] != key[:-1]])
+	ends = np.r_[starts[1:] - 1, len(t) - 1]
+	return (daystart(dayno[starts]), o[starts], np.maximum.reduceat(h, starts), np.minimum.reduceat(l, starts), c[ends],
+		dayend(periodlast(key[starts], tf)))
 
 def daynos(t):
 	"""the trading day of each UTC time of array t, in days since 1970"""

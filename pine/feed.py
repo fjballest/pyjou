@@ -53,13 +53,22 @@ class Feed:
 		return series(t, a[:, 1], a[:, 2], a[:, 3], a[:, 4], t + n * 60, str(n))
 
 	def chart(self, tf, nbars):
-		"""the chart's bars: the last nbars candles of tf minutes"""
-		s = self.minutes(tf, nbars)
-		return s
+		"""the chart's bars: the last nbars candles of tf minutes (or of
+		days, weeks or months: m15.PERIODS)"""
+		if tf in m15.PERIODS:
+			return self.periods({m15.DAILY: "D", m15.WEEKLY: "W", m15.MONTHLY: "M"}[tf], 1, nbars)
+		return self.minutes(tf, nbars)
 
-	def periods(self, kind, n):
+	def periods(self, kind, n, nbars=None):
 		"""bars of days, weeks or months ("D", "W", "M") from the m15 data"""
 		a = self.rows(self.data)
+		if n == 1 and len(a):	# as the charts of the data view draw them
+			t = a[:, 0].astype(np.int64)
+			tf = {"D": m15.DAILY, "W": m15.WEEKLY, "M": m15.MONTHLY}[kind]
+			st, o, h, l, c, en = m15.periodrows(t, a[:, 1], a[:, 2], a[:, 3], a[:, 4], m15.daynos(t), tf)
+			if nbars:
+				st, o, h, l, c, en = (x[-nbars:] for x in (st, o, h, l, c, en))
+			return series(st, o, h, l, c, en, kind)
 		if not len(a):
 			return series([], [], [], [], [], [], R.tfstring(kind, n))
 		t = a[:, 0].astype(np.int64)

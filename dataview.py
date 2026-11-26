@@ -14,8 +14,12 @@ from PySide6.QtWidgets import (
 	QGraphicsPixmapItem, QStyleOptionGraphicsItem, QCheckBox, QComboBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 )
 
+import numpy as np
+
 import m15
 from rail import withrail
+
+EPOCH1 = date(1970, 1, 1).toordinal()
 
 KEYROLE = Qt.ItemDataRole.UserRole + 10	# ("w" or "d", date) of a row
 
@@ -40,6 +44,9 @@ def nicestep(span, n):
 SHOWSESSIONS = True	# the session rectangles of the days are drawn (View ▸ Session Rectangles)
 
 def title(data, kind, d, tf=15):
+	if tf in m15.PERIODS:
+		end = d + timedelta(days=4) if kind == "w" else d
+		return f"{data.symbol} {m15.tfname(tf)} · to {end:%a %d %b %Y}"
 	if kind == "w":
 		return f"{data.symbol} {m15.tfname(tf)} · Week {d:%d %b} – {d + timedelta(days=4):%d %b %Y}"
 	return f"{data.symbol} {m15.tfname(tf)} · {d:%a %d %b %Y}"
@@ -55,14 +62,23 @@ class Geom:
 	def __init__(self, data, kind, d, tf=15, low=None, view=None):
 		"""view, when given, is the (top, bottom, t0, t1) shown instead of
 		the whole day or week (see zoomed)"""
-		self.bars = source(data, low, tf).bars(kind, d, tf)
+		self.kind, self.d, self.tf = kind, d, tf
+		self.periods = tf in m15.PERIODS	# candles of days, weeks or months, up to d: t counts them
+		if self.periods:
+			st, o, h, l, c, en = data.periodbars(kind, d, tf)
+			self.starts, self.ends = st, en	# UTC seconds
+			self.bars = (np.arange(len(st), dtype=float), o, h, l, c, 0)
+			self.unit, self.cw = 1, 1
+		else:
+			self.bars = source(data, low, tf).bars(kind, d, tf)
+			self.unit = 3600 if kind == "d" else 86400
+			self.cw = tf * 60 / self.unit	# a candle's width in t
 		wall, o, h, l, c, zero = self.bars
 		self.ok = len(wall) > 0
-		self.kind, self.d = kind, d
-		self.W, self.H = (1800, 1000) if kind == "d" else (2400, 1100)
+		self.W, self.H = (2000, 1000) if self.periods else (1800, 1000) if kind == "d" else (2400, 1100)
 		self.L, self.R, self.T, self.B = 16, 100, 44, 40
 		self.pw, self.ph = self.W - self.L - self.R, self.H - self.T - self.B
-		self.t0, self.t1 = trange(kind)
+		self.t0, self.t1 = (-0.5, len(wall) + 2.5) if self.periods else trange(kind)
 		hi, lo = (float(h.max()), float(l.min())) if self.ok else (1, 0)
 		pad = (hi - lo) * 0.04 or 1
 		self.top, self.bot = hi + pad, lo - pad
@@ -78,10 +94,54 @@ class Geom:
 	def when(self, x, y):
 		"""the time (hours since day 1, New York clock) and price at point x, y"""
 		t = self.t(x)
+		if self.periods:
+			s = self.utc(t)
+			return EPOCH1 * 24 + (s + m15.nyoffset(s)) / 3600, self.price(y)
 		return self.d.toordinal() * 24 + (t if self.kind == "d" else t * 24), self.price(y)
+
+	def utc(self, t):
+		"""the UTC time (s) at t of a chart of periods"""
+		n = len(self.starts)
+		k = int(min(max(t // 1, 0), n - 1))
+		return int(self.starts[k] + (t - k) * (self.ends[k] - self.starts[k]))
+
+	def tx(self, s):
+		"""the t of UTC time s (seconds), where candles start at their time"""
+		if not self.periods:
+			return (s + m15.nyoffset(s) - self.bars[5]) / self.unit
+		st, en = self.starts, self.ends
+		n = len(st)
+		if not n:
+			return 0
+		k = int(np.searchsorted(st, s, "right")) - 1
+		if k < 0:
+			return (s - st[0]) / max(1, en[0] - st[0])
+		if k == n - 1 and s >= en[-1]:	# past the last: a period a candle
+			return k + 1 + (s - en[-1]) / {m15.DAILY: 86400, m15.WEEKLY: 7 * 86400}.get(self.tf, 30.4 * 86400)
+		return k + min(1.0, (s - st[k]) / max(1, en[k] - st[k]))
+
+	def lastend(self):
+		"""the UTC time (s) where the last candle shown ends, or None"""
+		wall = self.bars[0]
+		if not len(wall):
+			return None
+		t = (wall - self.bars[5]) / self.unit
+		k = int(np.searchsorted(t, self.t1, "left")) - 1	# the last starting before the right edge
+		if k < 0:
+			return None
+		if self.periods:
+			return int(self.ends[k])
+		start = int(wall[k])
+		return start - m15.nyoffset(start + 5 * 3600) + self.tf * 60
 
 	def where(self, hours, price):
 		"""the point of time hours (see when) and price, or None off the chart"""
+		if self.periods:
+			wall = (hours - EPOCH1 * 24) * 3600
+			t = self.tx(wall - m15.nyoffset(wall + 5 * 3600))
+			if not self.t0 <= t <= self.t1:
+				return None
+			return self.X(t), self.Y(price)
 		t = hours - self.d.toordinal() * 24
 		if self.kind == "w":
 			t /= 24
@@ -109,7 +169,7 @@ class Geom:
 		else:
 			span = (t1 - t0) * factor
 			w0, w1 = self.whole[2], self.whole[3]
-			least = (0.5 if self.kind == "d" else 2 / 24)	# half an hour, two hours
+			least = 10 if self.periods else (0.5 if self.kind == "d" else 2 / 24)	# ten candles, half an hour, two hours
 			span = max(least, min(span, w1 - w0))
 			k = (at - t0) / (t1 - t0)
 			t0 = at - k * span
@@ -177,6 +237,43 @@ def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, n
 		img.save(path)
 	return img
 
+MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+
+def periodaxis(p, g, grid, axis):
+	"""the time axis of a chart of days, weeks or months: their months, or years"""
+	n = len(g.starts)
+	if not n:
+		return
+	days = m15.daynos(g.starts + 7 * 3600)	# the trading day each starts
+	dd = days.astype("datetime64[D]")
+	months = dd.astype("datetime64[M]").astype(np.int64)
+	px = g.pw / (g.t1 - g.t0)	# pixels a candle
+	every = next((k for k in (1, 3, 6, 12, 24, 60) if 30 / (g.tf / 1440) * k * px >= 70 or k == 60), 12)
+	if g.tf == m15.DAILY and 7 * px >= 70:	# weeks, when there is room
+		marks = [(k, f"{dd[k].astype(object):%d}" if months[k] == months[k - 1] else MONTHS[months[k] % 12])
+			for k in range(1, n) if (days[k] - 4) // 7 != (days[k - 1] - 4) // 7]
+	else:
+		marks = []
+		for k in range(1, n):
+			if months[k] != months[k - 1] and months[k] % every == 0:
+				m = int(months[k])
+				marks.append((k, str(1970 + m // 12) if m % 12 == 0 else MONTHS[m % 12]))
+	for k, label in marks:
+		x = g.X(k)
+		if x < g.L + 20 or x > g.L + g.pw:
+			continue
+		year = label.isdigit()
+		p.setPen(QPen(grid.darker(108) if year else grid, 1))
+		p.drawLine(QPointF(x, g.T), QPointF(x, g.T + g.ph))
+		p.setPen(axis)
+		f = p.font()
+		f.setBold(year)
+		p.setFont(f)
+		p.drawText(QRectF(x - 40, g.T + g.ph + 6, 80, 20), Qt.AlignmentFlag.AlignCenter, label)
+	f = p.font()
+	f.setBold(False)
+	p.setFont(f)
+
 def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, overlay=None):
 	"""paint the chart of geometry g with painter p, in its coordinates
 	(the image's pixels); clip, a QRectF, leaves out the candles off it;
@@ -186,8 +283,8 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 	W, H, L, R, T, B, pw, ph = g.W, g.H, g.L, g.R, g.T, g.B, g.pw, g.ph
 	t0, t1, top, bot = g.t0, g.t1, g.top, g.bot
 	X, Y = g.X, g.Y
-	unit = 3600 if kind == "d" else 86400
-	slot = tf * 60 / unit / (t1 - t0) * pw	# pixels per candle
+	unit = g.unit
+	slot = g.cw / (t1 - t0) * pw	# pixels per candle
 
 	f = QFont()
 	f.setPixelSize(15)
@@ -211,7 +308,9 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 	p.setClipRect(QRectF(L, T, pw, ph + B))
 	hours = (t1 - t0) * (1 if kind == "d" else 24)	# hours shown
 	step = next((h for h in (0.25, 0.5, 1, 2, 3, 4, 6, 12) if hours / h <= 14), 24)
-	if kind == "d" or hours <= 60:
+	if g.periods:
+		periodaxis(p, g, grid, axis)
+	elif kind == "d" or hours <= 60:
 		perh = 1 if kind == "d" else 1 / 24	# chart units an hour
 		h = (t0 / perh // step) * step
 		while h * perh <= t1:
@@ -226,7 +325,9 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 					label = f"{d + timedelta(days=int(h // 24)):%a %d}"
 				p.drawText(QRectF(x - 40, T + ph + 6, 80, 20), Qt.AlignmentFlag.AlignCenter, label)
 			h += step
-	if kind == "d":
+	if g.periods:
+		pass
+	elif kind == "d":
 		p.setPen(QPen(DAYLINE, 2, Qt.PenStyle.DotLine))
 		p.drawLine(QPointF(X(0), T), QPointF(X(0), T + ph))
 	else:
@@ -246,7 +347,7 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 	p.save()
 	p.setClipRect(QRectF(L, T, pw, ph))	# levels of the m15 data may be off a lower time frame's
 	# the sessions of a day, as boxes from their high to their low
-	if kind == "d" and SHOWSESSIONS:
+	if kind == "d" and SHOWSESSIONS and not g.periods:
 		for name, a, b, sh, sl, _, _, color in data.sessions(d):
 			c = QColor(color)
 			fill = QColor(c)
@@ -275,7 +376,7 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 		p.fillRect(QRectF(x - bw / 2, y0, bw, max(1.0, y1 - y0)), col)
 
 	# the news: a line at the time of each release
-	if news is not None:
+	if news is not None and not g.periods:
 		f.setPixelSize(14)
 		f.setBold(True)
 		p.setFont(f)
@@ -292,7 +393,7 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 		p.setFont(f)
 
 	# the profile
-	pts = data.profile(kind, d, prices=True) if profile else None
+	pts = data.profile(kind, d, prices=True) if profile and not g.periods else None
 	if pts:
 		line = QPolygonF([QPointF(X(t), Y(v)) for t, v in pts])
 		p.setPen(QPen(PROFCOLOR, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))

@@ -104,17 +104,8 @@ def remove(name):
 
 def lastend(g, tf):
 	"""the UTC time (s) where the last candle shown on the chart of
-	geometry g in tf minutes ends, or None"""
-	wall, o, h, l, c, zero = g.bars
-	if not len(wall):
-		return None
-	unit = 3600 if g.kind == "d" else 86400
-	t = (wall - zero) / unit
-	k = int(np.searchsorted(t, g.t1, "left")) - 1	# the last starting before the right edge
-	if k < 0:
-		return None
-	start = int(wall[k])
-	return start - m15.nyoffset(start + 5 * 3600) + tf * 60
+	geometry g ends, or None"""
+	return g.lastend()
 
 class Job:
 	"""the runs a chart needs: todo [(name, path, run key, inputs)]"""
