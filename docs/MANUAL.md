@@ -614,6 +614,28 @@ and the captures of those days have them as tags, so searching `CPI` or
 `2027-01-08 NFP 08:30` (the time is 08:30 when left out), and a line that
 starts with `-` takes one away (`-2026-12-10 CPI`), for a date that moves.
 
+### Indicators
+
+TradingView Pine indicators can be drawn on the data charts. **View ▸
+Indicators ▸ Import Indicators…** takes their source (the `.txt` or `.pine`
+files of the script, as copied from the Pine editor), keeps a copy for
+every journal and turns them on; the menu lists them, checked when on, and
+remembers which are. **Remove** forgets one, and **Show Indicators Folder**
+opens where they are kept.
+
+An indicator is run on the candles as if the last candle shown were the
+last one: on the whole day or week, its last candle; zoomed in, the last
+one at the right edge. It runs on up to 5000 candles of the chart's time
+frame before that one (as TradingView does), with its default inputs, and
+the time frames it asks for (`request.security`, `request.security_lower_tf`)
+come from the journal's m15 and lower data, cut at the same candle. What
+it draws (lines, boxes, labels, tables, shapes, backgrounds) goes on the
+chart, its sharp redraw when zoomed in, and **Add Chart as Capture**.
+
+Only the part of Pine the journal's indicators use is understood: a script
+that uses something else, or fails as it runs, says why at the bottom of
+the chart and in the status bar.
+
 ## Exporting
 
 **File ▸ Export All…** (⇧⌘E) saves the captures shown in the list, as the

@@ -156,27 +156,29 @@ class Geom:
 	def frompx(self, px):
 		return [(round(self.t(x), 4), round(self.price(y), 2)) for x, y in px]
 
-def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None):
+def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None, overlay=None):
 	"""the chart of day d or week d (its Monday) in time frame tf (from
 	low, the data of a lower time frame, under m15) as a QImage, saved at
 	path when given; None without candles. view is the part shown (see
 	Geom), profile whether its profile is drawn, news a news.News whose
-	releases are marked"""
+	releases are marked, overlay a function painting more on it (painter,
+	geometry)"""
 	g = Geom(data, kind, d, tf, low, view)
 	if not g.ok:
 		return None
 	img = QImage(g.W, g.H, QImage.Format.Format_RGB32)
 	img.fill(QColor("white"))
 	p = QPainter(img)
-	paintchart(p, g, data, kind, d, tf, profile, news)
+	paintchart(p, g, data, kind, d, tf, profile, news, overlay=overlay)
 	p.end()
 	if path:
 		img.save(path)
 	return img
 
-def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None):
+def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, overlay=None):
 	"""paint the chart of geometry g with painter p, in its coordinates
-	(the image's pixels); clip, a QRectF, leaves out the candles off it"""
+	(the image's pixels); clip, a QRectF, leaves out the candles off it;
+	overlay(p, g), when given, paints over the candles (the indicators)"""
 	p.setRenderHint(QPainter.RenderHint.Antialiasing)
 	wall, bo, bh, bl, bc, zero = g.bars
 	W, H, L, R, T, B, pw, ph = g.W, g.H, g.L, g.R, g.T, g.B, g.pw, g.ph
@@ -300,6 +302,8 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None):
 		p.setBrush(Qt.BrushStyle.NoBrush)
 
 	p.restore()
+	if overlay is not None:
+		overlay(p, g)
 	# the title
 	f.setPixelSize(20)
 	f.setBold(True)
@@ -313,6 +317,7 @@ class ChartItem(QGraphicsPixmapItem):
 	def __init__(self, pixmap, args):
 		super().__init__(pixmap)
 		self.args = args	# for paintchart: (geom, data, kind, d, tf, profile, news)
+		self.overlay = None	# and its overlay
 		self.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
 
 	def paint(self, painter, option, widget=None):
@@ -324,7 +329,7 @@ class ChartItem(QGraphicsPixmapItem):
 		painter.save()
 		painter.setClipRect(r)
 		painter.fillRect(r, QColor("white"))
-		paintchart(painter, *self.args, clip=r)
+		paintchart(painter, *self.args, clip=r, overlay=self.overlay)
 		painter.restore()
 
 def oldwidth(kind, tf):

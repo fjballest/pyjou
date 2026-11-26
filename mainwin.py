@@ -12,7 +12,7 @@ import zipfile
 
 from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import (
-	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
+	QAction, QBrush, QColor, QCursor, QDesktopServices, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -37,6 +37,7 @@ from version import VERSION
 from helpwin import addtopics, showguide
 import m15
 import news
+import indicators
 from dataview import ChartItem, DataPanel, Geom, drawpts, mapdrawing, render, widened
 import tempfile
 
@@ -574,6 +575,10 @@ class MainWindow(QMainWindow):
 		if news.FETCHED is None:	# the news dates fetched, for every journal
 			news.FETCHED = os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation),
 				"DayJournal", "news.txt")
+		if indicators.DIR is None:	# the Pine indicators imported, for every journal
+			indicators.setup(os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation),
+				"DayJournal", "indicators"), settings)
+		self.dataoverlay = None	# what the indicators draw on the data chart
 		self.journal = None
 		self.child = False		# made by New Window: it can be synced
 		self.current = None		# the Entry shown
@@ -859,6 +864,8 @@ class MainWindow(QMainWindow):
 		v.addAction(self.dataact)
 		self.tfmenu = v.addMenu("&Time Frame")
 		self.tfmenu.setEnabled(False)	# in the data view
+		self.indmenu = v.addMenu("&Indicators")
+		self.indmenu.aboutToShow.connect(self.fillindicators)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -1300,10 +1307,77 @@ class MainWindow(QMainWindow):
 		without its profile as the drawings are shown or not; its Geom
 		goes in datageom"""
 		view = self.datazooms.get((kind, d, tf))
+		g = Geom(self.data, kind, d, tf, low, view)
+		self.dataoverlay = None
+		if g.ok and indicators.enabled():
+			QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+			try:
+				self.dataoverlay = indicators.overlay(self.data, self.getlow, g, tf)
+				bad = indicators.errors(self.data, self.getlow, g, tf)
+				if bad:
+					self.statusBar().showMessage("; ".join(bad), 10000)
+			finally:
+				QApplication.restoreOverrideCursor()
 		img = render(self.data, kind, d, path, tf, low, view, not self.view.hidden,
-			self.journal.news if self.journal else None)
-		self.datageom = Geom(self.data, kind, d, tf, low, view) if img is not None else None
+			self.journal.news if self.journal else None, self.dataoverlay)
+		self.datageom = g if img is not None else None
 		return img
+
+	def fillindicators(self):
+		"""the Indicators menu: the scripts imported, on or off, and how to import more"""
+		m = self.indmenu
+		m.clear()
+		on = set(indicators.enabled())
+		have = indicators.scripts()
+		for name, _ in have:
+			a = m.addAction(name)
+			a.setCheckable(True)
+			a.setChecked(name in on)
+			a.toggled.connect(lambda checked, n=name: self.setindicator(n, checked))
+		if not have:
+			a = m.addAction("No indicators yet")
+			a.setEnabled(False)
+		m.addSeparator()
+		m.addAction("&Import Indicators…", self.importindicators)
+		if have:
+			rm = m.addMenu("&Remove")
+			for name, _ in have:
+				rm.addAction(name, lambda n=name: self.removeindicator(n))
+		m.addAction("Show Indicators &Folder", lambda: (os.makedirs(indicators.DIR, exist_ok=True),
+			QDesktopServices.openUrl(QUrl.fromLocalFile(indicators.DIR))))
+
+	def setindicator(self, name, on):
+		indicators.toggle(name, on)
+		self.indicatorschanged()
+
+	def indicatorschanged(self):
+		"""draw the data chart again with the indicators on now, in every window"""
+		for w in QApplication.topLevelWidgets():
+			if isinstance(w, MainWindow) and w.datamode and w.datakey is not None:
+				w.showdata(w.datakey, force=True)
+
+	def importindicators(self):
+		paths, _ = QFileDialog.getOpenFileNames(self, "Import Indicators", os.path.expanduser("~"),
+			"Pine scripts (*.txt *.pine);;All files (*)")
+		if not paths:
+			return
+		try:
+			names = indicators.importfiles(paths)
+		except OSError as x:
+			QMessageBox.warning(self, "Import Indicators", f"Can't import them: {x}")
+			return
+		self.statusBar().showMessage(f"Imported {', '.join(names)}", 5000)
+		self.indicatorschanged()
+
+	def removeindicator(self, name):
+		if QMessageBox.question(self, "Remove Indicator", f"Remove {name} from the indicators?") != QMessageBox.StandardButton.Yes:
+			return
+		try:
+			indicators.remove(name)
+		except OSError as x:
+			QMessageBox.warning(self, "Remove Indicator", f"Can't remove it: {x}")
+			return
+		self.indicatorschanged()
 
 	def datahidden(self, hidden):
 		"""the drawings were hidden or shown: the profile of the chart too"""
@@ -1325,9 +1399,11 @@ class MainWindow(QMainWindow):
 			not self.view.hidden, self.journal.news if self.journal else None)
 		if isinstance(old, ChartItem):
 			old.args = args
+			old.overlay = self.dataoverlay
 			old.update()
 			return
 		it = ChartItem(old.pixmap(), args)
+		it.overlay = self.dataoverlay
 		it.setZValue(old.zValue())
 		sc = self.view.scene()
 		sc.removeItem(old)
