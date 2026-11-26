@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPalette, QPen, QPolygonF
 from PySide6.QtWidgets import (
-	QCheckBox, QComboBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+	QGraphicsPixmapItem, QStyleOptionGraphicsItem, QCheckBox, QComboBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 )
 
 import m15
@@ -53,7 +53,7 @@ class Geom:
 		self.bars = source(data, low, tf).bars(kind, d, tf)
 		wall, o, h, l, c, zero = self.bars
 		self.ok = len(wall) > 0
-		self.kind = kind
+		self.kind, self.d = kind, d
 		self.W, self.H = (1800, 1000) if kind == "d" else (2400, 1100)
 		self.L, self.R, self.T, self.B = 16, 100, 44, 40
 		ncandles = (m15.DAYEND - m15.DAYSTART) * 60 / tf * (1 if kind == "d" else 5)
@@ -72,6 +72,20 @@ class Geom:
 		"""the prices and times shown: None for the whole day or week"""
 		v = (self.top, self.bot, self.t0, self.t1)
 		return None if v == self.whole else v
+
+	def when(self, x, y):
+		"""the time (hours since day 1, New York clock) and price at point x, y"""
+		t = self.t(x)
+		return self.d.toordinal() * 24 + (t if self.kind == "d" else t * 24), self.price(y)
+
+	def where(self, hours, price):
+		"""the point of time hours (see when) and price, or None off the chart"""
+		t = hours - self.d.toordinal() * 24
+		if self.kind == "w":
+			t /= 24
+		if not self.t0 <= t <= self.t1:
+			return None
+		return self.X(t), self.Y(price)
 
 	def unzoomed(self):
 		"""this geometry for the whole day or week"""
@@ -141,6 +155,19 @@ def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, n
 	g = Geom(data, kind, d, tf, low, view)
 	if not g.ok:
 		return None
+	img = QImage(g.W, g.H, QImage.Format.Format_RGB32)
+	img.fill(QColor("white"))
+	p = QPainter(img)
+	paintchart(p, g, data, kind, d, tf, profile, news)
+	p.end()
+	if path:
+		img.save(path)
+	return img
+
+def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None):
+	"""paint the chart of geometry g with painter p, in its coordinates
+	(the image's pixels); clip, a QRectF, leaves out the candles off it"""
+	p.setRenderHint(QPainter.RenderHint.Antialiasing)
 	wall, bo, bh, bl, bc, zero = g.bars
 	W, H, L, R, T, B, pw, ph = g.W, g.H, g.L, g.R, g.T, g.B, g.pw, g.ph
 	t0, t1, top, bot = g.t0, g.t1, g.top, g.bot
@@ -148,10 +175,6 @@ def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, n
 	unit = 3600 if kind == "d" else 86400
 	slot = tf * 60 / unit / (t1 - t0) * pw	# pixels per candle
 
-	img = QImage(W, H, QImage.Format.Format_RGB32)
-	img.fill(QColor("white"))
-	p = QPainter(img)
-	p.setRenderHint(QPainter.RenderHint.Antialiasing)
 	f = QFont()
 	f.setPixelSize(15)
 	p.setFont(f)
@@ -226,8 +249,11 @@ def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, n
 
 	# the candles
 	bw = max(1.0, slot * 0.7)
+	xlo, xhi = (clip.left() - slot, clip.right() + slot) if clip is not None else (-1e9, 1e9)
 	for x, o, h, l, c in zip(((wall - zero) / unit).tolist(), bo.tolist(), bh.tolist(), bl.tolist(), bc.tolist()):
 		x = X(x) + slot / 2
+		if not xlo <= x <= xhi:
+			continue
 		col = UP if c >= o else DOWN
 		p.setPen(QPen(col, 1 if slot < 6 else 1.4))
 		p.drawLine(QPointF(x, Y(h)), QPointF(x, Y(l)))
@@ -270,10 +296,26 @@ def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, n
 	p.setFont(f)
 	p.setPen(QColor(40, 40, 40))
 	p.drawText(QRectF(L, 8, pw, 30), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title(data, kind, d, tf) + "   (New York time)")
-	p.end()
-	if path:
-		img.save(path)
-	return img
+
+class ChartItem(QGraphicsPixmapItem):
+	"""the image of a data chart in the view, that paints the chart again,
+	sharp, instead of its image when the view zooms in on it"""
+	def __init__(self, pixmap, args):
+		super().__init__(pixmap)
+		self.args = args	# for paintchart: (geom, data, kind, d, tf, profile, news)
+		self.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+
+	def paint(self, painter, option, widget=None):
+		lod = QStyleOptionGraphicsItem.levelOfDetailFromTransform(painter.worldTransform())
+		if lod <= 1.05 or self.args is None:
+			super().paint(painter, option, widget)
+			return
+		r = option.exposedRect
+		painter.save()
+		painter.setClipRect(r)
+		painter.fillRect(r, QColor("white"))
+		paintchart(painter, *self.args, clip=r)
+		painter.restore()
 
 def mapdrawing(data, g1, g2):
 	"""drawing data (see viewer.drawingdata) on the chart of geometry g1

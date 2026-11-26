@@ -569,13 +569,28 @@ day or two hours of a week, which then label their hours. A double click
 on an axis shows all of it again. Each window keeps the scale of each chart
 while it is open. What is drawn stays at its prices and times, and is
 saved as on the whole chart, so it shows right at any scale. Hiding the
-drawings (**Hide**, or H on the image) hides the profile line too.
+drawings (**Hide**, or H on the image) hides the profile line too. Zooming in on
+the image (not on its axes) draws the chart again at that size, so the
+candles of the lower time frames stay sharp.
+
+### Synced windows
+
+**File ▸ New Window** opens a window with the image taking almost all of
+it: its list and notes are closed (**List** and **Notes** open them). Its
+**Sync** button (**File ▸ Sync with Other Windows**) makes it move with the
+main window and the other synced ones: going to a day or week in any of
+them takes the others there, each staying on days or on weeks as it shows
+them, and on the data charts the crosshair of one shows in the others at
+the same time and price. A new window on the data is synced; one on a
+capture is not.
 
 ### News days
 
-The days of FOMC decisions (14:00 New York), and of CPI and PPI releases
-(08:30), from 2022 to 2027, are built in, from the Federal Reserve's and the
-BLS's calendars. The data list names them after their day and week, the
+The days of FOMC decisions (14:00 New York), and of CPI, PPI and NFP
+releases (08:30), from 2022 to 2027, are built in, from the Federal
+Reserve's and the BLS's calendars. **File ▸ Update News Dates** reads those
+calendars again for the dates scheduled since, and keeps them for every
+journal. The data list names them after their day and week, the
 charts mark them with an orange line at their time, the summary lists them,
 and the captures of those days have them as tags, so searching `CPI` or
 `FOMC` finds them. A `news.txt` in the journal adds others, one a line:

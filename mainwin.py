@@ -9,7 +9,7 @@ import os
 import sys
 import zipfile
 
-from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import (
 	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
@@ -32,7 +32,8 @@ from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
 import m15
-from dataview import DataPanel, Geom, drawpts, mapdrawing, render
+import news
+from dataview import ChartItem, DataPanel, Geom, drawpts, mapdrawing, render
 import tempfile
 
 RECENTMAX = 10
@@ -86,6 +87,7 @@ class SearchEdit(QLineEdit):
 		super().keyPressEvent(ev)
 
 windows = []	# the windows made with New Window, so they are kept
+following = False	# synced windows are being moved: they don't move others
 
 DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
 NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
@@ -565,7 +567,11 @@ def calendardate(cal, pos):
 class MainWindow(QMainWindow):
 	def __init__(self, path=None):
 		super().__init__()
+		if news.FETCHED is None:	# the news dates fetched, for every journal
+			news.FETCHED = os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation),
+				"DayJournal", "news.txt")
 		self.journal = None
+		self.child = False		# made by New Window: it can be synced
 		self.current = None		# the Entry shown
 		self.shown = []			# entries that pass the search, in order
 		self.search = Search("")
@@ -702,6 +708,12 @@ class MainWindow(QMainWindow):
 			"open another window on this journal and image, to browse it or open another journal")
 		self.newwinact.setIcon(self.dupicon())
 		self.newwinact.setIconText("Window")
+		self.syncact = self.mkaction("S&ync with Other Windows", self.syncchanged, None, None,
+			"move with the main window (and the other synced ones) to the day or week shown, "
+			"and show their crosshair here")
+		self.syncact.setCheckable(True)
+		self.syncact.setIconText("Sync")
+		self.syncact.setVisible(False)	# only in the windows made with New Window
 		self.exportselact = self.mkaction("&Export Selected…", lambda: self.export(False), None, "Ctrl+E",
 			"save the capture selected, or those of the week, month or year selected, as PNGs with their drawings in a zip file")
 		self.exportallact = self.mkaction("Export &All…", lambda: self.export(True), None, "Ctrl+Shift+E",
@@ -736,6 +748,8 @@ class MainWindow(QMainWindow):
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
+		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
+			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
 		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
 			"add the candles of a CSV exported from TradingView (or a zip with it), in m15 or a lower time frame "
 			"(m1 also makes m15), to the journal's data; only those after the last one kept or before the first are added")
@@ -768,6 +782,7 @@ class MainWindow(QMainWindow):
 		tb.addAction(self.saveact)
 		tb.addAction(self.reloadact)
 		tb.addAction(self.newwinact)
+		tb.addAction(self.syncact)
 		tb.addSeparator()
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact, self.dataact):
 			tb.addAction(a)
@@ -780,11 +795,13 @@ class MainWindow(QMainWindow):
 		mb = self.menuBar()
 		f = mb.addMenu("&File")
 		f.addAction(self.newwinact)
+		f.addAction(self.syncact)
 		f.addAction(self.openact)
 		f.addMenu(self.recentmenu)
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
 		f.addAction(self.importdataact)
+		f.addAction(self.newsact)
 		f.addAction(self.addchartact)
 		f.addAction(self.reloadact)
 		f.addSeparator()
@@ -1206,6 +1223,7 @@ class MainWindow(QMainWindow):
 		drawing = self.pending[name] if name in self.pending else self.data.readdrawing(kind, d, tf)
 		g = self.datageom
 		self.view.setimage(path, mapdrawing(drawing, g.unzoomed(), g) if g is not None and g.view() else drawing)
+		self.sharpchart()
 		self.titlelabel.setText((f"Data {m15.tfname(tf)}: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
 			else f"Data {m15.tfname(tf)}: {d:%a %d %b %Y}")
 		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
@@ -1222,6 +1240,7 @@ class MainWindow(QMainWindow):
 		self.calendar.setSelectedDate(QDate(d.year, d.month, d.day))
 		self.calendar.blockSignals(False)
 		self.updateactions()
+		self.moved()
 
 	def renderdata(self, kind, d, path, tf, low):
 		"""draw the chart of day or week d in tf at path, as zoomed, with or
@@ -1241,6 +1260,26 @@ class MainWindow(QMainWindow):
 		tf = self.datashowntf
 		if self.renderdata(kind, d, self.datapath, tf, self.getlow() if tf < 15 else None) is not None and self.view.pixitem is not None:
 			self.view.pixitem.setPixmap(QPixmap(self.datapath))
+			self.sharpchart()
+
+	def sharpchart(self):
+		"""the image of the data chart shown as a ChartItem, that draws the
+		candles again, sharp, when zoomed in on"""
+		old, g = self.view.pixitem, self.datageom
+		if old is None or g is None or self.datakey is None:
+			return
+		args = (g, self.data, *self.datakey, self.datashowntf,
+			not self.view.hidden, self.journal.news if self.journal else None)
+		if isinstance(old, ChartItem):
+			old.args = args
+			old.update()
+			return
+		it = ChartItem(old.pixmap(), args)
+		it.setZValue(old.zValue())
+		sc = self.view.scene()
+		sc.removeItem(old)
+		sc.addItem(it)
+		self.view.pixitem = it
 
 	def dataaxis(self, ev):
 		"""a scroll on the price or time axis of a data chart scales it
@@ -1424,8 +1463,13 @@ class MainWindow(QMainWindow):
 		return md
 
 	def eventFilter(self, obj, ev):
-		if hasattr(self, "view") and obj is self.view.viewport() and ev.type() in (QEvent.Type.Wheel, QEvent.Type.MouseButtonDblClick):
-			return self.dataaxis(ev)
+		if hasattr(self, "view") and obj is self.view.viewport():
+			t = ev.type()
+			if t in (QEvent.Type.MouseMove, QEvent.Type.Leave, QEvent.Type.HoverMove) and self.datamode:
+				QTimer.singleShot(0, self.sendcross)	# once the view has moved its own
+			if t in (QEvent.Type.Wheel, QEvent.Type.MouseButtonDblClick):
+				return self.dataaxis(ev)
+			return False
 		if hasattr(self, "calview") and obj is self.calview.viewport():
 			t = ev.type()
 			if t in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
@@ -1860,12 +1904,14 @@ class MainWindow(QMainWindow):
 		if c and c["name"] == name and os.path.realpath(c["dir"]) == os.path.realpath(self.journal.dir):
 			QApplication.clipboard().clear()
 
-	def showpanel(self, w, a, on=None):
-		"""show or hide panel w (the list or the notes), as action a says"""
+	def showpanel(self, w, a, on=None, keep=True):
+		"""show or hide panel w (the list or the notes), as action a says;
+		keep makes it the default for the next windows"""
 		on = a.isChecked() if on is None else on
 		a.setChecked(on)
 		w.setVisible(on)
-		settings().setValue("showlist" if w is self.left else "shownotes", on)
+		if keep and not self.child:
+			settings().setValue("showlist" if w is self.left else "shownotes", on)
 		f = QApplication.focusWidget()
 		if not on and f is not None and w.isAncestorOf(f):
 			self.view.setFocus()
@@ -2006,6 +2052,10 @@ class MainWindow(QMainWindow):
 		self.savenotes()
 		self.view.commitedit()
 		w = MainWindow(self.journal.dir if self.journal else None)
+		w.child = True
+		w.syncact.setVisible(True)
+		for panel, a in ((w.left, w.listact), (w.bottom, w.notespanelact)):	# the image almost all the window
+			w.showpanel(panel, a, False, keep=False)
 		w.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 		windows.append(w)
 		w.destroyed.connect(lambda _=None, w=w: windows.remove(w) if w in windows else None)
@@ -2021,8 +2071,131 @@ class MainWindow(QMainWindow):
 				w.datapanel.settfs(None, self.datatf)
 				w.setdatamode(True)
 				w.showdata(self.datakey, force=True)
+				w.syncact.setChecked(True)	# on the data, synced; on a capture, not
 		w.show()
 		return w
+
+	def updatenews(self):
+		"""fetch the news dates again, and show them in every window"""
+		self.statusBar().showMessage("Reading the news calendars…")
+		QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+		QApplication.processEvents()
+		try:
+			res = news.fetch()
+		finally:
+			QApplication.restoreOverrideCursor()
+		self.statusBar().clearMessage()
+		for w in QApplication.topLevelWidgets():
+			if isinstance(w, MainWindow):
+				w.newsread()
+		ok = [f"{n}: {r} dates" for n, r in res.items() if isinstance(r, int)]
+		bad = [f"{n}: {r}" for n, r in res.items() if not isinstance(r, int)]
+		text = ("Read " + ", ".join(ok) + "." if ok else "Nothing read.") + (
+			"\n\nCouldn't read " + "; ".join(bad) + ". The dates built in are still used." if bad else "")
+		(QMessageBox.information if not bad else QMessageBox.warning)(self, "Update News Dates", text)
+
+	def newsread(self):
+		"""the news dates changed: their tags, list and charts again"""
+		if self.journal is None:
+			return
+		self.journal.news = news.News(self.journal.dir)
+		for e in self.journal.entries:
+			e.tags = self.journal.tagsof(e)
+		self.applysearch()
+		if self.current is not None and not self.datamode:
+			self.showtags(self.current)
+		self.datapanel.mark()
+		if self.datamode and self.datakey is not None:
+			self.showdata(self.datakey, force=True)
+
+	# ---- synced windows ----
+	def insync(self):
+		"""whether this window moves with the others: the main one, and
+		those made with New Window that are synced"""
+		return not self.child or self.syncact.isChecked()
+
+	def syncgroup(self):
+		"""the other windows that move with this one, on the same journal"""
+		if not self.insync() or self.journal is None:
+			return []
+		return [w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w is not self
+			and w.insync() and w.journal is not None and w.journal.dir == self.journal.dir]
+
+	def syncchanged(self):
+		"""synced again: to the day or week of the main window"""
+		if not self.syncact.isChecked():
+			return
+		main = next((w for w in self.syncgroup() if not w.child), None)
+		if main is not None and main.shownkey() is not None:
+			self.follow(*main.shownkey())
+
+	def shownkey(self):
+		"""("d" or "w", date) shown: the day or week of the chart or capture"""
+		if self.datamode:
+			return self.datakey
+		e = self.current
+		if e is None:
+			return None
+		return ("w", e.weekmonday()) if e.week else ("d", e.day)
+
+	def moved(self):
+		"""this window went to another day or week: the synced ones too"""
+		global following
+		if following or not self.isVisible():	# a window being made doesn't move the others
+			return
+		k = self.shownkey()
+		group = self.syncgroup()
+		if k is None or not group:
+			return
+		following = True
+		try:
+			for w in group:
+				w.follow(*k)
+		finally:
+			following = False
+
+	def follow(self, kind, d):
+		"""go to day or week d as another window did, staying on days or
+		weeks as this one shows them"""
+		monday = d - timedelta(days=d.weekday())
+		mine = self.shownkey()
+		if self.datamode:
+			keys = set(self.datapanel.keys())
+			if mine is not None and mine[0] == "w" or kind == "w" and (mine is None or mine[0] == "w"):
+				to = ("w", monday)
+			elif kind == "d":
+				to = ("d", d)
+			else:	# a week, and this one is on a day: stay if it is in that week
+				if mine is not None and mine[1] - timedelta(days=mine[1].weekday()) == monday:
+					return
+				to = next((k for k in sorted(keys) if k[0] == "d" and monday <= k[1] < monday + timedelta(days=5)), None)
+			if to is not None and to in keys and to != self.datakey:
+				self.showdata(to)
+			return
+		if self.journal is None:
+			return
+		week = mine is not None and mine[0] == "w" or kind == "w"
+		if mine == (("w", monday) if week else ("d", d)):
+			return
+		if week:
+			e = next((x for x in self.journal.entries if x.week and x.weekmonday() == monday), None)
+		else:
+			e = next((x for x in self.journal.entries if not x.week and x.day == d), None)
+		if e is not None:
+			self.reveal(e)
+
+	def sendcross(self):
+		"""the crosshair of this data chart on those of the synced windows,
+		at the same time and price"""
+		g = self.datageom
+		group = [w for w in self.syncgroup() if w.datamode and w.datageom is not None and w.view.hasimage()]
+		if not group:
+			return
+		p = self.view.cross if self.datamode and g is not None else None
+		at = g.when(p.x(), p.y()) if p is not None else None
+		for w in group:
+			q = w.datageom.where(*at) if at is not None else None
+			w.view.setcross(QPointF(*q) if q is not None else None)
 
 	def updatetitle(self):
 		if self.journal is None:
@@ -2369,6 +2542,7 @@ class MainWindow(QMainWindow):
 			self.calendar.blockSignals(False)
 		self.notes.blockSignals(False)
 		self.updateactions()
+		self.moved()
 
 	def showtags(self, e):
 		if e.tags:
