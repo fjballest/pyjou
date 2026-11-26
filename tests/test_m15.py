@@ -88,6 +88,29 @@ check(len(m15.Data(big)) == 400 and len(os.listdir(big)) >= n, "more data goes o
 m15.MAXFILE = 512 * 1024
 check("Asia" in data.summary("d", date(2026, 11, 16)), "a summary of the day")
 
+# m1 candles as a TradingView dump writes them: ; and the UTC time of their close
+low = tempfile.mkdtemp()
+m1 = os.path.join(src, "MNQ.m1.dump.csv")
+with open(m1, "w") as f:
+	f.write("time_utc_close;open;high;low;close;volume\n")
+	for k in range(60 * 30):	# 30 hours from Sunday 18:00 New York
+		t = start + 60 * (k + 1)
+		p = 100 + k / 60
+		f.write(f"{datetime.fromtimestamp(t, timezone.utc):%Y-%m-%d %H:%M:%S};{p};{p + 1};{p - 1};{p + .5};10\n")
+rows = m15.readrows(m1)
+check(len(rows) == 1800 and rows[0][0] == start and m15.tfof(rows) == 1, "an m1 dump read, times at the open")
+done = m15.importfile(low, m1)
+check(done == [(1, 1800, 0), (15, 120, 0)], "m1 imported, and made m15 too")
+check(sorted(os.listdir(low)) == ["MNQ-261116.m1.csv.gz", "MNQ-261116.m15.csv.gz"], "kept in files of each time frame")
+check(m15.lowtfs(low) == [1], "the lower time frames there")
+m1d, m15d = m15.Data(low, 1), m15.Data(low)
+r = m15.resample(m1d.rows()[:15], 15)[0]
+check(tuple(r) == tuple(m15d.rows()[0]) and r[2] == max(x[2] for x in m1d.rows()[:15]), "the m15 candles made from m1")
+w5 = m1d.bars("d", date(2026, 11, 16), 5)
+check(len(w5[0]) == 24 * 12 and (w5[0][1] - w5[0][0]) == 300, "a day in m5 from m1")
+check(len(m15d.bars("d", date(2026, 11, 16), 60)[0]) == 24, "and in h1 from m15")
+check(m15.importfile(low, m1) == [(1, 0, 1800), (15, 0, 120)], "nothing twice")
+
 from PySide6.QtGui import QGuiApplication
 app = QGuiApplication([])
 import dataview
@@ -96,3 +119,5 @@ img = dataview.render(data, "w", date(2026, 11, 16), out)
 check(img is not None and os.path.exists(out), "the week drawn")
 check(dataview.render(data, "d", date(2026, 11, 17)) is not None, "a day drawn")
 check(dataview.render(data, "d", date(2026, 12, 1)) is None, "nothing for a day without data")
+g = dataview.Geom(m15d, "d", date(2026, 11, 16), 1, m1d)
+check(g.ok and g.W > 1800 and dataview.render(m15d, "d", date(2026, 11, 16), None, 1, m1d) is not None, "a day drawn in m1, wider")

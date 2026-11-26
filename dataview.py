@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPalette, QPen, QPolygonF
 from PySide6.QtWidgets import (
-	QCheckBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+	QCheckBox, QComboBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 )
 
 import m15
@@ -33,21 +33,30 @@ def nicestep(span, n):
 			return k * p
 	return 10 * p
 
-def title(data, kind, d):
+def title(data, kind, d, tf=15):
 	if kind == "w":
-		return f"{data.symbol} m15 · Week {d:%d %b} – {d + timedelta(days=4):%d %b %Y}"
-	return f"{data.symbol} m15 · {d:%a %d %b %Y}"
+		return f"{data.symbol} {m15.tfname(tf)} · Week {d:%d %b} – {d + timedelta(days=4):%d %b %Y}"
+	return f"{data.symbol} {m15.tfname(tf)} · {d:%a %d %b %Y}"
+
+def source(data, low, tf):
+	"""the data a chart in tf is made from: the lower time frame low when tf is under m15"""
+	return low if tf < 15 and low is not None and tf % low.tf == 0 else data
 
 class Geom:
-	"""where the chart of day or week d puts times and prices"""
-	def __init__(self, data, kind, d):
-		i, j, zero = data.span(kind, d)
-		self.ok = j > i
+	"""where the chart of day or week d in time frame tf puts times and
+	prices: wider for the lower time frames, so their candles fit"""
+	def __init__(self, data, kind, d, tf=15, low=None):
+		self.bars = source(data, low, tf).bars(kind, d, tf)
+		wall, o, h, l, c, zero = self.bars
+		self.ok = len(wall) > 0
 		self.W, self.H = (1800, 1000) if kind == "d" else (2400, 1100)
 		self.L, self.R, self.T, self.B = 16, 100, 44, 40
+		ncandles = (m15.DAYEND - m15.DAYSTART) * 60 / tf * (1 if kind == "d" else 5)
+		least = 4 if kind == "d" else 2	# pixels a candle at least
+		self.W = int(min(9000, max(self.W, self.L + self.R + ncandles * least)))
 		self.pw, self.ph = self.W - self.L - self.R, self.H - self.T - self.B
 		self.t0, self.t1 = trange(kind)
-		hi, lo = (float(data.h[i:j].max()), float(data.l[i:j].min())) if self.ok else (1, 0)
+		hi, lo = (float(h.max()), float(l.min())) if self.ok else (1, 0)
 		pad = (hi - lo) * 0.04 or 1
 		self.top, self.bot = hi + pad, lo - pad
 
@@ -70,18 +79,19 @@ class Geom:
 	def frompx(self, px):
 		return [(round(self.t(x), 4), round(self.price(y), 2)) for x, y in px]
 
-def render(data, kind, d, path=None):
-	"""the chart of day d or week d (its Monday) as a QImage, saved at path
-	when given; None without candles"""
-	i, j, zero = data.span(kind, d)
-	if j <= i:
+def render(data, kind, d, path=None, tf=15, low=None):
+	"""the chart of day d or week d (its Monday) in time frame tf (from
+	low, the data of a lower time frame, under m15) as a QImage, saved at
+	path when given; None without candles"""
+	g = Geom(data, kind, d, tf, low)
+	if not g.ok:
 		return None
-	g = Geom(data, kind, d)
+	wall, bo, bh, bl, bc, zero = g.bars
 	W, H, L, R, T, B, pw, ph = g.W, g.H, g.L, g.R, g.T, g.B, g.pw, g.ph
 	t0, t1, top, bot = g.t0, g.t1, g.top, g.bot
 	X, Y = g.X, g.Y
 	unit = 3600 if kind == "d" else 86400
-	slot = 900 / unit / (t1 - t0) * pw	# pixels per candle
+	slot = tf * 60 / unit / (t1 - t0) * pw	# pixels per candle
 
 	img = QImage(W, H, QImage.Format.Format_RGB32)
 	img.fill(QColor("white"))
@@ -124,6 +134,8 @@ def render(data, kind, d, path=None):
 			day = d + timedelta(days=k)
 			p.drawText(QRectF(X(k), T + ph + 6, X(k + 0.7) - X(k), 20), Qt.AlignmentFlag.AlignCenter, f"{day:%a %d}")
 
+	p.save()
+	p.setClipRect(QRectF(L, T, pw, ph))	# levels of the m15 data may be off a lower time frame's
 	# the sessions of a day, as boxes from their high to their low
 	if kind == "d":
 		for name, a, b, sh, sl, _, _, color in data.sessions(d):
@@ -142,9 +154,8 @@ def render(data, kind, d, path=None):
 
 	# the candles
 	bw = max(1.0, slot * 0.7)
-	for k in range(i, j):
-		x = X(data.tof(kind, k, zero)) + slot / 2
-		o, h, l, c = data.o[k], data.h[k], data.l[k], data.c[k]
+	for x, o, h, l, c in zip(((wall - zero) / unit).tolist(), bo.tolist(), bh.tolist(), bl.tolist(), bc.tolist()):
+		x = X(x) + slot / 2
 		col = UP if c >= o else DOWN
 		p.setPen(QPen(col, 1 if slot < 6 else 1.4))
 		p.drawLine(QPointF(x, Y(h)), QPointF(x, Y(l)))
@@ -163,12 +174,13 @@ def render(data, kind, d, path=None):
 			p.drawEllipse(q, 6, 6)
 		p.setBrush(Qt.BrushStyle.NoBrush)
 
+	p.restore()
 	# the title
 	f.setPixelSize(20)
 	f.setBold(True)
 	p.setFont(f)
 	p.setPen(QColor(40, 40, 40))
-	p.drawText(QRectF(L, 8, pw, 30), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title(data, kind, d) + "   (New York time)")
+	p.drawText(QRectF(L, 8, pw, 30), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title(data, kind, d, tf) + "   (New York time)")
 	p.end()
 	if path:
 		img.save(path)
@@ -246,18 +258,28 @@ class DataPanel(QWidget):
 		self.expanded = None	# keys of the groups open; None: the last ones
 		lay = QVBoxLayout(self)
 		lay.setContentsMargins(0, 0, 0, 0)
-		top = QHBoxLayout()
 		self.info = QLabel()
 		self.info.setWordWrap(True)
-		top.addWidget(self.info, 1)
+		lay.addWidget(self.info)
+		top = QHBoxLayout()
 		self.importbtn = QToolButton()
 		self.importbtn.setText("Import…")
 		self.importbtn.setAutoRaise(True)
 		top.addWidget(self.importbtn)
+		self.tfbox = QComboBox()
+		self.tfbox.setToolTip("the time frame of the charts; a lower one than m15 takes data of it "
+			"(File ▸ Import Data… with an m1 CSV)")
+		top.addWidget(self.tfbox)
+		self.capbtn = QToolButton()
+		self.capbtn.setText("Capture")
+		self.capbtn.setAutoRaise(True)
+		self.capbtn.setToolTip("add this chart, in its time frame and with its drawings, to the captures (⇧⌘K)")
+		top.addWidget(self.capbtn)
 		self.backbtn = QToolButton()
 		self.backbtn.setText("Captures")
 		self.backbtn.setAutoRaise(True)
 		self.backbtn.setToolTip("back to the captures, on this day or week")
+		top.addStretch()
 		top.addWidget(self.backbtn)
 		lay.addLayout(top)
 		kinds = QHBoxLayout()
@@ -291,6 +313,18 @@ class DataPanel(QWidget):
 		self.tree.itemCollapsed.connect(lambda it: self.groupopen(it, False))
 		lay.addWidget(self.tree, 1)
 		self.updateallbtn()
+
+	def settfs(self, tfs, tf):
+		"""the time frames in the box (None keeps them), tf the one picked"""
+		self.tfbox.blockSignals(True)
+		if tfs is not None:
+			self.tfbox.clear()
+			for t in tfs:
+				self.tfbox.addItem(m15.tfname(t), t)
+		i = self.tfbox.findData(tf)
+		if i >= 0:
+			self.tfbox.setCurrentIndex(i)
+		self.tfbox.blockSignals(False)
 
 	def refill(self):
 		cur = self.tree.currentItem()

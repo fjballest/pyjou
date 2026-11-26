@@ -468,7 +468,7 @@ The words in the text boxes and labels are found by the search, as the notes are
 
 Besides the captures, a journal can keep the 15 minute candles of its
 market, exported from TradingView as a CSV (`time,open,high,low,close`, the
-time in seconds, as TradingView writes it). **File ▸ Import m15 Data…**, or
+time in seconds, as TradingView writes it). **File ▸ Import Data…**, or
 dropping the `.csv` (or a `.zip` with it) on the window, adds them to
 compressed files in the journal directory named after the day of their first
 candle, `MNQ-260102.m15.csv.gz`. A file is not made larger than about 512 KB
@@ -528,6 +528,28 @@ When the capture can't be read so (another time frame, no lines) or you pick
 picked (New York time; the end of the data for a day still going on).
 Picking a day shows its capture, or its chart in the data view when there is
 none (in the data view, always its chart).
+
+### Lower time frames
+
+**File ▸ Import Data…** also takes candles of a lower time frame, such as an
+m1 dump (`time_utc_close;open;high;low;close;volume`, with `;` or `,`, the time
+as a number or a UTC date, and as the candle's close when the column says
+so). They are kept in files of their own (`MNQ-220103.m1.csv.gz`, at most
+about 2 MB each), and made into m15 candles that the m15 data takes as any
+other import: only those after its last candle or before its first.
+
+The box over the data list picks the time frame of the charts: m15 and
+above (m30, h1, h4) always, and with m1 data also m1, m3 and m5, which make
+the charts wider. The profiles, the sessions and the summary still come from
+the m15 data. A day without data in the time frame picked is drawn in m15.
+**File ▸ New Window** in the data view opens another window on the same day
+or week, to look at it in another time frame. What is drawn on a chart is
+kept for its time frame (`d261117-m5.drw`).
+
+**File ▸ Add Chart as Capture** (⇧⌘K, **Capture** over the list) adds the
+chart shown, in its time frame, to the captures of its day (or as the week
+profile of its week), with what is drawn on it, which can still be edited
+there.
 
 ## Exporting
 

@@ -92,7 +92,7 @@ NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
 
 MATCHCOLOR = QColor("#e53935")
 DATAPFX = "m15:"	# a week of the m15 data in Match Week: m15:2026-11-16
-DRAWPFX = "m15draw:"	# the drawing of a data chart in pending: m15draw:w:2026-11-16
+DRAWPFX = "m15draw:"	# the drawing of a data chart in pending: m15draw:w:2026-11-16:15 (its time frame)
 
 def drawprofile(painter, box, pts, pal, selected=False, upto=None):
 	"""draw week profile pts in box, with the midnights faint behind it; the
@@ -592,6 +592,10 @@ class MainWindow(QMainWindow):
 		self.data = None		# the m15 data of the journal (m15.Data)
 		self.datamode = False	# the data view is shown instead of the captures
 		self.datakey = None		# ("w" or "d", date) shown in the data view
+		self.datatf = 15		# the time frame of its charts, minutes
+		self.lowdata = None		# the data of a time frame under m15, read when first needed
+		self.datapath = None	# the chart shown, and its time frame
+		self.datashowntf = 15
 		self.datadir = tempfile.mkdtemp(prefix="dj-data-")	# where its charts are drawn
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
@@ -730,9 +734,11 @@ class MainWindow(QMainWindow):
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
-		self.importdataact = self.mkaction("Import m&15 Data…", self.choosedata, None, None,
-			"add the candles of an m15 CSV exported from TradingView (or a zip with it) to the journal's data; "
-			"only those after the last one kept are added")
+		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
+			"add the candles of a CSV exported from TradingView (or a zip with it), in m15 or a lower time frame "
+			"(m1 also makes m15), to the journal's data; only those after the last one kept or before the first are added")
+		self.addchartact = self.mkaction("Add Chart as &Capture", self.addchart, None, "Ctrl+Shift+K",
+			"add the chart of the data view, in its time frame and with its drawings, to the captures of its day or week")
 		self.dataact = self.mkaction("&Data View", lambda: self.setdatamode(not self.datamode), None,
 			"Ctrl+Shift+D", "switch between the captures and the weeks and days of the m15 data, "
 			"drawn from the candles with their profiles")
@@ -777,6 +783,7 @@ class MainWindow(QMainWindow):
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
 		f.addAction(self.importdataact)
+		f.addAction(self.addchartact)
 		f.addAction(self.reloadact)
 		f.addSeparator()
 		f.addAction(self.exportselact)
@@ -904,6 +911,8 @@ class MainWindow(QMainWindow):
 		self.datapanel.picked.connect(lambda kind, d: self.showdata((kind, d)))
 		self.datapanel.importbtn.clicked.connect(self.choosedata)
 		self.datapanel.backbtn.clicked.connect(lambda: self.setdatamode(False))
+		self.datapanel.tfbox.activated.connect(lambda i: self.setdatatf(self.datapanel.tfbox.itemData(i)))
+		self.datapanel.capbtn.clicked.connect(self.addchart)
 		self.leftstack = QStackedWidget()
 		self.leftstack.addWidget(caps)
 		self.leftstack.addWidget(self.datapanel)
@@ -987,16 +996,79 @@ class MainWindow(QMainWindow):
 		except (OSError, ValueError) as x:
 			self.data = None
 			self.statusBar().showMessage(f"Can't read the m15 data: {x}", 5000)
+		self.lowdata = None
+		low = m15.lowtfs(self.journal.dir) if self.journal else []
+		tfs = [t for t in m15.TFS if t >= 15 or (low and t >= low[0] and t % low[0] == 0)]
+		if self.datatf not in tfs:
+			self.datatf = 15
+		self.datapanel.settfs(tfs, self.datatf)
 		self.datapanel.fill(self.data)
 		self.dataact.setEnabled(self.journal is not None)
 		if self.datamode:
 			keys = self.datapanel.keys()
 			self.showdata(self.datakey if self.datakey in keys else (keys[-1] if keys else None), force=True)
 
+	def getlow(self):
+		"""the data of the lowest time frame under m15, read now if not yet"""
+		if self.lowdata is None and self.journal is not None:
+			low = m15.lowtfs(self.journal.dir)
+			if low:
+				QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+				try:
+					self.lowdata = m15.Data(self.journal.dir, low[0])
+				except (OSError, ValueError) as x:
+					self.statusBar().showMessage(f"Can't read the {m15.tfname(low[0])} data: {x}", 5000)
+				finally:
+					QApplication.restoreOverrideCursor()
+		return self.lowdata
+
+	def setdatatf(self, tf):
+		"""draw the charts of the data view in time frame tf"""
+		if tf == self.datatf:
+			return
+		if self.adjuster is not None:
+			self.adjuster.finish(False)
+		self.datatf = tf
+		self.datapanel.settfs(None, tf)
+		if self.datamode:
+			self.showdata(self.datakey, force=True)
+
+	def drawkey(self, k, tf=None):
+		"""the name of the drawing of data chart k in pending"""
+		return DRAWPFX + f"{k[0]}:{k[1].isoformat()}:{tf or self.datatf}"
+
+	def addchart(self):
+		"""add the chart of the data view, as drawn in its time frame, to the
+		captures, with its drawing (which can still be edited there)"""
+		k = self.datakey if self.datamode else None
+		if k is None or self.journal is None or not self.datapath or not self.view.hasimage():
+			QMessageBox.information(self, "Add Chart as Capture", "Show a day or week of the data first.")
+			return
+		self.view.commitedit()
+		kind, d = k
+		week = kind == "w"
+		day = weekname(d) if week else d
+		self.journal.load()
+		name = self.journal.newname(day, week)
+		if name is None:
+			QMessageBox.warning(self, "Add Chart as Capture", f"No names left for {day:%d %b %Y}")
+			return
+		try:
+			savecapture(self.journal, self.datapath, name)
+			drawing = self.view.drawingdata()
+			if drawing and drawing.get("shapes"):
+				self.journal.savedrawing(self.journal.find(name), drawing)
+		except OSError as x:
+			QMessageBox.warning(self, "Add Chart as Capture", f"Can't add it: {x}")
+			return
+		self.applysearch()
+		self.startocr()
+		self.statusBar().showMessage(f"Added {name} to the captures", 5000)
+
 	def choosedata(self):
 		if self.journal is None:
 			return
-		path, _ = QFileDialog.getOpenFileName(self, "Import m15 Data", os.path.expanduser("~"),
+		path, _ = QFileDialog.getOpenFileName(self, "Import Data", os.path.expanduser("~"),
 			"CSV or zip (*.csv *.zip);;All files (*)")
 		if path:
 			self.importdata([path])
@@ -1009,12 +1081,18 @@ class MainWindow(QMainWindow):
 			self.data = m15.Data(self.journal.dir)
 		msgs = []
 		for p in paths:
+			self.statusBar().showMessage(f"Importing {os.path.basename(p)}…")
+			QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+			QApplication.processEvents()
 			try:
-				added, skipped = self.data.add(p)
+				done = m15.importfile(self.journal.dir, p, self.data)
 			except (OSError, ValueError) as x:
-				QMessageBox.warning(self, "Import m15 Data", f"Can't import {os.path.basename(p)}: {x}")
+				QApplication.restoreOverrideCursor()
+				QMessageBox.warning(self, "Import Data", f"Can't import {os.path.basename(p)}: {x}")
 				continue
-			msgs.append(f"{os.path.basename(p)}: {added} candles added" + (f", {skipped} already there" if skipped else ""))
+			QApplication.restoreOverrideCursor()
+			msgs.append(f"{os.path.basename(p)}: " + ", ".join(f"{added} {m15.tfname(tf)} candles added"
+				+ (f" ({skipped} already there)" if skipped else "") for tf, added, skipped in done))
 		self.loaddata()
 		if msgs:
 			self.statusBar().showMessage("; ".join(msgs), 8000)
@@ -1100,19 +1178,28 @@ class MainWindow(QMainWindow):
 		self.notes.blockSignals(True)
 		self.notes.setPlainText("")
 		self.notes.blockSignals(False)
-		self.tagslabel.setText("<b>Data:</b> drawn from the m15 candles, in New York time")
+		self.tagslabel.setText(f"<b>Data:</b> drawn from the candles, in New York time; the profile, sessions and summary from m15")
 		if key is None or self.data is None:
 			self.view.setimage(None)
-			self.titlelabel.setText("No m15 data: File ▸ Import m15 Data…")
+			self.titlelabel.setText("No data: File ▸ Import Data…")
 			self.updateactions()
 			return
 		kind, d = key
-		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}.png")
-		render(self.data, kind, d, path)
-		name = DRAWPFX + f"{kind}:{d.isoformat()}"
-		self.view.setimage(path, self.pending[name] if name in self.pending else self.data.readdrawing(kind, d))
-		self.titlelabel.setText(("Data: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
-			else f"Data: {d:%a %d %b %Y}")
+		tf = self.datatf
+		low = self.getlow() if tf < 15 else None
+		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}-{m15.tfname(tf)}.png")
+		if render(self.data, kind, d, path, tf, low) is None and tf < 15:
+			self.statusBar().showMessage(f"No {m15.tfname(tf)} data for this {'day' if kind == 'd' else 'week'}: "
+				"drawn in m15", 5000)
+			tf = 15
+			path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}-m15.png")
+			render(self.data, kind, d, path)
+		self.datapath = path
+		self.datashowntf = tf
+		name = self.drawkey(key, tf)
+		self.view.setimage(path, self.pending[name] if name in self.pending else self.data.readdrawing(kind, d, tf))
+		self.titlelabel.setText((f"Data {m15.tfname(tf)}: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
+			else f"Data {m15.tfname(tf)}: {d:%a %d %b %Y}")
 		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
 			f"journal's {m15.DRAWDIR} folder")
 		self.notes.blockSignals(True)
@@ -1159,9 +1246,10 @@ class MainWindow(QMainWindow):
 			k = self.datakey
 			if self.view.loading or k is None or self.data is None or not self.view.hasimage():
 				return
-			name = DRAWPFX + f"{k[0]}:{k[1].isoformat()}"
+			tf = getattr(self, "datashowntf", self.datatf)
+			name = self.drawkey(k, tf)
 			data = self.view.drawingdata()
-			if data == self.data.readdrawing(*k):
+			if data == self.data.readdrawing(*k, tf):
 				self.pending.pop(name, None)
 			else:
 				self.pending[name] = data
@@ -1191,10 +1279,10 @@ class MainWindow(QMainWindow):
 		ok = True
 		for name, data in list(self.pending.items()):
 			if name.startswith(DRAWPFX):	# a chart of the data view
-				kind, d = name[len(DRAWPFX):].split(":")
+				kind, d, tf = (name[len(DRAWPFX):].split(":") + ["15"])[:3]
 				try:
 					if self.data is not None:
-						self.data.savedrawing(kind, date.fromisoformat(d), data)
+						self.data.savedrawing(kind, date.fromisoformat(d), data, int(tf))
 					self.pending.pop(name)
 				except OSError as x:
 					ok = False
@@ -1859,6 +1947,11 @@ class MainWindow(QMainWindow):
 			w.updatetitle()
 			if self.current is not None:
 				w.reveal(w.journal.find(self.current.name), force=True)
+			if self.datamode:	# on the same chart, to look at it in another time frame
+				w.datatf = self.datatf
+				w.datapanel.settfs(None, self.datatf)
+				w.setdatamode(True)
+				w.showdata(self.datakey, force=True)
 		w.show()
 		return w
 
@@ -2348,7 +2441,7 @@ class MainWindow(QMainWindow):
 			return
 		if self.data is None or not len(self.data):
 			QMessageBox.information(self, "Match Day", "Match Day compares a day with the days of the m15 data: "
-				"File ▸ Import m15 Data… adds it.")
+				"File ▸ Import Data… adds it.")
 			return
 		if cap is None and d not in self.data.days():
 			QMessageBox.information(self, "Match Day", f"No m15 data for {d:%a %d %b %Y}, and the day can't be "
@@ -2416,7 +2509,7 @@ class MainWindow(QMainWindow):
 			if k is None or self.data is None or self.view.pixitem is None or self.adjuster is not None:
 				return
 			pts = self.data.profile(*k, prices=True)
-			g = Geom(self.data, *k)
+			g = Geom(self.data, *k, getattr(self, "datashowntf", 15), self.lowdata)
 			px = g.topx(pts) if pts else [[g.X(g.t0 + 0.05), g.Y((g.top + g.bot) / 2)], [g.X(g.t1 - 0.05), g.Y((g.top + g.bot) / 2)]]
 			self.statusBar().showMessage("Drag the profile's points, click a segment to add one, right click one to remove it; "
 				"double click or Return when done, Esc to cancel")
