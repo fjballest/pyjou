@@ -14,6 +14,7 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+from news import News
 from search import parsealiases
 from tags import cleantags
 
@@ -107,6 +108,7 @@ class Journal:
 		"""scan the directory again, keeping the OCR cache"""
 		self.loadcache()
 		self.aliases, self.badaliases = parsealiases(self.readaliases())
+		self.news = News(self.dir)
 		entries = []
 		for n in os.listdir(self.dir):
 			e = parsename(n)
@@ -355,17 +357,26 @@ class Journal:
 
 	def tagsof(self, e):
 		c = self.cache.get(e.name)
-		return cleantags(c["raw"]) if c else []
+		return self.withnews(e, cleantags(c["raw"]) if c else [])
+
+	def withnews(self, e, tags):
+		"""tags with the news of the day of e (FOMC, CPI, PPI) first"""
+		news = getattr(self, "news", None)
+		if news is None or e.week:
+			return tags
+		names = news.names(e.day)
+		low = {n.lower() for n in names}
+		return names + [t for t in tags if t.lower() not in low]
 
 	def settext(self, e, raw):
 		"""record the OCR results [(text, confidence)...] for e"""
 		self.cache[e.name] = {"mtime": self.mtime(e), "raw": [[t, round(float(c), 3)] for t, c in raw]}
-		e.tags = cleantags(self.cache[e.name]["raw"])
+		e.tags = self.withnews(e, cleantags(self.cache[e.name]["raw"]))
 
 	def forget(self, e):
 		"""drop the tags of e, so they are read again"""
 		self.cache.pop(e.name, None)
-		e.tags = []
+		e.tags = self.withnews(e, [])
 
 	# ---- navigation ----
 	def index(self, e):

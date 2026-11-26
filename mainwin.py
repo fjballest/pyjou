@@ -32,7 +32,7 @@ from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
 import m15
-from dataview import DataPanel, Geom, drawpts, render
+from dataview import DataPanel, Geom, drawpts, mapdrawing, render
 import tempfile
 
 RECENTMAX = 10
@@ -597,6 +597,8 @@ class MainWindow(QMainWindow):
 		self.datapath = None	# the chart shown, and its time frame
 		self.datashowntf = 15
 		self.datadir = tempfile.mkdtemp(prefix="dj-data-")	# where its charts are drawn
+		self.datageom = None	# the Geom of the chart shown
+		self.datazooms = {}		# (kind, date, tf) -> the part of the chart shown (see Geom.zoomed)
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -931,6 +933,8 @@ class MainWindow(QMainWindow):
 		self.view.navigate.connect(self.navigate)
 		self.view.hint.connect(lambda t: self.statusBar().showMessage(t) if t else self.statusBar().clearMessage())
 		self.view.drawchanged.connect(self.drawchanged)
+		self.view.hiddenchanged.connect(self.datahidden)
+		self.view.viewport().installEventFilter(self)	# scrolling on the axes of the data charts
 		drawbar = self.mkdrawbar()
 		self.tagslabel = QLabel()
 		self.tagslabel.setWordWrap(True)
@@ -1190,22 +1194,27 @@ class MainWindow(QMainWindow):
 		tf = self.datatf
 		low = self.getlow() if tf < 15 else None
 		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}-{m15.tfname(tf)}.png")
-		if render(self.data, kind, d, path, tf, low) is None and tf < 15:
+		if self.renderdata(kind, d, path, tf, low) is None and tf < 15:
 			self.statusBar().showMessage(f"No {m15.tfname(tf)} data for this {'day' if kind == 'd' else 'week'}: "
 				"drawn in m15", 5000)
 			tf = 15
 			path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}-m15.png")
-			render(self.data, kind, d, path)
+			self.renderdata(kind, d, path, tf, None)
 		self.datapath = path
 		self.datashowntf = tf
 		name = self.drawkey(key, tf)
-		self.view.setimage(path, self.pending[name] if name in self.pending else self.data.readdrawing(kind, d, tf))
+		drawing = self.pending[name] if name in self.pending else self.data.readdrawing(kind, d, tf)
+		g = self.datageom
+		self.view.setimage(path, mapdrawing(drawing, g.unzoomed(), g) if g is not None and g.view() else drawing)
 		self.titlelabel.setText((f"Data {m15.tfname(tf)}: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
 			else f"Data {m15.tfname(tf)}: {d:%a %d %b %Y}")
 		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
 			f"journal's {m15.DRAWDIR} folder")
 		self.notes.blockSignals(True)
-		self.notes.setPlainText(self.data.summary(kind, d))
+		news = self.journal.news if self.journal else None
+		lines = [f"{day:%a %d}  {int(h):02d}:{int(h % 1 * 60):02d} {n}" for day, h, n in
+			([(d, h, n) for h, n in news.of(d)] if kind == "d" else news.inweek(d))] if news else []
+		self.notes.setPlainText(("News: " + ", ".join(lines) + "\n" if lines else "") + self.data.summary(kind, d))
 		self.notes.blockSignals(False)
 		self.notes.setEnabled(True)
 		self.datapanel.select(key)
@@ -1213,6 +1222,59 @@ class MainWindow(QMainWindow):
 		self.calendar.setSelectedDate(QDate(d.year, d.month, d.day))
 		self.calendar.blockSignals(False)
 		self.updateactions()
+
+	def renderdata(self, kind, d, path, tf, low):
+		"""draw the chart of day or week d in tf at path, as zoomed, with or
+		without its profile as the drawings are shown or not; its Geom
+		goes in datageom"""
+		view = self.datazooms.get((kind, d, tf))
+		img = render(self.data, kind, d, path, tf, low, view, not self.view.hidden,
+			self.journal.news if self.journal else None)
+		self.datageom = Geom(self.data, kind, d, tf, low, view) if img is not None else None
+		return img
+
+	def datahidden(self, hidden):
+		"""the drawings were hidden or shown: the profile of the chart too"""
+		if not self.datamode or self.datakey is None or self.datageom is None or self.datapath is None:
+			return
+		kind, d = self.datakey
+		tf = self.datashowntf
+		if self.renderdata(kind, d, self.datapath, tf, self.getlow() if tf < 15 else None) is not None and self.view.pixitem is not None:
+			self.view.pixitem.setPixmap(QPixmap(self.datapath))
+
+	def dataaxis(self, ev):
+		"""a scroll on the price or time axis of a data chart scales it
+		there, a double click on one shows all of it again; True when taken"""
+		g = self.datageom
+		if not self.datamode or g is None or self.datakey is None or self.adjuster is not None or not self.view.hasimage():
+			return False
+		q = self.view.mapToScene(ev.position().toPoint())
+		axis = g.inplot(q.x(), q.y())
+		if axis not in ("p", "t"):
+			return False
+		key = (*self.datakey, self.datashowntf)
+		if ev.type() == QEvent.Type.Wheel:
+			dy = ev.angleDelta().y() or ev.angleDelta().x()
+			if not dy:
+				return True
+			at = g.price(q.y()) if axis == "p" else g.t(q.x())
+			v = g.zoomed(axis, at, 0.85 ** (dy / 120))
+		else:	# the whole of that axis again
+			v = g.view()
+			if v is None:
+				return True
+			w = g.whole
+			v = (w[0], w[1], v[2], v[3]) if axis == "p" else (v[0], v[1], w[2], w[3])
+			if v == w:
+				v = None
+		if v == g.view():
+			return True
+		if v is None:
+			self.datazooms.pop(key, None)
+		else:
+			self.datazooms[key] = v
+		self.showdata(self.datakey, force=True)
+		return True
 
 	def datastep(self, delta=None, last=None, week=False):
 		"""move in the data view: delta rows, to the first or last, or
@@ -1251,6 +1313,9 @@ class MainWindow(QMainWindow):
 			tf = getattr(self, "datashowntf", self.datatf)
 			name = self.drawkey(k, tf)
 			data = self.view.drawingdata()
+			g = self.datageom
+			if g is not None and g.view():	# kept as on the whole chart
+				data = mapdrawing(data, g, g.unzoomed())
 			if data == self.data.readdrawing(*k, tf):
 				self.pending.pop(name, None)
 			else:
@@ -1359,6 +1424,8 @@ class MainWindow(QMainWindow):
 		return md
 
 	def eventFilter(self, obj, ev):
+		if hasattr(self, "view") and obj is self.view.viewport() and ev.type() in (QEvent.Type.Wheel, QEvent.Type.MouseButtonDblClick):
+			return self.dataaxis(ev)
 		if hasattr(self, "calview") and obj is self.calview.viewport():
 			t = ev.type()
 			if t in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
@@ -2511,7 +2578,7 @@ class MainWindow(QMainWindow):
 			if k is None or self.data is None or self.view.pixitem is None or self.adjuster is not None:
 				return
 			pts = self.data.profile(*k, prices=True)
-			g = Geom(self.data, *k, getattr(self, "datashowntf", 15), self.lowdata)
+			g = self.datageom
 			px = g.topx(pts) if pts else [[g.X(g.t0 + 0.05), g.Y((g.top + g.bot) / 2)], [g.X(g.t1 - 0.05), g.Y((g.top + g.bot) / 2)]]
 			self.statusBar().showMessage("Drag the profile's points, click a segment to add one, right click one to remove it; "
 				"double click or Return when done, Esc to cancel")

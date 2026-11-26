@@ -560,6 +560,28 @@ chart shown, in its time frame, to the captures of its day (or as the week
 profile of its week), with what is drawn on it, which can still be edited
 there.
 
+### Scaling a chart
+
+Scrolling over the price axis of a data chart (its right edge) shows more
+or fewer prices around the one under the mouse, and scrolling over the time
+axis (its bottom edge) shows more or fewer hours, down to half an hour of a
+day or two hours of a week, which then label their hours. A double click
+on an axis shows all of it again. Each window keeps the scale of each chart
+while it is open. What is drawn stays at its prices and times, and is
+saved as on the whole chart, so it shows right at any scale. Hiding the
+drawings (**Hide**, or H on the image) hides the profile line too.
+
+### News days
+
+The days of FOMC decisions (14:00 New York), and of CPI and PPI releases
+(08:30), from 2022 to 2027, are built in, from the Federal Reserve's and the
+BLS's calendars. The data list names them after their day and week, the
+charts mark them with an orange line at their time, the summary lists them,
+and the captures of those days have them as tags, so searching `CPI` or
+`FOMC` finds them. A `news.txt` in the journal adds others, one a line:
+`2027-01-08 NFP 08:30` (the time is 08:30 when left out), and a line that
+starts with `-` takes one away (`-2026-12-10 CPI`), for a date that moves.
+
 ## Exporting
 
 **File ▸ Export All…** (⇧⌘E) saves the captures shown in the list, as the

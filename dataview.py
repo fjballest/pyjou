@@ -4,6 +4,7 @@
 # candles, with its sessions and its profile, shown in the window's image
 # view instead of a capture.
 #
+import copy
 from datetime import date, timedelta
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -18,6 +19,7 @@ KEYROLE = Qt.ItemDataRole.UserRole + 10	# ("w" or "d", date) of a row
 
 UP, DOWN = QColor("#089981"), QColor("#2a2e39")	# green up, black down, as the charts
 PROFCOLOR = QColor("#26c6da")
+NEWSCOLOR = QColor("#ff9800")	# the lines of the news releases
 DAYLINE = QColor(41, 100, 249)	# the days' and the week's lines, as in the week captures
 
 def trange(kind):
@@ -45,10 +47,13 @@ def source(data, low, tf):
 class Geom:
 	"""where the chart of day or week d in time frame tf puts times and
 	prices: wider for the lower time frames, so their candles fit"""
-	def __init__(self, data, kind, d, tf=15, low=None):
+	def __init__(self, data, kind, d, tf=15, low=None, view=None):
+		"""view, when given, is the (top, bottom, t0, t1) shown instead of
+		the whole day or week (see zoomed)"""
 		self.bars = source(data, low, tf).bars(kind, d, tf)
 		wall, o, h, l, c, zero = self.bars
 		self.ok = len(wall) > 0
+		self.kind = kind
 		self.W, self.H = (1800, 1000) if kind == "d" else (2400, 1100)
 		self.L, self.R, self.T, self.B = 16, 100, 44, 40
 		ncandles = (m15.DAYEND - m15.DAYSTART) * 60 / tf * (1 if kind == "d" else 5)
@@ -59,6 +64,54 @@ class Geom:
 		hi, lo = (float(h.max()), float(l.min())) if self.ok else (1, 0)
 		pad = (hi - lo) * 0.04 or 1
 		self.top, self.bot = hi + pad, lo - pad
+		self.whole = (self.top, self.bot, self.t0, self.t1)
+		if view:
+			self.top, self.bot, self.t0, self.t1 = view
+
+	def view(self):
+		"""the prices and times shown: None for the whole day or week"""
+		v = (self.top, self.bot, self.t0, self.t1)
+		return None if v == self.whole else v
+
+	def unzoomed(self):
+		"""this geometry for the whole day or week"""
+		g = copy.copy(self)
+		g.top, g.bot, g.t0, g.t1 = self.whole
+		return g
+
+	def zoomed(self, axis, at, factor):
+		"""the view with the prices (axis "p") or the times ("t") scaled by
+		factor around at, a price or a time: under 1 shows less of them"""
+		top, bot, t0, t1 = self.top, self.bot, self.t0, self.t1
+		if axis == "p":
+			span = (top - bot) * factor
+			if span < 1 or span > 20 * (self.whole[0] - self.whole[1]):
+				return self.view()
+			k = (top - at) / (top - bot)
+			top = at + k * span
+			bot = top - span
+		else:
+			span = (t1 - t0) * factor
+			w0, w1 = self.whole[2], self.whole[3]
+			least = (0.5 if self.kind == "d" else 2 / 24)	# half an hour, two hours
+			span = max(least, min(span, w1 - w0))
+			k = (at - t0) / (t1 - t0)
+			t0 = at - k * span
+			t0 = min(max(t0, w0), w1 - span)
+			t1 = t0 + span
+		v = (top, bot, t0, t1)
+		return None if all(abs(a - b) < 1e-9 for a, b in zip(v, self.whole)) else v
+
+	def inplot(self, x, y):
+		"""where scene point x, y is: "p" over the price axis, "t" over the
+		time axis, "c" in the chart, None elsewhere"""
+		if self.T <= y <= self.T + self.ph and x > self.L + self.pw:
+			return "p"
+		if self.L <= x <= self.L + self.pw and y > self.T + self.ph:
+			return "t"
+		if self.L <= x <= self.L + self.pw and self.T <= y <= self.T + self.ph:
+			return "c"
+		return None
 
 	def X(self, t):
 		return self.L + (t - self.t0) / (self.t1 - self.t0) * self.pw
@@ -79,11 +132,13 @@ class Geom:
 	def frompx(self, px):
 		return [(round(self.t(x), 4), round(self.price(y), 2)) for x, y in px]
 
-def render(data, kind, d, path=None, tf=15, low=None):
+def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None):
 	"""the chart of day d or week d (its Monday) in time frame tf (from
 	low, the data of a lower time frame, under m15) as a QImage, saved at
-	path when given; None without candles"""
-	g = Geom(data, kind, d, tf, low)
+	path when given; None without candles. view is the part shown (see
+	Geom), profile whether its profile is drawn, news a news.News whose
+	releases are marked"""
+	g = Geom(data, kind, d, tf, low, view)
 	if not g.ok:
 		return None
 	wall, bo, bh, bl, bc, zero = g.bars
@@ -114,14 +169,27 @@ def render(data, kind, d, path=None, tf=15, low=None):
 		p.drawText(QRectF(L + pw + 6, y - 10, R - 10, 20), Qt.AlignmentFlag.AlignVCenter, m15.price(v))
 		v += step
 
-	# time: the hours of a day, the days of a week
+	# time: the hours of a day, the days of a week, or their hours when zoomed in
+	p.save()
+	p.setClipRect(QRectF(L, T, pw, ph + B))
+	hours = (t1 - t0) * (1 if kind == "d" else 24)	# hours shown
+	step = next((h for h in (0.25, 0.5, 1, 2, 3, 4, 6, 12) if hours / h <= 14), 24)
+	if kind == "d" or hours <= 60:
+		perh = 1 if kind == "d" else 1 / 24	# chart units an hour
+		h = (t0 / perh // step) * step
+		while h * perh <= t1:
+			x = X(h * perh)
+			if x >= L + 20:	# a label cut by the left edge isn't drawn
+				p.setPen(QPen(grid, 1))
+				p.drawLine(QPointF(x, T), QPointF(x, T + ph))
+				p.setPen(axis)
+				hh = h % 24
+				label = f"{int(hh):02d}:{int(round(hh % 1 * 60)):02d}"
+				if kind == "w" and hh == 0:
+					label = f"{d + timedelta(days=int(h // 24)):%a %d}"
+				p.drawText(QRectF(x - 40, T + ph + 6, 80, 20), Qt.AlignmentFlag.AlignCenter, label)
+			h += step
 	if kind == "d":
-		for h in range(m15.DAYSTART, m15.DAYEND + 1, 2):
-			x = X(h)
-			p.setPen(QPen(grid, 1))
-			p.drawLine(QPointF(x, T), QPointF(x, T + ph))
-			p.setPen(axis)
-			p.drawText(QRectF(x - 30, T + ph + 6, 60, 20), Qt.AlignmentFlag.AlignCenter, f"{h % 24:02d}:00")
 		p.setPen(QPen(DAYLINE, 2, Qt.PenStyle.DotLine))
 		p.drawLine(QPointF(X(0), T), QPointF(X(0), T + ph))
 	else:
@@ -130,9 +198,13 @@ def render(data, kind, d, path=None, tf=15, low=None):
 		for k in range(5):
 			p.setPen(QPen(DAYLINE, 2, Qt.PenStyle.DotLine))
 			p.drawLine(QPointF(X(k), T), QPointF(X(k), T + ph))
-			p.setPen(axis)
-			day = d + timedelta(days=k)
-			p.drawText(QRectF(X(k), T + ph + 6, X(k + 0.7) - X(k), 20), Qt.AlignmentFlag.AlignCenter, f"{day:%a %d}")
+			if hours > 60:	# the names of the days, in what shows of them
+				a, b = max(X(k), L), min(X(k + 0.7), L + pw)
+				if b - a > 30:
+					p.setPen(axis)
+					day = d + timedelta(days=k)
+					p.drawText(QRectF(a, T + ph + 6, b - a, 20), Qt.AlignmentFlag.AlignCenter, f"{day:%a %d}")
+	p.restore()
 
 	p.save()
 	p.setClipRect(QRectF(L, T, pw, ph))	# levels of the m15 data may be off a lower time frame's
@@ -162,8 +234,25 @@ def render(data, kind, d, path=None, tf=15, low=None):
 		y0, y1 = Y(max(o, c)), Y(min(o, c))
 		p.fillRect(QRectF(x - bw / 2, y0, bw, max(1.0, y1 - y0)), col)
 
+	# the news: a line at the time of each release
+	if news is not None:
+		f.setPixelSize(14)
+		f.setBold(True)
+		p.setFont(f)
+		days = [(d, 0)] if kind == "d" else [(d + timedelta(days=k), k) for k in range(5)]
+		for day, k in days:
+			for n, (h, name) in enumerate(news.of(day)):
+				x = X(h if kind == "d" else k + h / 24)
+				p.setPen(QPen(NEWSCOLOR, 2, Qt.PenStyle.DashLine))
+				p.drawLine(QPointF(x, T), QPointF(x, T + ph))
+				p.setPen(NEWSCOLOR.darker(120))
+				p.drawText(QRectF(x + 4, T + 2 + 18 * n, 120, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
+		f.setBold(False)
+		f.setPixelSize(15)
+		p.setFont(f)
+
 	# the profile
-	pts = data.profile(kind, d, prices=True)
+	pts = data.profile(kind, d, prices=True) if profile else None
 	if pts:
 		line = QPolygonF([QPointF(X(t), Y(v)) for t, v in pts])
 		p.setPen(QPen(PROFCOLOR, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
@@ -185,6 +274,30 @@ def render(data, kind, d, path=None, tf=15, low=None):
 	if path:
 		img.save(path)
 	return img
+
+def mapdrawing(data, g1, g2):
+	"""drawing data (see viewer.drawingdata) on the chart of geometry g1
+	moved to the same prices and times on that of g2"""
+	if not data or not data.get("shapes"):
+		return data
+	def mp(q):
+		return [round(g2.X(g1.t(q[0])), 1), round(g2.Y(g1.price(q[1])), 1)]
+	shapes = []
+	for sh in data["shapes"]:
+		sh = dict(sh)
+		for k in ("p1", "p2", "pos"):
+			if k in sh:
+				sh[k] = mp(sh[k])
+		if "points" in sh:
+			sh["points"] = [mp(q) for q in sh["points"]]
+		if "rect" in sh:
+			x, y, w, h = sh["rect"]
+			a, b = mp((x, y)), mp((x + w, y + h))
+			sh["rect"] = [min(a[0], b[0]), min(a[1], b[1]), round(abs(b[0] - a[0]), 1), round(abs(b[1] - a[1]), 1)]
+		if "right" in sh:
+			sh["right"] = round(g2.X(g1.t(sh["right"])), 1)
+		shapes.append(sh)
+	return {**data, "shapes": shapes}
 
 def drawpts(painter, box, kind, pts, pal, selected=False, upto=None):
 	"""draw profile pts of kind in box: the midnights faint behind it, and
@@ -442,7 +555,8 @@ class DataPanel(QWidget):
 			text = f"Week {d:%d %b %Y}" if kind == "w" else f"{d:%a %d}"
 			if kind == "d" and not self.weeksbox.isChecked():
 				text = f"{d:%a %d %b}"
-			it.setText(0, text + ("  ✎" if self.data.drawn(kind, d) else ""))
+			news = self.newsof(kind, d)
+			it.setText(0, text + (f"  · {news}" if news else "") + ("  ✎" if self.data.drawn(kind, d) else ""))
 		kind = "w" if self.weeksbox.isChecked() else "d"
 		def count(it):
 			k = it.data(0, KEYROLE)
@@ -450,6 +564,14 @@ class DataPanel(QWidget):
 		for k, g in self.groups.items():
 			if k[0] == "m":
 				g.setText(0, f"{date(k[1], k[2], 1):%B %Y}   ({count(g)})")
+
+	def newsof(self, kind, d):
+		"""the names of the news of day d, or of the week of d"""
+		n = getattr(getattr(self.win, "journal", None), "news", None)
+		if n is None:
+			return ""
+		names = n.names(d) if kind == "d" else [x for _, _, x in n.inweek(d)]
+		return " ".join(dict.fromkeys(names))
 
 	def keys(self):
 		"""the rows in order, as the list shows them"""
