@@ -251,6 +251,15 @@ if barstate.islast
     l := line.new(bar_index - 20, dh, bar_index, dh, color = color.fuchsia, width = 3, extend = extend.both)
     label.new(bar_index, dh, "day high", style = label.style_label_left)
 ''')
+import time
+def settle(w, seconds=60):
+	"""wait for the runs of w's chart, made in the background"""
+	end = time.time() + seconds
+	while w.datapending and time.time() < end:
+		app.processEvents()
+		time.sleep(0.01)
+	app.processEvents()
+
 w = mainwin.MainWindow(j)
 w.show()
 app.processEvents()
@@ -262,6 +271,9 @@ before = QImage(w.datapath)
 names = indicators.importfiles([script])
 check(names == ["Highs"] and indicators.enabled() == ["Highs"], "imported, and on")
 w.indicatorschanged()
+check(w.datapending, "run in the background")
+settle(w)
+check(not w.datapending, "and drawn when done")
 check(w.dataoverlay is not None and isinstance(w.view.pixitem, mainwin.ChartItem) and w.view.pixitem.overlay is w.dataoverlay,
 	"what it draws goes on the chart and on its sharp redraw")
 after = QImage(w.datapath)
@@ -280,16 +292,73 @@ check([a.text() for a in acts] == ["Highs"] and acts[0].isChecked(), "the Indica
 acts[0].setChecked(False)
 check(indicators.enabled() == [] and w.dataoverlay is None and not hasfuchsia(QImage(w.datapath)), "unchecked, it goes away")
 acts[0].setChecked(True)
+settle(w)
 w2 = mainwin.MainWindow(j)
 check(indicators.enabled() == ["Highs"], "the choice is remembered")
+w.datazooms[(key[0], key[1], w.datashowntf)] = (w.datageom.top, w.datageom.bot, 2.0, 9.0)
+w.showdata(key, force=True)
+check(w.datapending and w.dataoverlay is not None, "zoomed in, the last run of the chart is shown while the new one is made")
 w.addchart()
+check(not w.datapending, "a capture waits for the runs")
 w.journal.load()
 caps = [e for e in w.journal.entries if e.day == date(2026, 11, 4)]
 check(caps and hasfuchsia(QImage(w.journal.path(caps[-1]))), "Add Chart as Capture keeps what the indicators drew")
+del w.datazooms[(key[0], key[1], w.datashowntf)]
+w.showdata(key, force=True)
+settle(w)
+
+# inputs
+src2 = os.path.join(src, "Inputs.txt")
+with open(src2, "w") as f:
+	f.write('''indicator("Inputs", overlay = true)
+G = "Main"
+n = input.int(3, "Count", minval = 1, maxval = 9, group = G)
+c = input.color(color.fuchsia, "Color", group = G, inline = "a")
+w = input.int(2, "", options = [1, 2, 3], group = G, inline = "a")
+on = input.bool(true, "Show", group = G)
+s = input.string("dotted", "Style", options = ["solid", "dashed", "dotted"])
+if barstate.islast and on
+    label.new(bar_index, close, str.tostring(n) + " " + str.tostring(w) + " " + s)
+''')
+indicators.importfiles([src2])
+w.indicatorschanged()
+settle(w)
+def lastlabel():
+	rs, _ = indicators.results(w.data, w.getlow, w.datageom, w.datashowntf)
+	r = [r for r in rs if r.title == "Inputs"][0]
+	return [lb.text for lb in r.labels]
+check(lastlabel() == ["3 2 dotted"], "inputs take their defaults")
+seen = {}
+def edit(dlg):
+	ed = {spec.title: (get, put, wd) for spec, get, put, wd in dlg.editors}
+	seen.update({k: type(v[2]).__name__ for k, v in ed.items()})
+	ed["Count"][1](5)
+	ed[""][1](3)
+	ed["Style"][1]("solid")
+	return True
+w.indicatorinputs("Inputs", edit)
+check(seen == {"Count": "QSpinBox", "Color": "QPushButton", "": "QComboBox", "Show": "QCheckBox", "Style": "QComboBox"},
+	"the inputs dialog has a field for each, as TradingView: " + str(seen))
+settle(w)
+check(lastlabel() == ["5 3 solid"], "and the indicator runs with the new values")
+check(set(indicators.inputs("Inputs")) == {"Main|Count|", "Main||a", "|Style|"}, "only those changed are kept")
+w.indicatorinputs("Inputs", lambda dlg: [put(spec.defval) for spec, get, put, wd in dlg.editors] and True)
+settle(w)
+check(lastlabel() == ["3 2 dotted"] and indicators.inputs("Inputs") == {}, "back to the defaults")
+indicators.remove("Inputs")
+
+# the session rectangles
+check(w.sessionsact.isChecked(), "session rectangles are drawn")
+w.setsessions(False)
+check(not mainwin.dataview.SHOWSESSIONS and mainwin.settings().value("datasessions") in (False, "false"), "and not, remembered")
+w.setsessions(True)
+
 with open(script, "w") as f:
 	f.write('indicator("Bad")\nx = nosuchname\n')
 indicators.importfiles([script])
 w.indicatorschanged()
-check("Bad: unknown name 'nosuchname'" in w.statusBar().currentMessage(), "a script that fails says why")
+settle(w)
+w.showdata(key, force=True)
+check("Bad: line 2: unknown name 'nosuchname'" in w.statusBar().currentMessage(), "a script that fails says why")
 print("ALL OK")
 os._exit(0)

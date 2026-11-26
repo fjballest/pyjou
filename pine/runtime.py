@@ -473,6 +473,7 @@ class Series:
 		f = np.asarray(self.t, dtype=np.int64)
 		wall = f + tzoffs(RT.tz, f) if len(f) else f
 		days = wall // 86400000
+		self.tday = (((wall + 6 * 3600000) // 86400000) * 86400000).tolist()	# trading days start at 18:00
 		self.hour = ((wall // 3600000) % 24).tolist()
 		self.minute = ((wall // 60000) % 60).tolist()
 		self.second = ((wall // 1000) % 60).tolist()
@@ -514,6 +515,7 @@ def setbar(ns, S, i):
 	ns["dayofmonth"] = S.dom[i]
 	ns["month"] = S.month[i]
 	ns["year"] = S.year[i]
+	ns["time_tradingday"] = S.tday[i]
 	ns["last_bar_index"] = S.n - 1
 	ns["last_bar_time"] = S.t[-1]
 	ns["timenow"] = S.tc[-1]
@@ -523,7 +525,7 @@ def setbar(ns, S, i):
 
 SERIESOF = {"open": "o", "high": "h", "low": "l", "close": "c", "volume": "v", "time": "t", "time_close": "tc",
 	"hour": "hour", "minute": "minute", "second": "second", "dayofweek": "dow", "dayofmonth": "dom",
-	"month": "month", "year": "year"}
+	"month": "month", "year": "year", "time_tradingday": "tday"}
 
 def sh(name, n):
 	"""builtin series name n bars ago"""
@@ -570,8 +572,9 @@ class Runtime:
 		self.objs = {"line": deque(), "label": deque(), "box": deque(), "table": [], "polyline": deque(), "linefill": deque()}
 		self.alive = {"line": 0, "label": 0, "box": 0, "polyline": 0, "linefill": 0}
 		self.plots = {}
-		self.inputs = {}
-		self.specs = []
+		self.inputs = {}	# {key: value} instead of the defaults
+		self.specs = {}		# {call site: Input}
+		self.inputkeys = set()
 		self.symbol = "NQ"
 		self.chart = None
 		self.title = ""
@@ -1130,14 +1133,52 @@ def s_trim(s):
 
 # ---------------------------------------------------------------- inputs
 
+class Input:
+	"""an input of the script: key (its group, title and inline, which
+	stay when the script changes elsewhere), kind (int, float, bool,
+	string, color, session, time, timeframe, symbol, source...), title,
+	default value and the other arguments (options, minval, maxval, step,
+	tooltip, group, inline)"""
+	__slots__ = ("key", "kind", "title", "defval", "args")
+	def __init__(self, key, kind, title, defval, args):
+		self.key, self.kind, self.title, self.defval, self.args = key, kind, title, defval, args
+
+ARGNAMES = {"any": ("defval", "title", "tooltip", "inline", "group"),
+	"bool": ("defval", "title", "tooltip", "inline", "group", "confirm", "display"),
+	"color": ("defval", "title", "tooltip", "inline", "group", "confirm", "display"),
+	"source": ("defval", "title", "tooltip", "inline", "group", "display"),
+	"time": ("defval", "title", "tooltip", "inline", "group", "confirm", "display"),
+	"string": ("defval", "title", "options", "tooltip", "inline", "group", "confirm", "display"),
+	"session": ("defval", "title", "options", "tooltip", "inline", "group", "confirm", "display"),
+	"timeframe": ("defval", "title", "options", "tooltip", "inline", "group", "confirm", "display"),
+	"symbol": ("defval", "title", "tooltip", "inline", "group", "confirm", "display"),
+	"text_area": ("defval", "title", "tooltip", "group", "confirm", "display"),
+	"int": ("defval", "title", "minval", "maxval", "step", "tooltip", "inline", "group", "confirm", "display"),
+	"float": ("defval", "title", "minval", "maxval", "step", "tooltip", "inline", "group", "confirm", "display"),
+	"price": ("defval", "title", "tooltip", "inline", "group", "confirm", "display")}
+
 def mkinput(kind):
-	def f(*a, **k):
-		defval = a[0] if a else k.get("defval", na)
-		title = a[1] if len(a) > 1 else k.get("title", "")
-		key = f"{k.get('group', '')}/{title}/{len(RT.specs)}"
-		RT.specs.append((key, kind, title, defval, k))
-		v = RT.inputs.get(key, defval)
-		return v
+	names = ARGNAMES.get(kind, ARGNAMES["any"])
+	def f(*a, _site=None, **k):
+		args = dict(zip(names, a))
+		if kind in ("int", "float") and len(a) > 2 and isinstance(a[2], (list, tuple)):	# input.int(1, "x", [1, 2, 3])
+			args = dict(zip(("defval", "title", "options", "tooltip", "inline", "group", "confirm", "display"), a))
+		args.update(k)
+		spec = RT.specs.get(_site)
+		if spec is None:
+			defval = args.get("defval", na)
+			title = args.get("title", "") or ""
+			base = f"{args.get('group', '') or ''}|{title}|{args.get('inline', '') or ''}"
+			key = base
+			n = 1
+			while key in RT.inputkeys:
+				n += 1
+				key = f"{base}#{n}"
+			RT.inputkeys.add(key)
+			spec = RT.specs[_site] = Input(key, "float" if kind == "price" else kind, title, defval, args)
+		if kind == "source" or spec.key not in RT.inputs:
+			return args.get("defval", na)
+		return RT.inputs[spec.key]
 	return f
 
 # ---------------------------------------------------------------- ta
@@ -1813,7 +1854,11 @@ def builtins():
 		"dayofmonth": _tfield(2), "month": _tfield(1), "year": _tfield(0), "weekofyear": weekofyear,
 		"indicator": indicator, "strategy": indicator, "library": indicator,
 		"alert": noop, "alertcondition": noop, "max_bars_back": noop, "barcolor": noop,
-		"runtime.error": runtime_error, "log.info": log_, "log.warning": log_, "log.error": log_,
+		"runtime.error": runtime_error,
+		"strategy.entry": noop, "strategy.exit": noop, "strategy.close": noop, "strategy.close_all": noop,
+		"strategy.cancel": noop, "strategy.cancel_all": noop, "strategy.order": noop,
+		"ticker.modify": ident, "ticker.new": lambda prefix, ticker, *a, **k: f"{prefix}:{ticker}",
+		"ticker.standard": ident, "ticker.heikinashi": ident, "ticker.inherit": ident, "log.info": log_, "log.warning": log_, "log.error": log_,
 		"color.new": color_new, "color.rgb": rgb, "color.r": color_r, "color.g": color_g, "color.b": color_b,
 		"color.t": color_t, "color.from_gradient": from_gradient,
 		"math.max": mmax, "math.min": mmin, "math.avg": mavg, "math.abs": mabs, "math.round": mround,
@@ -1898,7 +1943,11 @@ def builtins():
 	K.update({"math.pi": math.pi, "math.e": math.e, "math.phi": (1 + 5 ** 0.5) / 2, "session.regular": "regular",
 		"session.extended": "extended", "order.ascending": "ascending", "order.descending": "descending",
 		"currency.USD": "USD", "currency.EUR": "EUR", "scale.right": "right", "scale.left": "left",
-		"scale.none": "none", "adjustment.none": "none", "barmerge.gaps": False})
+		"scale.none": "none", "adjustment.none": "none", "barmerge.gaps": False,
+		"settlement_as_close.on": "on", "settlement_as_close.off": "off", "settlement_as_close.inherit": "inherit",
+		"strategy.long": "long", "strategy.short": "short", "strategy.fixed": "fixed", "strategy.cash": "cash",
+		"strategy.percent_of_equity": "percent", "chart.bg_color": hexcolor("#FFFFFF"),
+		"chart.fg_color": hexcolor("#131722")})
 	D = {
 		"barstate.isfirst": "_RT.isfirst", "barstate.islast": "_RT.islast", "barstate.isconfirmed": "True",
 		"barstate.isnew": "True", "barstate.isrealtime": "False", "barstate.ishistory": "True",
@@ -1914,7 +1963,8 @@ def builtins():
 		"syminfo.mintick": "_RT.mintick", "syminfo.pointvalue": "_RT.sym['pointvalue']",
 		"syminfo.timezone": "_RT.tz", "syminfo.session": "'regular'", "syminfo.currency": "'USD'",
 		"syminfo.basecurrency": "''", "syminfo.main_tickerid": "_RT.sym['tickerid']",
-		"chart.is_standard": "True", "chart.left_visible_bar_time": "_RT.S.t[0]",
+		"chart.is_standard": "True", "strategy.position_size": "0", "strategy.position_avg_price": "_na",
+		"strategy.equity": "0", "strategy.netprofit": "0", "strategy.opentrades": "0", "strategy.closedtrades": "0", "chart.left_visible_bar_time": "_RT.S.t[0]",
 		"chart.right_visible_bar_time": "_RT.S.t[-1]",
 		"line.all": "_RT.all('line')", "label.all": "_RT.all('label')", "box.all": "_RT.all('box')",
 		"table.all": "_RT.all('table')",

@@ -37,6 +37,8 @@ def nicestep(span, n):
 			return k * p
 	return 10 * p
 
+SHOWSESSIONS = True	# the session rectangles of the days are drawn (View ▸ Session Rectangles)
+
 def title(data, kind, d, tf=15):
 	if kind == "w":
 		return f"{data.symbol} {m15.tfname(tf)} · Week {d:%d %b} – {d + timedelta(days=4):%d %b %Y}"
@@ -244,7 +246,7 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 	p.save()
 	p.setClipRect(QRectF(L, T, pw, ph))	# levels of the m15 data may be off a lower time frame's
 	# the sessions of a day, as boxes from their high to their low
-	if kind == "d":
+	if kind == "d" and SHOWSESSIONS:
 		for name, a, b, sh, sl, _, _, color in data.sessions(d):
 			c = QColor(color)
 			fill = QColor(c)

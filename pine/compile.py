@@ -13,7 +13,7 @@ from .parse import PineError, parse
 
 F, STATEFUL, K, D = R.builtins()
 NAMESPACES = {"array", "map", "line", "label", "box", "table", "linefill", "polyline", "matrix", "chart.point",
-	"str", "math", "ta", "color", "input", "request", "timeframe", "syminfo", "barstate", "chart", "runtime", "log"}
+	"str", "math", "ta", "color", "input", "request", "timeframe", "syminfo", "barstate", "chart", "runtime", "log", "ticker", "strategy", "settlement_as_close"}
 OBJECTNS = {"array", "map", "line", "label", "box", "table", "linefill", "polyline", "matrix", "chart.point"}
 BUILTINMETHODS = set()
 for cls in (R.PArray, R.PMap, R.Line, R.Label, R.Box, R.Table, R.Linefill, R.Point, R.UDT):
@@ -810,6 +810,8 @@ class Compiler:
 					a.append(f"_t={tuple(targs)!r}")
 				if d in STATEFUL:
 					a = ["_c", str(site)] + a
+				elif d == "input" or d.startswith("input."):
+					a.append(f"_site={site}")
 				return f"{py}({', '.join(a)})"
 			parts = d.split(".")
 			head, m = ".".join(parts[:-1]), parts[-1]

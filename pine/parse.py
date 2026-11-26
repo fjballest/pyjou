@@ -266,7 +266,7 @@ class Parser:
 		if self.isop("[") and self.isop("]", 1):
 			self.next()
 			self.next()
-			args = [name]
+			args = [(name, tuple(args))]
 			name = "array"
 		return (name, tuple(args))
 

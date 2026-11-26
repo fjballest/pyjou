@@ -38,6 +38,7 @@ from helpwin import addtopics, showguide
 import m15
 import news
 import indicators
+import dataview
 from dataview import ChartItem, DataPanel, Geom, drawpts, mapdrawing, render, widened
 import tempfile
 
@@ -579,6 +580,8 @@ class MainWindow(QMainWindow):
 			indicators.setup(os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation),
 				"DayJournal", "indicators"), settings)
 		self.dataoverlay = None	# what the indicators draw on the data chart
+		self.datapending = False	# and whether runs for it are still to come
+		indicators.runner().done.connect(self.indicatorsdone)
 		self.journal = None
 		self.child = False		# made by New Window: it can be synced
 		self.current = None		# the Entry shown
@@ -758,6 +761,11 @@ class MainWindow(QMainWindow):
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
+		self.sessionsact = self.mkaction("&Session Rectangles", lambda: self.setsessions(self.sessionsact.isChecked()), None, None,
+			"Draw the Asia, London and NY AM sessions of the days of the data as rectangles")
+		self.sessionsact.setCheckable(True)
+		dataview.SHOWSESSIONS = settings().value("datasessions", True) not in (False, "false")
+		self.sessionsact.setChecked(dataview.SHOWSESSIONS)
 		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
 			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
 		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
@@ -866,6 +874,7 @@ class MainWindow(QMainWindow):
 		self.tfmenu.setEnabled(False)	# in the data view
 		self.indmenu = v.addMenu("&Indicators")
 		self.indmenu.aboutToShow.connect(self.fillindicators)
+		v.addAction(self.sessionsact)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -1115,6 +1124,12 @@ class MainWindow(QMainWindow):
 			QMessageBox.information(self, "Add Chart as Capture", "Show a day or week of the data first.")
 			return
 		self.view.commitedit()
+		if self.datapending:	# the indicators as they are for this chart
+			QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+			try:
+				self.redrawdata(wait=True)
+			finally:
+				QApplication.restoreOverrideCursor()
 		kind, d = k
 		week = kind == "w"
 		day = weekname(d) if week else d
@@ -1302,22 +1317,21 @@ class MainWindow(QMainWindow):
 		self.updateactions()
 		self.moved()
 
-	def renderdata(self, kind, d, path, tf, low):
+	def renderdata(self, kind, d, path, tf, low, wait=False):
 		"""draw the chart of day or week d in tf at path, as zoomed, with or
 		without its profile as the drawings are shown or not; its Geom
-		goes in datageom"""
+		goes in datageom. The indicators are drawn as their last runs of the
+		chart while the runs for it are made in the background (and it is
+		drawn again when they are done, see indicatorsdone), or as they are
+		run now with wait"""
 		view = self.datazooms.get((kind, d, tf))
 		g = Geom(self.data, kind, d, tf, low, view)
 		self.dataoverlay = None
+		self.datapending = False
 		if g.ok and indicators.enabled():
-			QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-			try:
-				self.dataoverlay = indicators.overlay(self.data, self.getlow, g, tf)
-				bad = indicators.errors(self.data, self.getlow, g, tf)
-				if bad:
-					self.statusBar().showMessage("; ".join(bad), 10000)
-			finally:
-				QApplication.restoreOverrideCursor()
+			self.dataoverlay, self.datapending, bad = indicators.overlay(self.data, self.getlow, g, tf, wait=wait)
+			if bad and not self.datapending:
+				self.statusBar().showMessage("; ".join(bad), 10000)
 		img = render(self.data, kind, d, path, tf, low, view, not self.view.hidden,
 			self.journal.news if self.journal else None, self.dataoverlay)
 		self.datageom = g if img is not None else None
@@ -1338,6 +1352,10 @@ class MainWindow(QMainWindow):
 			a = m.addAction("No indicators yet")
 			a.setEnabled(False)
 		m.addSeparator()
+		if have:
+			st = m.addMenu("&Settings")
+			for name, _ in have:
+				st.addAction(name + "…", lambda n=name: self.indicatorinputs(n))
 		m.addAction("&Import Indicators…", self.importindicators)
 		if have:
 			rm = m.addMenu("&Remove")
@@ -1345,6 +1363,30 @@ class MainWindow(QMainWindow):
 				rm.addAction(name, lambda n=name: self.removeindicator(n))
 		m.addAction("Show Indicators &Folder", lambda: (os.makedirs(indicators.DIR, exist_ok=True),
 			QDesktopServices.openUrl(QUrl.fromLocalFile(indicators.DIR))))
+
+	def indicatorinputs(self, name, accept=None):
+		"""edit the inputs of indicator name, as TradingView does"""
+		g = self.datageom if self.datamode else None
+		QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+		try:
+			specs, title = indicators.inputsof(name, self.data, self.getlow, g, self.datashowntf if g else 15)
+		finally:
+			QApplication.restoreOverrideCursor()
+		if not specs and g is None:
+			QMessageBox.information(self, "Indicator Settings", "Show a day or week of the data first.")
+			return
+		if indicators.inputsdialog(self, name, specs, title, accept):
+			self.indicatorschanged()
+
+	def setsessions(self, on):
+		"""draw the session rectangles on the data charts or not, in every window"""
+		settings().setValue("datasessions", bool(on))
+		dataview.SHOWSESSIONS = bool(on)
+		for w in QApplication.topLevelWidgets():
+			if isinstance(w, MainWindow):
+				w.sessionsact.setChecked(bool(on))
+				if w.datamode and w.datakey is not None:
+					w.showdata(w.datakey, force=True)
 
 	def setindicator(self, name, on):
 		indicators.toggle(name, on)
@@ -1383,11 +1425,22 @@ class MainWindow(QMainWindow):
 		"""the drawings were hidden or shown: the profile of the chart too"""
 		if not self.datamode or self.datakey is None or self.datageom is None or self.datapath is None:
 			return
+		self.redrawdata()
+
+	def redrawdata(self, wait=False):
+		"""draw the data chart shown again, where it is (the drawings stay)"""
+		if not self.datamode or self.datakey is None or self.datageom is None or self.datapath is None:
+			return
 		kind, d = self.datakey
 		tf = self.datashowntf
-		if self.renderdata(kind, d, self.datapath, tf, self.getlow() if tf < 15 else None) is not None and self.view.pixitem is not None:
+		if self.renderdata(kind, d, self.datapath, tf, self.getlow() if tf < 15 else None, wait) is not None and self.view.pixitem is not None:
 			self.view.pixitem.setPixmap(QPixmap(self.datapath))
 			self.sharpchart()
+
+	def indicatorsdone(self):
+		"""runs of the indicators were made: the chart drawn again if it waited for them"""
+		if getattr(self, "datapending", False) and isValid(self):
+			self.redrawdata()
 
 	def sharpchart(self):
 		"""the image of the data chart shown as a ChartItem, that draws the

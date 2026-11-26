@@ -5,6 +5,7 @@ last; what it draws is kept in a Result (see draw.py).
 Only the part of Pine v6 the journal's indicators use is supported."""
 
 import bisect
+import threading
 import hashlib
 import time as _time
 import traceback
@@ -13,7 +14,8 @@ from . import runtime as R
 from .compile import compile_script, namespace
 from .parse import PineError
 
-NBARS = 5000	# the chart bars a script runs on, as TradingView keeps
+NBARS = 5000
+LOCK = threading.RLock()	# one run at a time: the runtime is one	# the chart bars a script runs on, as TradingView keeps
 
 class Script:
 	"""a compiled Pine script; error is why it could not be compiled"""
@@ -36,6 +38,8 @@ class Script:
 			self.error = str(x)
 		except RecursionError:
 			self.error = "too deeply nested"
+		except Exception as x:	# a bug here, not in the script: said, not raised
+			self.error = f"can't compile it: {type(x).__name__}: {x}"
 		import re
 		m = re.search(r'indicator\s*\(\s*(?:title\s*=\s*)?"([^"]*)"', src)
 		if m:
@@ -56,10 +60,15 @@ class Result:
 		self.error = None
 		self.seconds = 0
 		self.title = ""
+		self.inputs = []	# [runtime.Input], as the script asked for them
 
 def run(script, chart, sources, symbol="NQ", inputs=None, tz="America/New_York"):
 	"""run script on the chart bars (a runtime.Series) and those sources
 	returns for a time frame key (see runtime.tfkind): a Result"""
+	with LOCK:
+		return _run(script, chart, sources, symbol, inputs, tz)
+
+def _run(script, chart, sources, symbol, inputs, tz):
 	res = Result()
 	res.S = chart
 	res.title = script.title
@@ -111,6 +120,7 @@ def run(script, chart, sources, symbol="NQ", inputs=None, tz="America/New_York")
 	res.tables = [o for o in RT.objs["table"] if o.alive]
 	res.linefills = [o for o in RT.objs["linefill"] if o.alive]
 	res.plots = RT.plots
+	res.inputs = list(RT.specs.values())
 	res.seconds = _time.time() - t0
 	RT.ns = None
 	RT.sources = None
