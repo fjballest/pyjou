@@ -61,14 +61,16 @@ class Result:
 		self.seconds = 0
 		self.title = ""
 		self.inputs = []	# [runtime.Input], as the script asked for them
+		self.cancelled = False	# stopped midway: not what it draws
 
-def run(script, chart, sources, symbol="NQ", inputs=None, tz="America/New_York"):
+def run(script, chart, sources, symbol="NQ", inputs=None, tz="America/New_York", stop=None):
 	"""run script on the chart bars (a runtime.Series) and those sources
-	returns for a time frame key (see runtime.tfkind): a Result"""
+	returns for a time frame key (see runtime.tfkind): a Result. stop, a
+	threading.Event, stops it midway when set: the Result says cancelled"""
 	with LOCK:
-		return _run(script, chart, sources, symbol, inputs, tz)
+		return _run(script, chart, sources, symbol, inputs, tz, stop)
 
-def _run(script, chart, sources, symbol, inputs, tz):
+def _run(script, chart, sources, symbol, inputs, tz, stop=None):
 	res = Result()
 	res.S = chart
 	res.title = script.title
@@ -101,6 +103,9 @@ def _run(script, chart, sources, symbol, inputs, tz):
 		ns["_init"](ctx)
 		bar = ns["_bar"]
 		for i in range(chart.n):
+			if stop is not None and not i & 15 and stop.is_set():
+				res.cancelled = True
+				break
 			R.setbar(ns, chart, i)
 			bar(ctx)
 	except Exception as x:

@@ -142,6 +142,7 @@ class Job:
 	"""the runs a chart needs: todo [(name, path, run key, inputs)]"""
 	def __init__(self, chart, data, low, tf, upto, todo):
 		self.chart, self.data, self.low, self.tf, self.upto, self.todo = chart, data, low, tf, upto, todo
+		self.stop = threading.Event()	# set by cancel()
 
 def compute(job):
 	"""make the runs of job (in any thread): {run key: Result}"""
@@ -151,6 +152,8 @@ def compute(job):
 	chart = None
 	out = {}
 	for name, path, key, values in job.todo:
+		if job.stop.is_set():
+			break
 		with _lock:
 			if key in _cache:
 				continue
@@ -162,7 +165,9 @@ def compute(job):
 		except OSError as x:
 			script = pine.Script("", name)
 			script.error = str(x)
-		r = pine.run(script, chart, feed, symbol=job.data.symbol or "NQ", inputs=values)
+		r = pine.run(script, chart, feed, symbol=job.data.symbol or "NQ", inputs=values, stop=job.stop)
+		if r.cancelled:
+			break
 		r.name = name
 		with _lock:
 			while len(_cache) >= KEEP:
@@ -186,6 +191,7 @@ def runner():
 			def __init__(self):
 				super().__init__()
 				self.jobs = {}	# {chart key: Job}, the last asked for each chart
+				self.current = None	# the Job being made
 				self.cond = threading.Condition()
 				self.thread = threading.Thread(target=self.loop, daemon=True, name="indicators")
 				self.thread.start()
@@ -202,16 +208,27 @@ def runner():
 						while not self.jobs:
 							self.cond.wait()
 						chart = next(iter(self.jobs))
-						job = self.jobs[chart]
+						job = self.current = self.jobs[chart]
 					try:
 						compute(job)
 					except Exception:	# a bug: the chart is left as it is
 						import traceback
 						traceback.print_exc()
 					with self.cond:
+						self.current = None
 						if self.jobs.get(chart) is job:
 							del self.jobs[chart]
-					self.done.emit()
+					if not job.stop.is_set():
+						self.done.emit()
+
+			def cancel(self):
+				"""drop the runs asked for, and stop the one being made"""
+				with self.cond:
+					for job in self.jobs.values():
+						job.stop.set()
+					self.jobs.clear()
+					if self.current is not None:
+						self.current.stop.set()
 
 		_runner = Runner()
 	return _runner
@@ -236,12 +253,18 @@ def needed(data, low, g, tf):
 		todo.append((name, p, key, values))
 	return chart, upto, todo
 
-def results(data, low, g, tf, wait=True):
+def cancel():
+	"""stop the runs in the background (the chart is being moved)"""
+	if _runner is not None:
+		_runner.cancel()
+
+def results(data, low, g, tf, wait=True, run=True):
 	"""(the runs of the scripts that are on for the chart of geometry g,
 	whether some are still to come): [pine.Result]. Without wait the
 	missing ones are run in the background and the last ones of this chart
-	are given meanwhile. low is the data of the lowest time frame, or a
-	function giving it (called only when needed)"""
+	are given meanwhile; without run nothing is run, and the last ones of
+	the chart are given (while it is being moved). low is the data of the
+	lowest time frame, or a function giving it (called only when needed)"""
 	if not enabled() or data is None or not len(data):
 		return [], False
 	if callable(low):
@@ -251,7 +274,9 @@ def results(data, low, g, tf, wait=True):
 		return [], False
 	with _lock:
 		missing = [t for t in todo if t[2] not in _cache]
-	if missing:
+	if missing and not run:
+		pass
+	elif missing:
 		job = Job(chart, data, low, tf, upto, missing)
 		if wait:
 			compute(job)
@@ -265,7 +290,7 @@ def results(data, low, g, tf, wait=True):
 				r = _latest.get((name, chart))
 			if r is not None:
 				out.append(r)
-		pending = any(key not in _cache for _, _, key, _ in todo)
+		pending = run and any(key not in _cache for _, _, key, _ in todo)
 	return out, pending
 
 def painter(rs, tf):
@@ -297,11 +322,11 @@ def painter(rs, tf):
 	fn.last = max(int(r.S.t[-1]) for r in rs if r.S is not None and r.S.n) if any(r.S is not None and r.S.n for r in rs) else None
 	return fn
 
-def overlay(data, low, g, tf, wait=True):
+def overlay(data, low, g, tf, wait=True, run=True):
 	"""(a function painting the indicators that are on over the chart of
 	geometry g in tf minutes, or None; whether runs are still to come;
-	[error messages])"""
-	rs, pending = results(data, low, g, tf, wait)
+	[error messages]); see results for run"""
+	rs, pending = results(data, low, g, tf, wait, run)
 	return painter(rs, tf), pending, [f"{r.title}: {r.error}" for r in rs if r.error]
 
 def inputsof(name, data, low, g, tf):

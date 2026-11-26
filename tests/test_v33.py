@@ -65,7 +65,7 @@ def settle():
 	end = time.time() + 60
 	while time.time() < end:
 		app.processEvents()
-		if not w.datapending and not getattr(w, "dataviewsoon", False):
+		if not w.datapending and not getattr(w, "dataviewsoon", False) and not getattr(w, "datamoving", False):
 			break
 		time.sleep(0.01)
 	app.processEvents()
@@ -203,5 +203,63 @@ w.dataaxis(wheel(g.L + g.pw / 2, g.T + g.ph / 2))
 settle()
 g = w.datageom
 check(g.view() is not None and g.margin > 0 and g.lastend() < g0.lastend(), "zoomed in, as the last candle shown, with room after it")
+
+# runs wait while the chart moves, and are stopped
+import pine
+slow = os.path.join(src, "Slow.txt")
+with open(slow, "w") as fh:
+	fh.write('''indicator("Slow", overlay = true)
+var float s = 0.0
+for i = 0 to 3000
+    s := s + math.sin(i) * close
+if barstate.islast
+    label.new(bar_index, high, "slow")
+''')
+src_ = open(slow).read()
+from pine.feed import Feed
+stop = __import__("threading").Event()
+stop.set()
+r = pine.run(pine.Script(src_, "Slow"), Feed(w.data, None, w.datageom.lastend()).chart(15, 500), Feed(w.data, None, w.datageom.lastend()), stop=stop)
+check(r.cancelled and not r.labels, "a run stopped midway draws nothing")
+indicators.setenabled([])
+indicators.importfiles([slow])
+indicators.setenabled(["Slow"])
+w.QUIET = 400
+runs = []
+real_compute = indicators.compute
+def counting(job):
+	runs.append(job.upto)
+	return real_compute(job)
+indicators.compute = counting
+w.datazooms.pop(key, None)
+w.showdata(("d", d), force=True)
+settle()
+before = len(runs)
+g = w.datageom
+for k in range(4):
+	w.dataaxis(wheel(g.L + g.pw / 2, g.T + g.ph / 2, 60))
+	end = time.time() + 0.1
+	while time.time() < end:
+		app.processEvents()
+check(w.datamoving and not w.datapending, "while scrolling the indicators are drawn as they were, not run")
+time.sleep(0.05)
+app.processEvents()
+check(len(runs) == before, "no runs made while it moves: " + str(len(runs) - before))
+end = time.time() + 30
+while (w.datamoving or w.datapending) and time.time() < end:
+	app.processEvents()
+	time.sleep(0.01)
+check(not w.datamoving and len(runs) > before and runs[-1] == w.datageom.lastend(), "run once it is quiet, where it went")
+rs, pend = indicators.results(w.data, w.getlow, w.datageom, w.datashowntf, wait=False)
+check(not pend and rs and rs[0].labels, "and drawn")
+job = indicators.Job(("x",), w.data, None, 15, w.datageom.lastend() - 900, [("Slow", slow, ("k", 1), {})])
+indicators.runner().submit(job)
+time.sleep(0.02)
+indicators.cancel()
+end = time.time() + 10
+while indicators.runner().current is not None and time.time() < end:
+	time.sleep(0.01)
+check(job.stop.is_set() and ("k", 1) not in indicators._cache, "a run going on is stopped when the chart moves again")
+indicators.compute = real_compute
 print("ALL OK")
 os._exit(0)
