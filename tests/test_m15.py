@@ -42,7 +42,7 @@ csvfile(os.path.join(src, "MNQ2.csv"), start + 900*200, 200)
 data = m15.Data(d)
 check(len(data) == 0 and data.symbol is None, "no data at first")
 check(data.add(os.path.join(src, "MNQ.m15.csv.zip")) == (300, 0), "a zip imported")
-check(os.path.exists(os.path.join(d, "MNQ.m15.csv.gz")), "kept compressed, as MNQ.m15.csv.gz")
+check(os.listdir(d) == ["MNQ-261116.m15.csv.gz"], "kept compressed, named after its first day")
 check(data.add(os.path.join(src, "MNQ2.csv")) == (100, 100), "only the candles after the last one are added")
 data = m15.Data(d)
 check(len(data) == 400 and len(set(data.t.tolist())) == 400, "no duplicates")
@@ -71,8 +71,75 @@ check(not data.drawn("d", date(2026, 11, 16)), "and removed when empty")
 old = tempfile.mkdtemp()
 csvfile(os.path.join(old, "ES.m15.csv"), start, 50)
 od = m15.Data(old)
-check(len(od) == 50 and os.listdir(old) == ["ES.m15.csv.gz"], "a plain data file is compressed")
+check(len(od) == 50 and os.listdir(old) == ["ES-261116.m15.csv.gz"], "a plain data file is compressed and renamed")
+os.rename(os.path.join(old, "ES-261116.m15.csv.gz"), os.path.join(old, "ES.m15.csv.gz"))
+check(len(m15.Data(old)) == 50 and os.listdir(old) == ["ES-261116.m15.csv.gz"], "a data file named otherwise is renamed")
+# files of limited size: a new one starts when the last one is full
+big = tempfile.mkdtemp()
+m15.MAXFILE = 2000
+bd = m15.Data(big)
+bd.add(os.path.join(src, "MNQ.m15.csv.zip"))
+files = sorted(os.listdir(big))
+check(len(files) > 1 and all(os.path.getsize(os.path.join(big, f)) <= 2600 for f in files), "the data is split in files of limited size")
+check(len(m15.Data(big)) == 300 and files[0] == "MNQ-261116.m15.csv.gz", "and read back whole")
+n = len(files)
+bd.add(os.path.join(src, "MNQ2.csv"))
+check(len(m15.Data(big)) == 400 and len(os.listdir(big)) >= n, "more data goes on in the last file or new ones")
+m15.MAXFILE = 512 * 1024
 check("Asia" in data.summary("d", date(2026, 11, 16)), "a summary of the day")
+
+# m1 candles as a TradingView dump writes them: ; and the UTC time of their close
+low = tempfile.mkdtemp()
+m1 = os.path.join(src, "MNQ.m1.dump.csv")
+with open(m1, "w") as f:
+	f.write("time_utc_close;open;high;low;close;volume\n")
+	for k in range(60 * 30):	# 30 hours from Sunday 18:00 New York
+		t = start + 60 * (k + 1)
+		p = 100 + k / 60
+		f.write(f"{datetime.fromtimestamp(t, timezone.utc):%Y-%m-%d %H:%M:%S};{p};{p + 1};{p - 1};{p + .5};10\n")
+rows = m15.readrows(m1)
+check(len(rows) == 1800 and rows[0][0] == start and m15.tfof(rows) == 1, "an m1 dump read, times at the open")
+done = m15.importfile(low, m1)
+check(done == [(1, 1800, 0), (15, 120, 0)], "m1 imported, and made m15 too")
+check(sorted(os.listdir(low)) == ["MNQ-261116.m1.csv.gz", "MNQ-261116.m15.csv.gz"], "kept in files of each time frame")
+check(m15.lowtfs(low) == [1], "the lower time frames there")
+m1d, m15d = m15.Data(low, 1), m15.Data(low)
+r = m15.resample(m1d.rows()[:15], 15)[0]
+check(tuple(r) == tuple(m15d.rows()[0]) and r[2] == max(x[2] for x in m1d.rows()[:15]), "the m15 candles made from m1")
+w5 = m1d.bars("d", date(2026, 11, 16), 5)
+check(len(w5[0]) == 24 * 12 and (w5[0][1] - w5[0][0]) == 300, "a day in m5 from m1")
+check(len(m15d.bars("d", date(2026, 11, 16), 60)[0]) == 24, "and in h1 from m15")
+check(m15.importfile(low, m1) == [(1, 0, 1800), (15, 0, 120)], "nothing twice")
+
+# an m1 dump of another feed, whose prices differ from the stored m15 by an
+# offset that changes when the contract rolls (here, on Wednesday 18 Nov)
+rd, rsrc = tempfile.mkdtemp(), tempfile.mkdtemp()
+wed = int(datetime(2026, 11, 17, 23, 0, tzinfo=timezone.utc).timestamp())	# Tue 18:00 NY, Wednesday's start
+def px(t):
+	return 1000 + ((t - start) // 60) % 50
+def feed(t):	# the dump: 8.5 above the m15 up to Tuesday, 5.5 from Wednesday, a bad tick on Wednesday
+	return px(t) + (8.5 if t < wed else 5.5)
+with open(os.path.join(rsrc, "MNQ.m15.csv"), "w") as f:	# Monday 16 Nov to Thursday 19 Nov, m15
+	f.write("time,open,high,low,close\n")
+	for k in range(24, 4 * 24 * 4):
+		t = start + 900 * k
+		f.write(f"{t},{px(t)},{px(t) + 2},{px(t) - 2},{px(t + 840)}\n")
+m15.importfile(rd, os.path.join(rsrc, "MNQ.m15.csv"))
+dump = os.path.join(rsrc, "MNQ.m1.csv")
+with open(dump, "w") as f:	# from Sunday 18:00, before the m15, to Thursday
+	f.write("time_utc_close;open;high;low;close;volume\n")
+	for k in range(60 * 24 * 4):
+		t = start + 60 * k
+		hi = feed(t) + 2 + (90 if t == wed + 3600 * 15 else 0)
+		f.write(f"{datetime.fromtimestamp(t + 60, timezone.utc):%Y-%m-%d %H:%M:%S};{feed(t)};{hi};{feed(t) - 2};{feed(t)};1\n")
+offs = []
+m15.importfile(rd, dump, None, offs)
+check([(d, o) for d, o in offs] == [(date(2026, 11, 16), -8.5), (date(2026, 11, 18), -5.5)], "an offset for each contract, found where the data overlap")
+r1 = m15.Data(rd, 1).rows()
+check(r1[0][1] == px(start) and r1[-1][4] == px(int(r1[-1][0])), "the m1 candles moved to match the m15")
+rm = m15.Data(rd).rows()
+check(rm[0][0] == start and rm[0][1] == px(start) and len(rm) == 4 * 24 * 4, "the m15 made of them, before the stored ones, matches too")
+check(m15.rolls(rm, rm) == [(m15.daynos([start])[0], 0.0)], "no offset for the same data")
 
 from PySide6.QtGui import QGuiApplication
 app = QGuiApplication([])
@@ -82,3 +149,9 @@ img = dataview.render(data, "w", date(2026, 11, 16), out)
 check(img is not None and os.path.exists(out), "the week drawn")
 check(dataview.render(data, "d", date(2026, 11, 17)) is not None, "a day drawn")
 check(dataview.render(data, "d", date(2026, 12, 1)) is None, "nothing for a day without data")
+g = dataview.Geom(m15d, "d", date(2026, 11, 16), 1, m1d)
+check(g.ok and g.W == 1800 and dataview.render(m15d, "d", date(2026, 11, 16), None, 1, m1d) is not None, "a day drawn in m1, the same size")
+old = {"shapes": [{"kind": "line", "p1": [g.L + (dataview.oldwidth("d", 1) - g.L - g.R) / 2, 300], "p2": [g.L, 300]}]}
+new = dataview.widened(old, g, 1)
+check(abs(new["shapes"][0]["p1"][0] - (g.L + g.pw / 2)) < 0.5 and new["shapes"][0]["p1"][1] == 300, "drawings of the wider charts of before moved to it")
+check(dataview.widened({**new, "width": 1800}, g, 1)["shapes"] == [{**s} for s in new["shapes"]], "and not those that say their width")

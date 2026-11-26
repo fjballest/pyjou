@@ -9,7 +9,7 @@ import os
 import sys
 import zipfile
 
-from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import (
 	QAction, QBrush, QColor, QCursor, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
@@ -32,7 +32,8 @@ from winlayout import windowmenu
 from version import VERSION
 from helpwin import addtopics, showguide
 import m15
-from dataview import DataPanel, Geom, drawpts, render
+import news
+from dataview import ChartItem, DataPanel, Geom, drawpts, mapdrawing, render, widened
 import tempfile
 
 RECENTMAX = 10
@@ -86,13 +87,14 @@ class SearchEdit(QLineEdit):
 		super().keyPressEvent(ev)
 
 windows = []	# the windows made with New Window, so they are kept
+following = False	# synced windows are being moved: they don't move others
 
 DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
 NAMESROLE = Qt.ItemDataRole.UserRole + 3	# the captures of a day row, in order
 
 MATCHCOLOR = QColor("#e53935")
 DATAPFX = "m15:"	# a week of the m15 data in Match Week: m15:2026-11-16
-DRAWPFX = "m15draw:"	# the drawing of a data chart in pending: m15draw:w:2026-11-16
+DRAWPFX = "m15draw:"	# the drawing of a data chart in pending: m15draw:w:2026-11-16:15 (its time frame)
 
 def drawprofile(painter, box, pts, pal, selected=False, upto=None):
 	"""draw week profile pts in box, with the midnights faint behind it; the
@@ -565,7 +567,11 @@ def calendardate(cal, pos):
 class MainWindow(QMainWindow):
 	def __init__(self, path=None):
 		super().__init__()
+		if news.FETCHED is None:	# the news dates fetched, for every journal
+			news.FETCHED = os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation),
+				"DayJournal", "news.txt")
 		self.journal = None
+		self.child = False		# made by New Window: it can be synced
 		self.current = None		# the Entry shown
 		self.shown = []			# entries that pass the search, in order
 		self.search = Search("")
@@ -592,7 +598,14 @@ class MainWindow(QMainWindow):
 		self.data = None		# the m15 data of the journal (m15.Data)
 		self.datamode = False	# the data view is shown instead of the captures
 		self.datakey = None		# ("w" or "d", date) shown in the data view
+		self.datatf = 15		# the time frame of its charts, minutes
+		self.lowdata = None		# the data of a time frame under m15, read when first needed
+		self.datapath = None	# the chart shown, and its time frame
+		self.datashowntf = 15
 		self.datadir = tempfile.mkdtemp(prefix="dj-data-")	# where its charts are drawn
+		self.datageom = None	# the Geom of the chart shown
+		self.datazooms = {}		# (kind, date, tf) -> the part of the chart shown (see Geom.zoomed)
+		self.panning = None		# dragging a zoomed data chart: see datapan
 
 		self.pending = {}		# image name -> its drawing not saved yet (None: no drawings)
 		self.mkactions()
@@ -696,6 +709,12 @@ class MainWindow(QMainWindow):
 			"open another window on this journal and image, to browse it or open another journal")
 		self.newwinact.setIcon(self.dupicon())
 		self.newwinact.setIconText("Window")
+		self.syncact = self.mkaction("S&ync with Other Windows", self.syncchanged, None, None,
+			"move with the main window (and the other synced ones) to the day or week shown, "
+			"and show their crosshair here")
+		self.syncact.setCheckable(True)
+		self.syncact.setIconText("Sync")
+		self.syncact.setVisible(False)	# only in the windows made with New Window
 		self.exportselact = self.mkaction("&Export Selected…", lambda: self.export(False), None, "Ctrl+E",
 			"save the capture selected, or those of the week, month or year selected, as PNGs with their drawings in a zip file")
 		self.exportallact = self.mkaction("Export &All…", lambda: self.export(True), None, "Ctrl+Shift+E",
@@ -730,9 +749,13 @@ class MainWindow(QMainWindow):
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
-		self.importdataact = self.mkaction("Import m&15 Data…", self.choosedata, None, None,
-			"add the candles of an m15 CSV exported from TradingView (or a zip with it) to the journal's data; "
-			"only those after the last one kept are added")
+		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
+			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
+		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
+			"add the candles of a CSV exported from TradingView (or a zip with it), in m15 or a lower time frame "
+			"(m1 also makes m15), to the journal's data; only those after the last one kept or before the first are added")
+		self.addchartact = self.mkaction("Add Chart as &Capture", self.addchart, None, "Ctrl+Shift+K",
+			"add the chart of the data view, in its time frame and with its drawings, to the captures of its day or week")
 		self.dataact = self.mkaction("&Data View", lambda: self.setdatamode(not self.datamode), None,
 			"Ctrl+Shift+D", "switch between the captures and the weeks and days of the m15 data, "
 			"drawn from the candles with their profiles")
@@ -760,9 +783,17 @@ class MainWindow(QMainWindow):
 		tb.addAction(self.saveact)
 		tb.addAction(self.reloadact)
 		tb.addAction(self.newwinact)
+		tb.addAction(self.syncact)
 		tb.addSeparator()
 		for a in (self.firstact, self.prevact, self.nextact, self.todayact, self.weekact, self.dataact):
 			tb.addAction(a)
+		self.tfcombo = QComboBox(tb)
+		self.tfcombo.setToolTip("the time frame of the data charts; a lower one than m15 takes data of it "
+			"(File ▸ Import Data… with an m1 CSV)")
+		self.tfcombo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+		self.tfcombo.activated.connect(lambda i: self.setdatatf(self.tfcombo.itemData(i)))
+		self.tfcomboact = tb.addWidget(self.tfcombo)
+		self.tfcomboact.setVisible(False)	# in the data view
 		tb.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			tb.addAction(a)
@@ -772,11 +803,14 @@ class MainWindow(QMainWindow):
 		mb = self.menuBar()
 		f = mb.addMenu("&File")
 		f.addAction(self.newwinact)
+		f.addAction(self.syncact)
 		f.addAction(self.openact)
 		f.addMenu(self.recentmenu)
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
 		f.addAction(self.importdataact)
+		f.addAction(self.newsact)
+		f.addAction(self.addchartact)
 		f.addAction(self.reloadact)
 		f.addSeparator()
 		f.addAction(self.exportselact)
@@ -812,6 +846,8 @@ class MainWindow(QMainWindow):
 		v.addAction(self.listact)
 		v.addAction(self.notespanelact)
 		v.addAction(self.dataact)
+		self.tfmenu = v.addMenu("&Time Frame")
+		self.tfmenu.setEnabled(False)	# in the data view
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -904,6 +940,8 @@ class MainWindow(QMainWindow):
 		self.datapanel.picked.connect(lambda kind, d: self.showdata((kind, d)))
 		self.datapanel.importbtn.clicked.connect(self.choosedata)
 		self.datapanel.backbtn.clicked.connect(lambda: self.setdatamode(False))
+		self.datapanel.tfbox.setVisible(False)	# it is on the toolbar, and in View ▸ Time Frame
+		self.datapanel.capbtn.clicked.connect(self.addchart)
 		self.leftstack = QStackedWidget()
 		self.leftstack.addWidget(caps)
 		self.leftstack.addWidget(self.datapanel)
@@ -922,6 +960,8 @@ class MainWindow(QMainWindow):
 		self.view.navigate.connect(self.navigate)
 		self.view.hint.connect(lambda t: self.statusBar().showMessage(t) if t else self.statusBar().clearMessage())
 		self.view.drawchanged.connect(self.drawchanged)
+		self.view.hiddenchanged.connect(self.datahidden)
+		self.view.viewport().installEventFilter(self)	# scrolling on the axes of the data charts
 		drawbar = self.mkdrawbar()
 		self.tagslabel = QLabel()
 		self.tagslabel.setWordWrap(True)
@@ -987,16 +1027,100 @@ class MainWindow(QMainWindow):
 		except (OSError, ValueError) as x:
 			self.data = None
 			self.statusBar().showMessage(f"Can't read the m15 data: {x}", 5000)
+		self.lowdata = None
+		low = m15.lowtfs(self.journal.dir) if self.journal else []
+		tfs = [t for t in m15.TFS if t >= 15 or (low and t >= low[0] and t % low[0] == 0)]
+		if self.datatf not in tfs:
+			self.datatf = 15
+		self.settfs(tfs, self.datatf)
 		self.datapanel.fill(self.data)
 		self.dataact.setEnabled(self.journal is not None)
 		if self.datamode:
 			keys = self.datapanel.keys()
 			self.showdata(self.datakey if self.datakey in keys else (keys[-1] if keys else None), force=True)
 
+	def getlow(self):
+		"""the data of the lowest time frame under m15, read now if not yet"""
+		if self.lowdata is None and self.journal is not None:
+			low = m15.lowtfs(self.journal.dir)
+			if low:
+				QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+				try:
+					self.lowdata = m15.Data(self.journal.dir, low[0])
+				except (OSError, ValueError) as x:
+					self.statusBar().showMessage(f"Can't read the {m15.tfname(low[0])} data: {x}", 5000)
+				finally:
+					QApplication.restoreOverrideCursor()
+		return self.lowdata
+
+	def settfs(self, tfs, tf):
+		"""the time frames to pick (None keeps them), and tf picked, on the
+		toolbar and in View ▸ Time Frame"""
+		self.datapanel.settfs(tfs, tf)
+		self.tfcombo.blockSignals(True)
+		if tfs is not None:
+			self.tfcombo.clear()
+			self.tfmenu.clear()
+			for t in tfs:
+				self.tfcombo.addItem(m15.tfname(t), t)
+				a = self.tfmenu.addAction(m15.tfname(t))
+				a.setCheckable(True)
+				a.setData(t)
+				a.triggered.connect(lambda _=False, t=t: self.setdatatf(t))
+		i = self.tfcombo.findData(tf)
+		if i >= 0:
+			self.tfcombo.setCurrentIndex(i)
+		self.tfcombo.blockSignals(False)
+		for a in self.tfmenu.actions():
+			a.setChecked(a.data() == tf)
+
+	def setdatatf(self, tf):
+		"""draw the charts of the data view in time frame tf"""
+		if tf == self.datatf:
+			return
+		if self.adjuster is not None:
+			self.adjuster.finish(False)
+		self.datatf = tf
+		self.settfs(None, tf)
+		if self.datamode:
+			self.showdata(self.datakey, force=True)
+
+	def drawkey(self, k, tf=None):
+		"""the name of the drawing of data chart k in pending"""
+		return DRAWPFX + f"{k[0]}:{k[1].isoformat()}:{tf or self.datatf}"
+
+	def addchart(self):
+		"""add the chart of the data view, as drawn in its time frame, to the
+		captures, with its drawing (which can still be edited there)"""
+		k = self.datakey if self.datamode else None
+		if k is None or self.journal is None or not self.datapath or not self.view.hasimage():
+			QMessageBox.information(self, "Add Chart as Capture", "Show a day or week of the data first.")
+			return
+		self.view.commitedit()
+		kind, d = k
+		week = kind == "w"
+		day = weekname(d) if week else d
+		self.journal.load()
+		name = self.journal.newname(day, week)
+		if name is None:
+			QMessageBox.warning(self, "Add Chart as Capture", f"No names left for {day:%d %b %Y}")
+			return
+		try:
+			savecapture(self.journal, self.datapath, name)
+			drawing = self.view.drawingdata()
+			if drawing and drawing.get("shapes"):
+				self.journal.savedrawing(self.journal.find(name), drawing)
+		except OSError as x:
+			QMessageBox.warning(self, "Add Chart as Capture", f"Can't add it: {x}")
+			return
+		self.applysearch()
+		self.startocr()
+		self.statusBar().showMessage(f"Added {name} to the captures", 5000)
+
 	def choosedata(self):
 		if self.journal is None:
 			return
-		path, _ = QFileDialog.getOpenFileName(self, "Import m15 Data", os.path.expanduser("~"),
+		path, _ = QFileDialog.getOpenFileName(self, "Import Data", os.path.expanduser("~"),
 			"CSV or zip (*.csv *.zip);;All files (*)")
 		if path:
 			self.importdata([path])
@@ -1009,12 +1133,20 @@ class MainWindow(QMainWindow):
 			self.data = m15.Data(self.journal.dir)
 		msgs = []
 		for p in paths:
+			self.statusBar().showMessage(f"Importing {os.path.basename(p)}…")
+			QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+			QApplication.processEvents()
 			try:
-				added, skipped = self.data.add(p)
+				offs = []
+				done = m15.importfile(self.journal.dir, p, self.data, offs)
 			except (OSError, ValueError) as x:
-				QMessageBox.warning(self, "Import m15 Data", f"Can't import {os.path.basename(p)}: {x}")
+				QApplication.restoreOverrideCursor()
+				QMessageBox.warning(self, "Import Data", f"Can't import {os.path.basename(p)}: {x}")
 				continue
-			msgs.append(f"{os.path.basename(p)}: {added} candles added" + (f", {skipped} already there" if skipped else ""))
+			QApplication.restoreOverrideCursor()
+			msgs.append(f"{os.path.basename(p)}: " + ", ".join(f"{added} {m15.tfname(tf)} candles added"
+				+ (f" ({skipped} already there)" if skipped else "") for tf, added, skipped in done)
+				+ ("; prices moved " + ", ".join(f"{o:+g} from {d:%-d %b %Y}" for d, o in offs) + " to match the data there" if offs else ""))
 		self.loaddata()
 		if msgs:
 			self.statusBar().showMessage("; ".join(msgs), 8000)
@@ -1057,6 +1189,8 @@ class MainWindow(QMainWindow):
 		go back to the captures at the day or week shown"""
 		on = bool(on) and self.journal is not None
 		self.dataact.setText("&Capture View" if on else "&Data View")
+		self.tfcomboact.setVisible(on)
+		self.tfmenu.setEnabled(on)
 		self.dataact.setIconText("Captures" if on else "Data")
 		self.dataact.setToolTip("back to the captures, on this day or week" if on
 			else "the weeks and days of the m15 data, drawn from the candles with their profiles")
@@ -1100,23 +1234,40 @@ class MainWindow(QMainWindow):
 		self.notes.blockSignals(True)
 		self.notes.setPlainText("")
 		self.notes.blockSignals(False)
-		self.tagslabel.setText("<b>Data:</b> drawn from the m15 candles, in New York time")
+		self.tagslabel.setText(f"<b>Data:</b> drawn from the candles, in New York time; the profile, sessions and summary from m15")
 		if key is None or self.data is None:
 			self.view.setimage(None)
-			self.titlelabel.setText("No m15 data: File ▸ Import m15 Data…")
+			self.titlelabel.setText("No data: File ▸ Import Data…")
 			self.updateactions()
 			return
 		kind, d = key
-		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}.png")
-		render(self.data, kind, d, path)
-		name = DRAWPFX + f"{kind}:{d.isoformat()}"
-		self.view.setimage(path, self.pending[name] if name in self.pending else self.data.readdrawing(kind, d))
-		self.titlelabel.setText(("Data: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
-			else f"Data: {d:%a %d %b %Y}")
+		tf = self.datatf
+		low = self.getlow() if tf < 15 else None
+		path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}-{m15.tfname(tf)}.png")
+		if self.renderdata(kind, d, path, tf, low) is None and tf < 15:
+			self.statusBar().showMessage(f"No {m15.tfname(tf)} data for this {'day' if kind == 'd' else 'week'}: "
+				"drawn in m15", 5000)
+			tf = 15
+			path = os.path.join(self.datadir, f"{kind}{d:%Y%m%d}-m15.png")
+			self.renderdata(kind, d, path, tf, None)
+		self.datapath = path
+		self.datashowntf = tf
+		name = self.drawkey(key, tf)
+		drawing = self.pending[name] if name in self.pending else self.data.readdrawing(kind, d, tf)
+		g = self.datageom
+		if g is not None:
+			drawing = widened(drawing, g.unzoomed(), tf)
+		self.view.setimage(path, mapdrawing(drawing, g.unzoomed(), g) if g is not None and g.view() else drawing)
+		self.sharpchart()
+		self.titlelabel.setText((f"Data {m15.tfname(tf)}: Week " + f"{d:%d %b} – {d + timedelta(days=4):%d %b %Y}") if kind == "w"
+			else f"Data {m15.tfname(tf)}: {d:%a %d %b %Y}")
 		self.titlelabel.setToolTip("drawn from the m15 candles, in New York time; its drawings are kept in the "
 			f"journal's {m15.DRAWDIR} folder")
 		self.notes.blockSignals(True)
-		self.notes.setPlainText(self.data.summary(kind, d))
+		news = self.journal.news if self.journal else None
+		lines = [f"{day:%a %d}  {int(h):02d}:{int(h % 1 * 60):02d} {n}" for day, h, n in
+			([(d, h, n) for h, n in news.of(d)] if kind == "d" else news.inweek(d))] if news else []
+		self.notes.setPlainText(("News: " + ", ".join(lines) + "\n" if lines else "") + self.data.summary(kind, d))
 		self.notes.blockSignals(False)
 		self.notes.setEnabled(True)
 		self.datapanel.select(key)
@@ -1124,6 +1275,139 @@ class MainWindow(QMainWindow):
 		self.calendar.setSelectedDate(QDate(d.year, d.month, d.day))
 		self.calendar.blockSignals(False)
 		self.updateactions()
+		self.moved()
+
+	def renderdata(self, kind, d, path, tf, low):
+		"""draw the chart of day or week d in tf at path, as zoomed, with or
+		without its profile as the drawings are shown or not; its Geom
+		goes in datageom"""
+		view = self.datazooms.get((kind, d, tf))
+		img = render(self.data, kind, d, path, tf, low, view, not self.view.hidden,
+			self.journal.news if self.journal else None)
+		self.datageom = Geom(self.data, kind, d, tf, low, view) if img is not None else None
+		return img
+
+	def datahidden(self, hidden):
+		"""the drawings were hidden or shown: the profile of the chart too"""
+		if not self.datamode or self.datakey is None or self.datageom is None or self.datapath is None:
+			return
+		kind, d = self.datakey
+		tf = self.datashowntf
+		if self.renderdata(kind, d, self.datapath, tf, self.getlow() if tf < 15 else None) is not None and self.view.pixitem is not None:
+			self.view.pixitem.setPixmap(QPixmap(self.datapath))
+			self.sharpchart()
+
+	def sharpchart(self):
+		"""the image of the data chart shown as a ChartItem, that draws the
+		candles again, sharp, when zoomed in on"""
+		old, g = self.view.pixitem, self.datageom
+		if old is None or g is None or self.datakey is None:
+			return
+		args = (g, self.data, *self.datakey, self.datashowntf,
+			not self.view.hidden, self.journal.news if self.journal else None)
+		if isinstance(old, ChartItem):
+			old.args = args
+			old.update()
+			return
+		it = ChartItem(old.pixmap(), args)
+		it.setZValue(old.zValue())
+		sc = self.view.scene()
+		sc.removeItem(old)
+		sc.addItem(it)
+		self.view.pixitem = it
+
+	def dataaxis(self, ev):
+		"""a scroll on the price or time axis of a data chart scales it
+		there, a double click on one shows all of it again; True when taken"""
+		g = self.datageom
+		if not self.datamode or g is None or self.datakey is None or self.adjuster is not None or not self.view.hasimage():
+			return False
+		q = self.view.mapToScene(ev.position().toPoint())
+		axis = g.inplot(q.x(), q.y())
+		if axis not in ("p", "t"):
+			return False
+		key = (*self.datakey, self.datashowntf)
+		if ev.type() == QEvent.Type.Wheel:
+			dy = ev.angleDelta().y() or ev.angleDelta().x()
+			if not dy:
+				return True
+			at = g.price(q.y()) if axis == "p" else g.t(q.x())
+			v = g.zoomed(axis, at, 0.85 ** (dy / 120))
+		else:	# the whole of that axis again
+			v = g.view()
+			if v is None:
+				return True
+			w = g.whole
+			v = (w[0], w[1], v[2], v[3]) if axis == "p" else (v[0], v[1], w[2], w[3])
+			if v == w:
+				v = None
+		if v == g.view():
+			return True
+		if v is None:
+			self.datazooms.pop(key, None)
+		else:
+			self.datazooms[key] = v
+		self.showdata(self.datakey, force=True)
+		return True
+
+	def datapan(self, ev):
+		"""dragging a data chart scaled on its axes moves it over its data,
+		in the directions the image itself can't be scrolled; True when taken"""
+		t = ev.type()
+		if t == QEvent.Type.MouseButtonPress:
+			self.panning = None
+			g = self.datageom
+			if (not self.datamode or g is None or g.view() is None or ev.button() != Qt.MouseButton.LeftButton
+					or self.view.tool != "select" or self.adjuster is not None):
+				return False
+			at = ev.position().toPoint()
+			q = self.view.mapToScene(at)
+			if g.inplot(q.x(), q.y()) != "c" or self.view.itemAt(at) not in (None, self.view.pixitem):
+				return False
+			self.panning = {"at": QPointF(at), "g": g, "key": (*self.datakey, self.datashowntf), "on": False, "view": None}
+			return False	# the view sees the press, and the release
+		p = self.panning
+		if p is None:
+			return False
+		if t == QEvent.Type.MouseButtonRelease:
+			self.panning = None
+			return False
+		if not ev.buttons() & Qt.MouseButton.LeftButton:
+			self.panning = None
+			return False
+		d = ev.position() - p["at"]
+		if not p["on"]:
+			if abs(d.x()) + abs(d.y()) < 4:
+				return False
+			p["on"] = True
+		g, s = p["g"], self.view.transform().m11() or 1
+		h, v = self.view.horizontalScrollBar(), self.view.verticalScrollBar()
+		dx = d.x() / s if h.maximum() == 0 else 0	# the image can't scroll that way: the data moves
+		dy = d.y() / s if v.maximum() == 0 else 0
+		if not dx and not dy:
+			return False
+		dt = -dx / g.pw * (g.t1 - g.t0)
+		dp = dy / g.ph * (g.top - g.bot)
+		p["view"] = g.panned(dt, dp)
+		if not p.get("timer"):
+			p["timer"] = True
+			QTimer.singleShot(30, self.panapply)
+		return True
+
+	def panapply(self):
+		"""show the chart where the drag took it"""
+		p = self.panning
+		if p is None:
+			return
+		p["timer"] = False
+		v, key = p["view"], p["key"]
+		if key != (*self.datakey, self.datashowntf) if self.datakey else True:
+			return
+		if v is None:
+			self.datazooms.pop(key, None)
+		else:
+			self.datazooms[key] = v
+		self.showdata(self.datakey, force=True)
 
 	def datastep(self, delta=None, last=None, week=False):
 		"""move in the data view: delta rows, to the first or last, or
@@ -1159,9 +1443,18 @@ class MainWindow(QMainWindow):
 			k = self.datakey
 			if self.view.loading or k is None or self.data is None or not self.view.hasimage():
 				return
-			name = DRAWPFX + f"{k[0]}:{k[1].isoformat()}"
+			tf = getattr(self, "datashowntf", self.datatf)
+			name = self.drawkey(k, tf)
 			data = self.view.drawingdata()
-			if data == self.data.readdrawing(*k):
+			g = self.datageom
+			if g is not None and g.view():	# kept as on the whole chart
+				data = mapdrawing(data, g, g.unzoomed())
+			saved = self.data.readdrawing(*k, tf)
+			if data and tf < 15 and g is not None:	# so it isn't taken for one of the wider charts of before
+				data = {**data, "width": g.W}
+				if saved and "width" not in saved:
+					saved = {**widened(saved, g.unzoomed(), tf), "width": g.W}
+			if data == saved:
 				self.pending.pop(name, None)
 			else:
 				self.pending[name] = data
@@ -1191,10 +1484,10 @@ class MainWindow(QMainWindow):
 		ok = True
 		for name, data in list(self.pending.items()):
 			if name.startswith(DRAWPFX):	# a chart of the data view
-				kind, d = name[len(DRAWPFX):].split(":")
+				kind, d, tf = (name[len(DRAWPFX):].split(":") + ["15"])[:3]
 				try:
 					if self.data is not None:
-						self.data.savedrawing(kind, date.fromisoformat(d), data)
+						self.data.savedrawing(kind, date.fromisoformat(d), data, int(tf))
 					self.pending.pop(name)
 				except OSError as x:
 					ok = False
@@ -1269,6 +1562,15 @@ class MainWindow(QMainWindow):
 		return md
 
 	def eventFilter(self, obj, ev):
+		if hasattr(self, "view") and obj is self.view.viewport():
+			t = ev.type()
+			if t in (QEvent.Type.MouseMove, QEvent.Type.Leave, QEvent.Type.HoverMove) and self.datamode:
+				QTimer.singleShot(0, self.sendcross)	# once the view has moved its own
+			if t in (QEvent.Type.Wheel, QEvent.Type.MouseButtonDblClick):
+				return self.dataaxis(ev)
+			if t in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease):
+				return self.datapan(ev)
+			return False
 		if hasattr(self, "calview") and obj is self.calview.viewport():
 			t = ev.type()
 			if t in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
@@ -1703,12 +2005,14 @@ class MainWindow(QMainWindow):
 		if c and c["name"] == name and os.path.realpath(c["dir"]) == os.path.realpath(self.journal.dir):
 			QApplication.clipboard().clear()
 
-	def showpanel(self, w, a, on=None):
-		"""show or hide panel w (the list or the notes), as action a says"""
+	def showpanel(self, w, a, on=None, keep=True):
+		"""show or hide panel w (the list or the notes), as action a says;
+		keep makes it the default for the next windows"""
 		on = a.isChecked() if on is None else on
 		a.setChecked(on)
 		w.setVisible(on)
-		settings().setValue("showlist" if w is self.left else "shownotes", on)
+		if keep and not self.child:
+			settings().setValue("showlist" if w is self.left else "shownotes", on)
 		f = QApplication.focusWidget()
 		if not on and f is not None and w.isAncestorOf(f):
 			self.view.setFocus()
@@ -1849,6 +2153,10 @@ class MainWindow(QMainWindow):
 		self.savenotes()
 		self.view.commitedit()
 		w = MainWindow(self.journal.dir if self.journal else None)
+		w.child = True
+		w.syncact.setVisible(True)
+		for panel, a in ((w.left, w.listact), (w.bottom, w.notespanelact)):	# the image almost all the window
+			w.showpanel(panel, a, False, keep=False)
 		w.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 		windows.append(w)
 		w.destroyed.connect(lambda _=None, w=w: windows.remove(w) if w in windows else None)
@@ -1859,8 +2167,136 @@ class MainWindow(QMainWindow):
 			w.updatetitle()
 			if self.current is not None:
 				w.reveal(w.journal.find(self.current.name), force=True)
+			if self.datamode:	# on the same chart, to look at it in another time frame
+				w.datatf = self.datatf
+				w.settfs(None, self.datatf)
+				w.setdatamode(True)
+				w.showdata(self.datakey, force=True)
+				w.syncact.setChecked(True)	# on the data, synced; on a capture, not
 		w.show()
 		return w
+
+	def updatenews(self):
+		"""fetch the news dates again, and show them in every window"""
+		self.statusBar().showMessage("Reading the news calendars…")
+		QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+		QApplication.processEvents()
+		try:
+			res = news.fetch()
+		finally:
+			QApplication.restoreOverrideCursor()
+		self.statusBar().clearMessage()
+		for w in QApplication.topLevelWidgets():
+			if isinstance(w, MainWindow):
+				w.newsread()
+		ok = [f"{n}: {r} dates" for n, r in res.items() if isinstance(r, int)]
+		bad = [f"{n}: {r}" for n, r in res.items() if not isinstance(r, int)]
+		text = ("Read " + ", ".join(ok) + "." if ok else "Nothing read.") + (
+			"\n\nCouldn't read " + "; ".join(bad) + ". The dates built in are still used." if bad else "")
+		(QMessageBox.information if not bad else QMessageBox.warning)(self, "Update News Dates", text)
+
+	def newsread(self):
+		"""the news dates changed: their tags, list and charts again"""
+		if self.journal is None:
+			return
+		self.journal.news = news.News(self.journal.dir)
+		for e in self.journal.entries:
+			e.tags = self.journal.tagsof(e)
+		self.applysearch()
+		if self.current is not None and not self.datamode:
+			self.showtags(self.current)
+		self.datapanel.mark()
+		if self.datamode and self.datakey is not None:
+			self.showdata(self.datakey, force=True)
+
+	# ---- synced windows ----
+	def insync(self):
+		"""whether this window moves with the others: the main one, and
+		those made with New Window that are synced"""
+		return not self.child or self.syncact.isChecked()
+
+	def syncgroup(self):
+		"""the other windows that move with this one, on the same journal"""
+		if not self.insync() or self.journal is None:
+			return []
+		return [w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w is not self
+			and w.insync() and w.journal is not None and w.journal.dir == self.journal.dir]
+
+	def syncchanged(self):
+		"""synced again: to the day or week of the main window"""
+		if not self.syncact.isChecked():
+			return
+		main = next((w for w in self.syncgroup() if not w.child), None)
+		if main is not None and main.shownkey() is not None:
+			self.follow(*main.shownkey())
+
+	def shownkey(self):
+		"""("d" or "w", date) shown: the day or week of the chart or capture"""
+		if self.datamode:
+			return self.datakey
+		e = self.current
+		if e is None:
+			return None
+		return ("w", e.weekmonday()) if e.week else ("d", e.day)
+
+	def moved(self):
+		"""this window went to another day or week: the synced ones too"""
+		global following
+		if following or not self.isVisible():	# a window being made doesn't move the others
+			return
+		k = self.shownkey()
+		group = self.syncgroup()
+		if k is None or not group:
+			return
+		following = True
+		try:
+			for w in group:
+				w.follow(*k)
+		finally:
+			following = False
+
+	def follow(self, kind, d):
+		"""go to day or week d as another window did, staying on days or
+		weeks as this one shows them"""
+		monday = d - timedelta(days=d.weekday())
+		mine = self.shownkey()
+		if self.datamode:
+			keys = set(self.datapanel.keys())
+			if mine is not None and mine[0] == "w" or kind == "w" and (mine is None or mine[0] == "w"):
+				to = ("w", monday)
+			elif kind == "d":
+				to = ("d", d)
+			else:	# a week, and this one is on a day: stay if it is in that week
+				if mine is not None and mine[1] - timedelta(days=mine[1].weekday()) == monday:
+					return
+				to = next((k for k in sorted(keys) if k[0] == "d" and monday <= k[1] < monday + timedelta(days=5)), None)
+			if to is not None and to in keys and to != self.datakey:
+				self.showdata(to)
+			return
+		if self.journal is None:
+			return
+		week = mine is not None and mine[0] == "w" or kind == "w"
+		if mine == (("w", monday) if week else ("d", d)):
+			return
+		if week:
+			e = next((x for x in self.journal.entries if x.week and x.weekmonday() == monday), None)
+		else:
+			e = next((x for x in self.journal.entries if not x.week and x.day == d), None)
+		if e is not None:
+			self.reveal(e)
+
+	def sendcross(self):
+		"""the crosshair of this data chart on those of the synced windows,
+		at the same time and price"""
+		g = self.datageom
+		group = [w for w in self.syncgroup() if w.datamode and w.datageom is not None and w.view.hasimage()]
+		if not group:
+			return
+		p = self.view.cross if self.datamode and g is not None else None
+		at = g.when(p.x(), p.y()) if p is not None else None
+		for w in group:
+			q = w.datageom.where(*at) if at is not None else None
+			w.view.setcross(QPointF(*q) if q is not None else None)
 
 	def updatetitle(self):
 		if self.journal is None:
@@ -2207,6 +2643,7 @@ class MainWindow(QMainWindow):
 			self.calendar.blockSignals(False)
 		self.notes.blockSignals(False)
 		self.updateactions()
+		self.moved()
 
 	def showtags(self, e):
 		if e.tags:
@@ -2348,7 +2785,7 @@ class MainWindow(QMainWindow):
 			return
 		if self.data is None or not len(self.data):
 			QMessageBox.information(self, "Match Day", "Match Day compares a day with the days of the m15 data: "
-				"File ▸ Import m15 Data… adds it.")
+				"File ▸ Import Data… adds it.")
 			return
 		if cap is None and d not in self.data.days():
 			QMessageBox.information(self, "Match Day", f"No m15 data for {d:%a %d %b %Y}, and the day can't be "
@@ -2416,7 +2853,7 @@ class MainWindow(QMainWindow):
 			if k is None or self.data is None or self.view.pixitem is None or self.adjuster is not None:
 				return
 			pts = self.data.profile(*k, prices=True)
-			g = Geom(self.data, *k)
+			g = self.datageom
 			px = g.topx(pts) if pts else [[g.X(g.t0 + 0.05), g.Y((g.top + g.bot) / 2)], [g.X(g.t1 - 0.05), g.Y((g.top + g.bot) / 2)]]
 			self.statusBar().showMessage("Drag the profile's points, click a segment to add one, right click one to remove it; "
 				"double click or Return when done, Esc to cancel")

@@ -468,9 +468,13 @@ The words in the text boxes and labels are found by the search, as the notes are
 
 Besides the captures, a journal can keep the 15 minute candles of its
 market, exported from TradingView as a CSV (`time,open,high,low,close`, the
-time in seconds, as TradingView writes it). **File ▸ Import m15 Data…**, or
+time in seconds, as TradingView writes it). **File ▸ Import Data…**, or
 dropping the `.csv` (or a `.zip` with it) on the window, adds them to
-`<SYMBOL>.m15.csv.gz` (compressed) in the journal directory. A file imported later adds only
+compressed files in the journal directory named after the day of their first
+candle, `MNQ-260102.m15.csv.gz`. A file is not made larger than about 512 KB
+(a year and a half of m15 candles): when it is full, the candles that come
+after start a new file. Data files named otherwise, from before, are renamed
+so when the journal opens. A file imported later adds only
 the candles after the last one kept (and any before the first), so
 exports that overlap don't make duplicates.
 
@@ -524,6 +528,79 @@ When the capture can't be read so (another time frame, no lines) or you pick
 picked (New York time; the end of the data for a day still going on).
 Picking a day shows its capture, or its chart in the data view when there is
 none (in the data view, always its chart).
+
+### Lower time frames
+
+**File ▸ Import Data…** also takes candles of a lower time frame, such as an
+m1 dump (`time_utc_close;open;high;low;close;volume`, with `;` or `,`, the time
+as a number or a UTC date, and as the candle's close when the column says
+so). They are kept in files of their own (`MNQ-220103.m1.csv.gz`, at most
+about 2 MB each), and made into m15 candles that the m15 data takes as any
+other import: only those after its last candle or before its first.
+
+Another feed may quote another contract, so its prices can differ from
+those already there by a few points, and by a different amount after each
+contract roll. When the candles imported overlap the m15 data there, each
+contract's offset is found from the candles in common (the median close
+difference, from the first day of a run of days that agree), and the
+imported prices are moved by it: the earliest offset for the candles before
+the data there, the latest for those after. The status bar says the offsets
+used. Roll days and a bad tick may still differ.
+
+The time frame box on the toolbar (or View ▸ Time Frame), in the data
+view, picks the time frame of the charts: m15 and
+above (m30, h1, h4) always, and with m1 data also m1, m3 and m5, drawn the same
+size as the others: zoom in on the image or scroll on its time axis to see
+their candles. The profiles, the sessions and the summary still come from
+the m15 data. A day without data in the time frame picked is drawn in m15.
+**File ▸ New Window** in the data view opens another window on the same day
+or week, to look at it in another time frame. What is drawn on a chart is
+kept for its time frame (`d261117-m5.drw`).
+
+**File ▸ Add Chart as Capture** (⇧⌘K, **Capture** over the list) adds the
+chart shown, in its time frame, to the captures of its day (or as the week
+profile of its week), with what is drawn on it, which can still be edited
+there.
+
+### Scaling a chart
+
+Scrolling over the price axis of a data chart (its right edge) shows more
+or fewer prices around the one under the mouse, and scrolling over the time
+axis (its bottom edge) shows more or fewer hours, down to half an hour of a
+day or two hours of a week, which then label their hours. A double click
+on an axis shows all of it again. Dragging a chart scaled so moves it over its
+data, to the times and prices out of view; when the image is zoomed in
+larger than the window, dragging moves the image instead, in the
+directions it can. Each window keeps the scale of each chart
+while it is open. What is drawn stays at its prices and times, and is
+saved as on the whole chart, so it shows right at any scale. Hiding the
+drawings (**Hide**, or H on the image) hides the profile line too. Zooming in on
+the image (not on its axes) draws the chart again at that size, so the
+candles of the lower time frames stay sharp.
+
+### Synced windows
+
+**File ▸ New Window** opens a window with the image taking almost all of
+it: its list and notes are closed (**List** and **Notes** open them). Its
+**Sync** button (**File ▸ Sync with Other Windows**) makes it move with the
+main window and the other synced ones: going to a day or week in any of
+them takes the others there, each staying on days or on weeks as it shows
+them, and on the data charts the crosshair of one shows in the others at
+the same time and price. A new window on the data is synced; one on a
+capture is not.
+
+### News days
+
+The days of FOMC decisions (14:00 New York), and of CPI, PPI and NFP
+releases (08:30), from 2022 to 2027, are built in, from the Federal
+Reserve's and the BLS's calendars. **File ▸ Update News Dates** reads those
+calendars again for the dates scheduled since, and keeps them for every
+journal. The data list names them after their day and week, the
+charts mark them with an orange line at their time, the summary lists them,
+and the captures of those days have them as tags, so searching `CPI` or
+`FOMC` finds them. A `news.txt` in the journal adds others, one a line:
+`2027-01-08 NFP 08:30` (the time is 08:30 when left out), and a line that
+starts with `-` takes one away (`-2026-12-10 CPI`), for a date that moves.
 
 ## Exporting
 
