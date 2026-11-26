@@ -5,6 +5,7 @@
 #
 # With --ocr it is the OCR process the window starts (see ocrworker.py).
 #
+import os
 import sys
 
 OCRFLAG = "--ocr"
@@ -23,7 +24,27 @@ def main():
 	args = [a for a in sys.argv[1:] if not a.startswith("-")]
 	w = MainWindow(args[0] if args else None)
 	w.show()
-	sys.exit(app.exec())
+	code = app.exec()
+	finish()
+	os._exit(code)
+
+def finish():
+	"""what quitting leaves done before the process ends: the indicators'
+	thread stopped and the settings written. The process then ends at once
+	(os._exit): PySide's own clean up at exit deletes again widgets Qt had
+	already deleted with their windows, and crashed on macOS"""
+	try:
+		import indicators
+		indicators.shutdown()
+	except Exception:
+		pass
+	try:
+		from PySide6.QtCore import QSettings
+		QSettings("pyjou", "DayJournal").sync()
+	except Exception:
+		pass
+	sys.stdout.flush()
+	sys.stderr.flush()
 
 if __name__ == "__main__":
 	main()
