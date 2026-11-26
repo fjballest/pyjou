@@ -1085,14 +1085,16 @@ class MainWindow(QMainWindow):
 			QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 			QApplication.processEvents()
 			try:
-				done = m15.importfile(self.journal.dir, p, self.data)
+				offs = []
+				done = m15.importfile(self.journal.dir, p, self.data, offs)
 			except (OSError, ValueError) as x:
 				QApplication.restoreOverrideCursor()
 				QMessageBox.warning(self, "Import Data", f"Can't import {os.path.basename(p)}: {x}")
 				continue
 			QApplication.restoreOverrideCursor()
 			msgs.append(f"{os.path.basename(p)}: " + ", ".join(f"{added} {m15.tfname(tf)} candles added"
-				+ (f" ({skipped} already there)" if skipped else "") for tf, added, skipped in done))
+				+ (f" ({skipped} already there)" if skipped else "") for tf, added, skipped in done)
+				+ ("; prices moved " + ", ".join(f"{o:+g} from {d:%-d %b %Y}" for d, o in offs) + " to match the data there" if offs else ""))
 		self.loaddata()
 		if msgs:
 			self.statusBar().showMessage("; ".join(msgs), 8000)

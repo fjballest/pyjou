@@ -44,6 +44,9 @@ def tfname(tf):
 def extof(tf):
 	return f".{tfname(tf)}.csv.gz"
 DRAWDIR = "m15draw"
+TICK = 0.25	# the price step offsets are rounded to
+ROLLMIN = 20	# candles in common it takes to find the offsets
+ROLLTOL = 0.5	# how far the offset of a day may wander before it is a new one
 HEADER = ["time", "open", "high", "low", "close"]
 DAYSTART = -6	# hours from midnight a trading day starts at: 18:00 the day before
 DAYEND = 17		# and ends at, 17:00
@@ -291,8 +294,13 @@ class Data:
 		added = len(after) + len(before)
 		if added:
 			sym = self.symbol or symbol or symbolof(path)
-			if len(before):	# a file of their own, or more
-				self.write(sym, before, None)
+			if len(before):	# files of their own, with the first one's candles (it may have the same name)
+				first = self.files[0]
+				kept = readrows(first)
+				os.remove(first)
+				self.write(sym, np.concatenate([before, kept]), None)
+				if len(after):
+					self.load()
 			if len(after):	# the last file, while it is not too large, then new ones
 				last = self.files[-1] if self.files else None
 				self.write(sym, after, last)
@@ -506,16 +514,67 @@ class Data:
 		wall = t + nyoffsets(t) if len(t) else t
 		return wall, a[:, 1], a[:, 2], a[:, 3], a[:, 4], zero
 
-def importfile(dir, path, data=None):
+def daynos(t):
+	"""the trading day of each UTC time of array t, in days since 1970"""
+	t = np.asarray(t).astype(np.int64)
+	return (t + nyoffsets(t) - DAYSTART * 3600) // 86400 if len(t) else t
+
+def rolls(ref, rows):
+	"""the price offsets that make the m15 candles rows match those in ref
+	where both have them, one for each contract (a roll moves it): a list of
+	(dayno, offset) from that trading day on, empty when they don't overlap.
+	A day starts a new offset when its median close difference moves and the
+	next day agrees, so a roll day or a bad tick doesn't."""
+	ref = np.asarray(ref, dtype=float).reshape(-1, 5)
+	rows = np.asarray(rows, dtype=float).reshape(-1, 5)
+	_, i, j = np.intersect1d(ref[:, 0], rows[:, 0], assume_unique=True, return_indices=True)
+	if len(i) < ROLLMIN:
+		return []
+	diff = ref[i, 4] - rows[j, 4]
+	days, starts = np.unique(daynos(rows[j, 0]), return_index=True)
+	med = [float(np.median(x)) for x in np.split(diff, starts[1:])]
+	lv = []	# (index of its first day, level)
+	for k, m in enumerate(med):
+		if lv and abs(m - lv[-1][1]) <= ROLLTOL:
+			continue
+		if not lv or (k + 1 < len(med) and abs(med[k + 1] - m) <= ROLLTOL):
+			lv.append((k, m))
+	res = []
+	for n, (k, _) in enumerate(lv):	# each offset, from all its candles, in ticks
+		lo = starts[k]
+		hi = starts[lv[n + 1][0]] if n + 1 < len(lv) else len(diff)
+		res.append((int(days[k]), round(float(np.median(diff[lo:hi])) / TICK) * TICK))
+	return res
+
+def shift(rows, offs):
+	"""rows with the prices of each candle moved by its offset in offs, from
+	rolls (the first one for the candles before it)"""
+	a = np.array(rows, dtype=float).reshape(-1, 5)
+	if not offs or not len(a):
+		return a
+	starts = np.array([d for d, _ in offs])
+	k = np.clip(np.searchsorted(starts, daynos(a[:, 0]), "right") - 1, 0, None)
+	a[:, 1:] += np.array([o for _, o in offs])[k][:, None]
+	return a
+
+def importfile(dir, path, data=None, offsets=None):
 	"""import the candles of the file at path into journal dir: kept in
 	their own time frame, and, under m15, made m15 candles too that the m15
-	data takes. [(tf, added, skipped)]"""
+	data takes. Their prices are first moved to match the m15 data already
+	there, contract by contract (see rolls); offsets, if given, gets the
+	(first day, offset) used. [(tf, added, skipped)]"""
 	rows = readrows(path)
 	if not len(rows):
 		raise ValueError(f"no candles in {os.path.basename(path)}")
 	tf = tfof(rows)
 	data = data or Data(dir)
 	sym = data.symbol or symbolof(path)
+	if tf <= data.tf and len(data):
+		offs = rolls(data.rows(), rows if tf == data.tf else resample(rows, data.tf))
+		if any(o for _, o in offs):
+			rows = shift(rows, offs)
+			if offsets is not None:
+				offsets.extend((EPOCH + timedelta(days=d), o) for d, o in offs)
 	out = []
 	if tf == data.tf:
 		return [(tf, *data.add(path, rows, sym))]

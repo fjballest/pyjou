@@ -111,6 +111,36 @@ check(len(w5[0]) == 24 * 12 and (w5[0][1] - w5[0][0]) == 300, "a day in m5 from 
 check(len(m15d.bars("d", date(2026, 11, 16), 60)[0]) == 24, "and in h1 from m15")
 check(m15.importfile(low, m1) == [(1, 0, 1800), (15, 0, 120)], "nothing twice")
 
+# an m1 dump of another feed, whose prices differ from the stored m15 by an
+# offset that changes when the contract rolls (here, on Wednesday 18 Nov)
+rd, rsrc = tempfile.mkdtemp(), tempfile.mkdtemp()
+wed = int(datetime(2026, 11, 17, 23, 0, tzinfo=timezone.utc).timestamp())	# Tue 18:00 NY, Wednesday's start
+def px(t):
+	return 1000 + ((t - start) // 60) % 50
+def feed(t):	# the dump: 8.5 above the m15 up to Tuesday, 5.5 from Wednesday, a bad tick on Wednesday
+	return px(t) + (8.5 if t < wed else 5.5)
+with open(os.path.join(rsrc, "MNQ.m15.csv"), "w") as f:	# Monday 16 Nov to Thursday 19 Nov, m15
+	f.write("time,open,high,low,close\n")
+	for k in range(24, 4 * 24 * 4):
+		t = start + 900 * k
+		f.write(f"{t},{px(t)},{px(t) + 2},{px(t) - 2},{px(t + 840)}\n")
+m15.importfile(rd, os.path.join(rsrc, "MNQ.m15.csv"))
+dump = os.path.join(rsrc, "MNQ.m1.csv")
+with open(dump, "w") as f:	# from Sunday 18:00, before the m15, to Thursday
+	f.write("time_utc_close;open;high;low;close;volume\n")
+	for k in range(60 * 24 * 4):
+		t = start + 60 * k
+		hi = feed(t) + 2 + (90 if t == wed + 3600 * 15 else 0)
+		f.write(f"{datetime.fromtimestamp(t + 60, timezone.utc):%Y-%m-%d %H:%M:%S};{feed(t)};{hi};{feed(t) - 2};{feed(t)};1\n")
+offs = []
+m15.importfile(rd, dump, None, offs)
+check([(d, o) for d, o in offs] == [(date(2026, 11, 16), -8.5), (date(2026, 11, 18), -5.5)], "an offset for each contract, found where the data overlap")
+r1 = m15.Data(rd, 1).rows()
+check(r1[0][1] == px(start) and r1[-1][4] == px(int(r1[-1][0])), "the m1 candles moved to match the m15")
+rm = m15.Data(rd).rows()
+check(rm[0][0] == start and rm[0][1] == px(start) and len(rm) == 4 * 24 * 4, "the m15 made of them, before the stored ones, matches too")
+check(m15.rolls(rm, rm) == [(m15.daynos([start])[0], 0.0)], "no offset for the same data")
+
 from PySide6.QtGui import QGuiApplication
 app = QGuiApplication([])
 import dataview

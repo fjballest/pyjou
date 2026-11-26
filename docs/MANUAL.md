@@ -538,6 +538,15 @@ so). They are kept in files of their own (`MNQ-220103.m1.csv.gz`, at most
 about 2 MB each), and made into m15 candles that the m15 data takes as any
 other import: only those after its last candle or before its first.
 
+Another feed may quote another contract, so its prices can differ from
+those already there by a few points, and by a different amount after each
+contract roll. When the candles imported overlap the m15 data there, each
+contract's offset is found from the candles in common (the median close
+difference, from the first day of a run of days that agree), and the
+imported prices are moved by it: the earliest offset for the candles before
+the data there, the latest for those after. The status bar says the offsets
+used. Roll days and a bad tick may still differ.
+
 The box over the data list picks the time frame of the charts: m15 and
 above (m30, h1, h4) always, and with m1 data also m1, m3 and m5, which make
 the charts wider. The profiles, the sessions and the summary still come from
