@@ -562,6 +562,14 @@ above (m30, h1, h4) always, and with m1 data also m1, m3 and m5, drawn the same
 size as the others: zoom in on the image or scroll on its time axis to see
 their candles. The profiles, the sessions and the summary still come from
 the m15 data. A day without data in the time frame picked is drawn in m15.
+**D**, **W** and **M** chart days, weeks and months, made from the m15 data:
+the last 130 days, 104 weeks or 120 months up to the day picked (or the
+Friday of the week picked), the last one as far as it got by then, with
+their months or years on the time axis. Each candle takes the same width,
+so there are no gaps for weekends, and scrolling on the time axis shows ten
+of them at least. They have no profile, sessions or news lines; the
+indicators, the crosshair of synced windows and drawing work there as in
+the others.
 **File ▸ New Window** in the data view opens another window on the same day
 or week, to look at it in another time frame. What is drawn on a chart is
 kept for its time frame (`d261117-m5.drw`).

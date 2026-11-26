@@ -22,9 +22,8 @@ class Mapper:
 	"""chart points of bar indexes and times of the run's bars"""
 	def __init__(self, g, S, tf):
 		self.g, self.S, self.tf = g, S, tf
-		self.unit = 3600 if g.kind == "d" else 86400
-		self.zero = g.bars[5]
-		self.half = tf * 60 / self.unit / 2
+		self.unit = g.unit
+		self.half = g.cw / 2
 		self.tfms = tf * 60000
 
 	def ms(self, x, xloc):
@@ -44,9 +43,7 @@ class Mapper:
 		t = self.ms(x, xloc)
 		if t is None:
 			return None
-		s = t / 1000
-		wall = s + m15.nyoffset(s)
-		return self.g.X((wall - self.zero) / self.unit + self.half)
+		return self.g.X(self.g.tx(t / 1000) + self.half)
 
 	def Y(self, p):
 		if p is None or R.isna(p):
@@ -90,7 +87,7 @@ def paint(p, g, res, tf):
 	p.setClipRect(plot)
 	p.setRenderHint(p.RenderHint.Antialiasing)
 	big = 4 * (g.W + g.H)
-	slot = tf * 60 / m.unit / (g.t1 - g.t0) * g.pw
+	slot = g.cw / (g.t1 - g.t0) * g.pw
 	bgcolors(p, g, m, res, slot)
 	for b in res.boxes:
 		box(p, g, m, b, big)
