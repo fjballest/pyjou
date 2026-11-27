@@ -1457,10 +1457,13 @@ class MainWindow(QMainWindow):
 				self.statusBar().showMessage("; ".join(bad), 10000)
 		margin = 0
 		far = getattr(self.dataoverlay, "reach", None)
-		if far is not None and g.ok:	# room right of the last candle for what they draw there
-			margin = max(0.0, g.tx(far / 1000) + 3 * g.cw - g.vt1)
-			if margin:
-				g = Geom(self.data, kind, d, tf, low, view, margin, width)
+		share = self.marginshare()
+		if share is not None and g.ok:	# the room right of the last candle set by hand
+			margin = dataview.marginof(share, g.t0, g.vt1)
+		elif far is not None and g.ok:	# room right of the last candle for what they draw there
+			margin = min(max(0.0, g.tx(far / 1000) + 3 * g.cw - g.vt1), dataview.MAXMARGIN * (g.vt1 - g.t0))
+		if margin:
+			g = Geom(self.data, kind, d, tf, low, view, margin, width)
 		img = render(self.data, kind, d, path, tf, low, view, self.profileshown(),
 			self.journal.news if self.journal else None, self.dataoverlay, margin, width)
 		self.datageom = g if img is not None else None
@@ -1826,10 +1829,94 @@ class MainWindow(QMainWindow):
 		self.showdata(self.datakey, force=True)
 		return True
 
+	def marginshare(self):
+		"""the share of a data chart's width kept right of the last candle,
+		as set by dragging its grip, or None to keep what indicators need"""
+		v = settings().value("datamargin", None)
+		try:
+			return None if v in (None, "", "auto") else float(v)
+		except (TypeError, ValueError):
+			return None
+
+	def setmarginshare(self, share):
+		"""set it (None: as the indicators need) and draw the data charts again"""
+		if share is None:
+			settings().remove("datamargin")
+		else:
+			settings().setValue("datamargin", round(min(max(float(share), 0.0), dataview.MAXSHARE), 4))
+
+	def ongrip(self, ev):
+		"""whether the mouse of ev is on the margin's grip of the data chart"""
+		g = self.datageom
+		if not self.datamode or g is None or not self.view.hasimage():
+			return False
+		q = self.view.mapToScene(ev.position().toPoint())
+		y0 = g.T + g.ph
+		return abs(q.x() - dataview.gripx(g)) <= dataview.GRIP + 3 and y0 - 2 <= q.y() <= y0 + dataview.GRIP * 1.4 + 6
+
+	def margindrag(self, ev):
+		"""dragging the grip on the time axis sets the room right of the last
+		candle, as a share of the chart's width; a double click on it gives
+		it back to the indicators. True when taken"""
+		t = ev.type()
+		m = getattr(self, "gripping", None)
+		if t == QEvent.Type.MouseButtonDblClick and self.ongrip(ev):
+			self.gripping = None
+			self.setmarginshare(None)
+			self.redrawall()
+			return True
+		if t == QEvent.Type.MouseButtonPress:
+			if ev.button() == Qt.MouseButton.LeftButton and self.view.tool == "select" and self.ongrip(ev):
+				self.gripping = {"g": self.datageom, "share": None, "timer": False}
+				return True
+			return False
+		if t == QEvent.Type.MouseMove:
+			if m is None:
+				over = not ev.buttons() and self.ongrip(ev)
+				if over != getattr(self, "gripcursor", False):
+					self.gripcursor = over
+					if over:
+						self.view.viewport().setCursor(Qt.CursorShape.SizeHorCursor)
+					else:
+						self.view.viewport().unsetCursor()
+				return False
+			g = m["g"]
+			x = self.view.mapToScene(ev.position().toPoint()).x()
+			m["share"] = min(max((g.L + g.pw - x) / g.pw, 0.0), dataview.MAXSHARE)
+			if not m["timer"]:
+				m["timer"] = True
+				QTimer.singleShot(30, self.gripapply)
+			return True
+		if t == QEvent.Type.MouseButtonRelease and m is not None:
+			self.gripping = None
+			if m["share"] is not None:
+				self.setmarginshare(m["share"])
+				self.redrawall()
+			return True
+		return False
+
+	def gripapply(self):
+		m = getattr(self, "gripping", None)
+		if m is None:
+			return
+		m["timer"] = False
+		if m["share"] is not None:
+			self.setmarginshare(m["share"])
+			self.datamoved()
+			self.showdata(self.datakey, force=True)
+
+	def redrawall(self):
+		"""draw the data charts of every window again"""
+		for w in QApplication.topLevelWidgets():
+			if isinstance(w, MainWindow) and w.datamode and w.datakey is not None:
+				w.showdata(w.datakey, force=True)
+
 	def datapan(self, ev):
 		"""dragging a data chart scaled on its axes moves it over its data,
 		in the directions the image itself can't be scrolled; True when taken"""
 		t = ev.type()
+		if self.datamode and self.margindrag(ev):
+			return True
 		if t == QEvent.Type.MouseButtonPress:
 			self.panning = None
 			g = self.datageom
@@ -2043,6 +2130,8 @@ class MainWindow(QMainWindow):
 			t = ev.type()
 			if t in (QEvent.Type.MouseMove, QEvent.Type.Leave, QEvent.Type.HoverMove) and self.datamode:
 				QTimer.singleShot(0, self.sendcross)	# once the view has moved its own
+			if t == QEvent.Type.MouseButtonDblClick and self.datamode and self.margindrag(ev):
+				return True
 			if t in (QEvent.Type.Wheel, QEvent.Type.MouseButtonDblClick):
 				return self.dataaxis(ev)
 			if t in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease):
