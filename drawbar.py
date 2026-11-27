@@ -4,8 +4,8 @@
 #
 import json
 
-from PySide6.QtCore import QSettings, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
+from PySide6.QtCore import QPointF, QSettings, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
 	QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLayout,
 	QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QStatusBar, QToolBar, QToolButton, QVBoxLayout,
@@ -493,6 +493,45 @@ def lineswatch(d, kind):
 	p.end()
 	return QIcon(pm)
 
+def glyph(kind, color):
+	"""a drawn icon: "undo" and "redo" (a curved arrow), "delete" (a bin)"""
+	pm = QPixmap(36, 36)
+	pm.setDevicePixelRatio(2)
+	pm.fill(Qt.GlobalColor.transparent)
+	p = QPainter(pm)
+	p.setRenderHint(QPainter.RenderHint.Antialiasing)
+	pen = QPen(color, 1.6)
+	pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+	pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+	p.setPen(pen)
+	if kind in ("undo", "redo"):
+		if kind == "redo":
+			p.translate(18, 0)
+			p.scale(-1, 1)
+		path = QPainterPath()
+		path.moveTo(4.5, 7)
+		path.lineTo(11, 7)
+		path.cubicTo(15.5, 7, 15.5, 14.5, 11, 14.5)
+		path.lineTo(7, 14.5)
+		p.drawPath(path)
+		p.drawLine(QPointF(4.5, 7), QPointF(7.5, 4))
+		p.drawLine(QPointF(4.5, 7), QPointF(7.5, 10))
+	else:
+		p.drawLine(QPointF(3.5, 5), QPointF(14.5, 5))
+		p.drawLine(QPointF(7, 5), QPointF(7.5, 3))
+		p.drawLine(QPointF(7.5, 3), QPointF(10.5, 3))
+		p.drawLine(QPointF(10.5, 3), QPointF(11, 5))
+		path = QPainterPath()
+		path.moveTo(5, 5)
+		path.lineTo(6, 15)
+		path.lineTo(12, 15)
+		path.lineTo(13, 5)
+		p.drawPath(path)
+		for x in (7.7, 9, 10.3):
+			p.drawLine(QPointF(x, 7.5), QPointF(x, 12.5))
+	p.end()
+	return QIcon(pm)
+
 def colorswatch(c):
 	pm = QPixmap(14, 14)
 	pm.fill(QColor(c))
@@ -590,6 +629,11 @@ class DrawBar(QToolBar):
 		self.clearact.triggered.connect(view.clearall)
 		for a in (self.undoact, self.redoact, self.delact, self.clearact):
 			self.addAction(a)
+		for a, kind in ((self.undoact, "undo"), (self.redoact, "redo"), (self.delact, "delete")):	# compact: icons
+			a.setIcon(glyph(kind, self.palette().color(QPalette.ColorRole.ButtonText)))
+			w = self.widgetForAction(a)
+			if w is not None:
+				w.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
 		self.addSeparator()
 		self.copyimgact = QAction("Copy", self)
 		self.copyimgact.setToolTip("copy the image, with its drawings, to paste it in other programs (⇧⌘C)")

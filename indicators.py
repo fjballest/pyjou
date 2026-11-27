@@ -236,16 +236,19 @@ def runner():
 		_runner = Runner()
 	return _runner
 
-def needed(data, low, g, tf):
-	"""(chart key, upto, [(name, path, run key, inputs)]) of the scripts on for the chart of g"""
+def needed(data, low, g, tf, names=None):
+	"""(chart key, upto, [(name, path, run key, inputs)]) of the scripts on
+	for the chart of g: names, or those on (enabled)"""
 	upto = lastend(g, tf)
 	if upto is None:
 		return None, None, []
 	chart = (id(data), g.kind, g.d, tf)
 	paths = dict(scripts())
 	todo = []
-	for name in enabled():
-		p = paths[name]
+	for name in (enabled() if names is None else names):
+		p = paths.get(name)
+		if p is None:
+			continue
 		try:
 			st = os.stat(p)
 		except OSError:
@@ -272,18 +275,18 @@ def cancel():
 	if _runner is not None:
 		_runner.cancel()
 
-def results(data, low, g, tf, wait=True, run=True):
+def results(data, low, g, tf, wait=True, run=True, names=None):
 	"""(the runs of the scripts that are on for the chart of geometry g,
 	whether some are still to come): [pine.Result]. Without wait the
 	missing ones are run in the background and the last ones of this chart
 	are given meanwhile; without run nothing is run, and the last ones of
 	the chart are given (while it is being moved). low is the data of the
 	lowest time frame, or a function giving it (called only when needed)"""
-	if not enabled() or data is None or not len(data):
+	if not (enabled() if names is None else names) or data is None or not len(data):
 		return [], False
 	if callable(low):
 		low = low()
-	chart, upto, todo = needed(data, low, g, tf)
+	chart, upto, todo = needed(data, low, g, tf, names)
 	if not todo:
 		return [], False
 	with _lock:
@@ -336,11 +339,11 @@ def painter(rs, tf):
 	fn.last = max(int(r.S.t[-1]) for r in rs if r.S is not None and r.S.n) if any(r.S is not None and r.S.n for r in rs) else None
 	return fn
 
-def overlay(data, low, g, tf, wait=True, run=True):
+def overlay(data, low, g, tf, wait=True, run=True, names=None):
 	"""(a function painting the indicators that are on over the chart of
 	geometry g in tf minutes, or None; whether runs are still to come;
 	[error messages]); see results for run"""
-	rs, pending = results(data, low, g, tf, wait, run)
+	rs, pending = results(data, low, g, tf, wait, run, names)
 	return painter(rs, tf), pending, [f"{r.title}: {r.error}" for r in rs if r.error]
 
 def inputsof(name, data, low, g, tf):

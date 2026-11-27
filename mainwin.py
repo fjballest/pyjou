@@ -571,6 +571,71 @@ def calendardate(cal, pos):
 	off = 7 * (i.row() - first[0]) + i.column() - first[1]
 	return date(cal.yearShown(), cal.monthShown(), 1) + timedelta(days=off)
 
+class IndMenu(QMenu):
+	"""the Ind menu of the drawing bar: the indicators, checked when shown in
+	the window; clicking one shows or hides it there and the menu stays
+	open (a click outside closes it), and a right click opens its settings"""
+	def __init__(self, win, parent=None):
+		super().__init__(parent)
+		self.win = win
+		self.aboutToShow.connect(self.fill)
+
+	def fill(self):
+		self.clear()
+		on = set(self.win.windowind())
+		have = indicators.scripts()
+		for name, _ in have:
+			a = self.addAction(name)
+			a.setCheckable(True)
+			a.setChecked(name in on)
+			a.setData(name)
+		if not have:
+			a = self.addAction("No indicators: View ▸ Indicators ▸ Import Indicators…")
+			a.setEnabled(False)
+
+	def mouseReleaseEvent(self, ev):
+		a = self.actionAt(ev.position().toPoint())
+		if a is not None and a.isCheckable() and a.isEnabled():
+			if ev.button() == Qt.MouseButton.LeftButton:
+				a.setChecked(not a.isChecked())
+				self.win.setindicator(a.data(), a.isChecked())
+			elif ev.button() == Qt.MouseButton.RightButton:
+				self.settings(a.data())
+			return	# open still
+		super().mouseReleaseEvent(ev)
+
+	def keyPressEvent(self, ev):
+		a = self.activeAction()
+		if ev.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space) and a is not None and a.isCheckable():
+			a.setChecked(not a.isChecked())
+			self.win.setindicator(a.data(), a.isChecked())
+			return
+		super().keyPressEvent(ev)
+
+	def contextMenuEvent(self, ev):
+		a = self.actionAt(ev.pos())
+		if a is not None and a.isCheckable():
+			self.settings(a.data())
+			return
+		super().contextMenuEvent(ev)
+
+	def settings(self, name):
+		"""close the menu and open the settings of indicator name (once, for
+		the press or release that asked)"""
+		if getattr(self, "opening", False):
+			return
+		self.opening = True
+		self.close()
+		def go():
+			self.opening = False
+			self.win.indicatorinputs(name)
+		QTimer.singleShot(0, go)
+
+	def mousePressEvent(self, ev):
+		if ev.button() == Qt.MouseButton.RightButton and self.actionAt(ev.position().toPoint()) is not None:
+			return	# its settings, on the release (contextMenuEvent)
+		super().mousePressEvent(ev)
+
 class MainWindow(QMainWindow):
 	def __init__(self, path=None):
 		super().__init__()
@@ -581,6 +646,8 @@ class MainWindow(QMainWindow):
 			indicators.setup(os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation),
 				"DayJournal", "indicators"), settings)
 		self.dataoverlay = None	# what the indicators draw on the data chart
+		self.indon = list(indicators.enabled())	# the indicators on in this window (a new one starts with the last chosen)
+		self.indknown = {n for n, _ in indicators.scripts()}	# the indicators there were when it was last looked
 		self.datapending = False	# and whether runs for it are still to come
 		indicators.runner().done.connect(self.indicatorsdone)
 		self.journal = None
@@ -1052,6 +1119,17 @@ class MainWindow(QMainWindow):
 		self.copyimgact.setText("Copy Image")
 		self.copyimgact.setIconText("Copy")
 		self.setcolor = tb.setcolor
+		tb.addSeparator()
+		b = QToolButton(tb)
+		b.setText("Ind")
+		b.setToolTip("the indicators shown in this window: click to show or hide them (the menu stays open), "
+			"right click one for its settings")
+		b.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+		self.indpopup = IndMenu(self, b)
+		b.setMenu(self.indpopup)
+		self.indbtn = b
+		self.indbtnact = tb.addWidget(b)
+		self.indbtnact.setVisible(False)	# in the data view
 		return tb
 
 	# ---- the data view ----
@@ -1231,6 +1309,8 @@ class MainWindow(QMainWindow):
 		on = bool(on) and self.journal is not None
 		self.dataact.setText("&Capture View" if on else "&Data View")
 		self.tfcomboact.setVisible(on)
+		if hasattr(self, "indbtnact"):
+			self.indbtnact.setVisible(on)
 		self.tfmenu.setEnabled(on)
 		self.dataact.setIconText("Captures" if on else "Data")
 		self.dataact.setToolTip("back to the captures, on this day or week" if on
@@ -1336,9 +1416,10 @@ class MainWindow(QMainWindow):
 		g = Geom(self.data, kind, d, tf, low, view)
 		self.dataoverlay = None
 		self.datapending = False
-		if g.ok and indicators.enabled():
+		if g.ok and self.windowind():
 			moving = getattr(self, "datamoving", False) and not wait
-			self.dataoverlay, self.datapending, bad = indicators.overlay(self.data, self.getlow, g, tf, wait=wait, run=not moving)
+			self.dataoverlay, self.datapending, bad = indicators.overlay(self.data, self.getlow, g, tf, wait=wait, run=not moving,
+				names=self.windowind())
 			if bad and not self.datapending:
 				self.statusBar().showMessage("; ".join(bad), 10000)
 		margin = 0
@@ -1356,7 +1437,7 @@ class MainWindow(QMainWindow):
 		"""the Indicators menu: the scripts imported, on or off, and how to import more"""
 		m = self.indmenu
 		m.clear()
-		on = set(indicators.enabled())
+		on = set(self.windowind())
 		have = indicators.scripts()
 		for name, _ in have:
 			a = m.addAction(name)
@@ -1419,9 +1500,24 @@ class MainWindow(QMainWindow):
 		"""whether the data chart draws its profile: with the drawings, when Profile Lines is on"""
 		return dataview.SHOWPROFILE and not self.view.hidden
 
+	def windowind(self):
+		"""the indicators on in this window, of those there are; those that
+		appear (imported, or in a folder added) are on as they are by default"""
+		have = {n for n, _ in indicators.scripts()}
+		known = getattr(self, "indknown", None)
+		if known is not None:
+			new = [n for n in indicators.enabled() if n in have and n not in known and n not in self.indon]
+			self.indon += new
+		self.indknown = have
+		return [n for n in self.indon if n in have]
+
 	def setindicator(self, name, on):
-		indicators.toggle(name, on)
-		self.indicatorschanged()
+		"""turn indicator name on or off in this window (and so for the
+		windows opened next)"""
+		self.indon = [n for n in self.indon if n != name] + ([name] if on else [])
+		indicators.setenabled(self.indon)
+		if self.datamode and self.datakey is not None:
+			self.showdata(self.datakey, force=True)
 
 	def indicatorschanged(self):
 		"""draw the data chart again with the indicators on now, in every window"""
@@ -1440,6 +1536,7 @@ class MainWindow(QMainWindow):
 			QMessageBox.warning(self, "Import Indicators", f"Can't import them: {x}")
 			return
 		self.statusBar().showMessage(f"Imported {', '.join(names)}", 5000)
+		self.indon = list(dict.fromkeys(self.indon + names))	# on here
 		self.indicatorschanged()
 
 	def removeindicator(self, name):
@@ -1561,7 +1658,7 @@ class MainWindow(QMainWindow):
 
 	def dataquiet(self):
 		self.datamoving = False
-		if self.datamode and self.datakey is not None and indicators.enabled():
+		if self.datamode and self.datakey is not None and self.windowind():
 			self.redrawdata()
 
 	def setdataview(self, v):
@@ -2485,6 +2582,7 @@ class MainWindow(QMainWindow):
 		self.savenotes()
 		self.view.commitedit()
 		w = MainWindow(self.journal.dir if self.journal else None)
+		w.indon = list(self.indon)	# the indicators of this window
 		w.child = True
 		w.syncact.setVisible(True)
 		for panel, a in ((w.left, w.listact), (w.bottom, w.notespanelact)):	# the image almost all the window
