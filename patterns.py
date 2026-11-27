@@ -98,6 +98,7 @@ class Result:
 	mean size of the swings started in each (in points)"""
 	def __init__(self, kind, names, swing, retr, n, size, rows=1):
 		self.kind, self.names, self.swing, self.retr, self.n, self.size, self.rows = kind, names, swing, retr, n, size, rows
+		self.hits = None	# of a day: {"swing": set of (day, slot), "retr": ...} where they started
 
 	def top(self, k=5, which="swing"):
 		"""the k slots most likely to start one: [(name, probability)]"""
@@ -145,6 +146,7 @@ def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None, only=None)
 	sw, rt = np.zeros(nslots), np.zeros(nslots)
 	size, cnt = np.zeros(nslots), np.zeros(nslots)
 	seen = set()
+	hits = {"swing": seen}
 	for (i, s), z in zip(big, legsize(h, l, big)):
 		if only is not None and int(dn[i]) not in only:
 			continue
@@ -156,6 +158,7 @@ def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None, only=None)
 			size[k] += z
 			cnt[k] += 1
 	seen = set()
+	hits["retr"] = seen
 	for i, s in rets:
 		if only is not None and int(dn[i]) not in only:
 			continue
@@ -168,8 +171,10 @@ def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None, only=None)
 		m = (DAYSTART * 60 + k * slot) % 1440
 		names.append(f"{m // 60:02d}:{m % 60:02d}")
 	keep = nslots - 60 // slot	# 17:00 to 18:00: no trading
-	return Result("day", names[:keep], sw[:keep] / max(n, 1), rt[:keep] / max(n, 1), n,
+	r = Result("day", names[:keep], sw[:keep] / max(n, 1), rt[:keep] / max(n, 1), n,
 		(size / np.maximum(cnt, 1))[:keep])
+	r.hits = hits
+	return r
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
@@ -266,7 +271,8 @@ def bymonth(data, swing=0.3, retr=0.12, first=None, last=None, only=None):
 def windows(res, which="swing", least=None, merge=True):
 	"""the slots of a day result as macro windows: runs of slots whose
 	probability is at least least (the 75th percentile when None), as
-	[("HHMM-HHMM", probability)] best first"""
+	[("HHMM-HHMM", probability)] best first: the share of the days with a
+	start in any of its slots"""
 	p = res.swing if which == "swing" else res.retr
 	if least is None:
 		least = float(np.percentile(p, 75))
@@ -283,7 +289,12 @@ def windows(res, which="swing", least=None, merge=True):
 				j += 1
 			a = res.names[k].replace(":", "")
 			m = (int(res.names[j][:2]) * 60 + int(res.names[j][3:]) + slot) % 1440
-			out.append((f"{a}-{m // 60:02d}{m % 60:02d}", float(p[k:j + 1].max())))
+			if res.hits is not None:	# the days a start was in any of its slots
+				days = {d for d, x in res.hits[which] if k <= x <= j}
+				share = len(days) / max(res.n, 1)
+			else:
+				share = float(p[k:j + 1].max())
+			out.append((f"{a}-{m // 60:02d}{m % 60:02d}", share))
 			k = j + 1
 		else:
 			k += 1
