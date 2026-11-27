@@ -31,6 +31,8 @@ class Trade:
 		self.points = self.profit = 0.0
 		self.commission = 0.0
 		self.best = self.worst = price	# the most favourable and adverse prices while open
+		self.at = self.exitat = None	# when it filled (ms): a candle's open, middle or close
+		self.sl = self.tp = None	# the stop and target its exits first had
 
 	@property
 	def open(self):
@@ -80,6 +82,7 @@ class Broker:
 		self.closes = []	# [(entry id or None for all, comment)] market closes pending
 		self.closedeq = self.openeq = None	# numpy arrays: the closed and open profit at each bar's close
 		self.S = None
+		self.when = 0	# the time (ms) fills are taken to happen at
 		self.hook = None	# called with the broker once declared: to change its settings
 		self.lastbar = -1	# the last bar run
 
@@ -176,6 +179,7 @@ class Broker:
 	def close(self, id, comment="", qty=R.na, qty_percent=R.na, immediately=False, **_k):
 		self.closes.append((id, "" if _na(comment) else comment))
 		if immediately:
+			self.when = int(self.S.tc[R.RT.bar])
 			self.marketcloses(self.S.c[R.RT.bar], R.RT.bar)
 		return R.na
 
@@ -216,17 +220,20 @@ class Broker:
 		q = self.qty(o.qty, price)
 		t = Trade(o.id, o.dir, q, price, bar, int(self.S.t[bar]), o.comment)
 		t.commission = self.commission(q, price)
+		t.at = self.when
 		self.trades.append(t)
 		self.open.append(t)
 		for e in self.exits.values():
 			if not e.frm or e.frm == o.id:
 				e.armed = True
+		self.levels_()
 		return True
 
 	def closetrade(self, t, price, bar, exitid, reverse=False):
 		if not reverse:
 			price = self.slip(price, -t.dir)
 		t.exitid, t.exitprice, t.exitbar, t.exittime = exitid, price, bar, int(self.S.t[bar])
+		t.exitat = self.when
 		t.points = (price - t.price) * t.dir
 		t.commission += self.commission(t.qty, price)
 		t.profit = t.points * t.qty * self.pointvalue - t.commission
@@ -337,9 +344,11 @@ class Broker:
 		"""fill the orders placed before bar as the price goes through it"""
 		S = self.S
 		o, h, l, c = float(S.o[bar]), float(S.h[bar]), float(S.l[bar]), float(S.c[bar])
+		self.when = int(S.t[bar])
 		if not self.closefill:
 			self.market(o, bar)
 		self.gaps(o, bar)
+		self.when = (int(S.t[bar]) + int(S.tc[bar])) // 2	# somewhere in the candle
 		path = [o, h, l, c] if h - o <= o - l else [o, l, h, c]
 		for a, b in zip(path, path[1:]):
 			for _ in range(100):	# a fill may arm other orders on the way
@@ -370,14 +379,31 @@ class Broker:
 	def after(self, bar):
 		if not self.on:
 			return
+		self.when = int(self.S.tc[bar])
 		if self.closefill:
 			self.market(float(self.S.c[bar]), bar)
+		self.levels_()
 		self.lastbar = bar
 		if self.closedeq is None:
 			self.closedeq = np.zeros(self.S.n)
 			self.openeq = np.zeros(self.S.n)
 		self.closedeq[bar] = self.closedsum
 		self.openeq[bar] = self.openprofit(float(self.S.c[bar])) if self.open else 0.0
+
+	def levels_(self):
+		"""the first stop and target of the exits of each open trade"""
+		for t in self.open:
+			if t.sl is not None and t.tp is not None:
+				continue
+			for e in self.exits.values():
+				if not e.armed:
+					continue
+				for x, kind, tr in self.levels(e):
+					if tr is t:
+						if kind == "stop" and t.sl is None:
+							t.sl = x
+						elif kind == "limit" and t.tp is None:
+							t.tp = x
 
 def e_open(b, e):
 	"""whether exit e still has trades to close"""

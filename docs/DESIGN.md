@@ -731,7 +731,11 @@ same way is ignored past `pyramiding`. Closing a trade drops the exits of
 its entry. A `Trade` keeps its entry and exit (id, price, bar, time), its
 profit in points and in money at the symbol's point value
 (`pine.POINTVALUES`) less commission, and the best and worst prices while
-open (run-up and drawdown).
+open (run-up and drawdown). It also keeps when it filled (`at`,
+`exitat`, ms: `Broker.when` is the candle's open for market orders and gaps,
+its middle for stops and limits on the way, its close for orders on the
+close) and the stop and target its exits first had (`sl`, `tp`, set by
+`levels_` once an exit is armed).
 
 `backtest.backtest` runs a strategy on the candles of a time frame
 (`WholeFeed`: every time frame it asks for has all its bars, not the last
@@ -741,8 +745,18 @@ slippage asked for. `Report` keeps the trades entered in the range (and on
 the days of the search, `only`), `stats(which)` the figures of all, long
 or short trades, `byhour` and `tocsv`. `TesterWindow` runs it in a thread
 of its own with a progress bar (`progress`, every 1024 bars) and `Stop`,
-and shows the equity (`EquityChart`), the figures, the trades (a double
-click shows the day) and the trades by hour.
+and shows the equity (`EquityChart`), the figures, the trades and the
+trades by hour.
+
+Clicking a trade (`showtrade`) sets `MainWindow.tradeshown` to
+`tradeinfo(trade, tf)`, the data view's time frame to the test's, and a
+zoom on the trade's day (`tradeview`: the trade with room around it, the
+prices of its candles, entry, exit, stop and target). `renderdata` then
+wraps the indicators' overlay in one that also calls
+`tradepainter(info)`, which draws the position on the chart's `Geom`: the
+target and stop zones from the entry's x to the exit's, the entry line and
+dot, and the dashed path to the exit with its result. Closing the tester
+clears `tradeshown`.
 
 ## Swing times
 

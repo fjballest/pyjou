@@ -53,6 +53,8 @@ t = b.trades[0]
 check((t.dir, t.price, t.bar, t.exitprice, t.exitbar, t.exitid) == (1, 100, 1, 105, 3, "Long exit"),
 	"filled at the close of the signal candle, out at the limit")
 check(t.points == 5 and t.profit == 10, "5 points, $10 on MNQ")
+check((t.sl, t.tp) == (98, 105), "its stop and target kept")
+check(t.at is not None and t.exitat is not None and t.at < t.exitat, "its fill times (ms)")
 size = [v for _, (v, a, k) in sorted(list(r.plots.values())[0][1].items())]
 check(size == [0, 0, 1, 0, 0], "strategy.position_size as the script sees it (filled after the signal bar ran): " + str(size))
 
@@ -94,6 +96,7 @@ r = run(src, [FLAT, FLAT, (101, 104, 100, 103.5), (103.5, 105.5, 103, 105), FLAT
 t = r.strategy.trades[0]
 check((t.price, t.bar, t.exitprice, t.exitbar) == (103, 2, 105, 3), "a stop entry, then its exit 8 ticks up")
 check(abs(t.profit - (2 * 2 - 1)) < 1e-9, "less $0.50 a side")
+check((t.sl, t.tp) == (98, 105), "stop and target in ticks, as prices: " + str((t.sl, t.tp)))
 
 # a plain indicator has no strategy
 r = run('//@version=6\nindicator("I")\nplot(close)\n', [FLAT, FLAT])
@@ -193,9 +196,30 @@ check(tw.figures.rowCount() > 10 and tw.hours.rowCount() > 0, "figures, by hour"
 img = tw.grab()
 img.save(os.path.join(os.environ.get("SHOTS", src), "tester.png"))
 tw.tabs.setCurrentIndex(1)
-tw.showtrade(0, 0)
+tw.table.cellClicked.emit(0, 0)
 app.processEvents()
 check(win.datamode and win.datakey[0] == "d", "a trade's day shown")
+t0 = tw.rep.trades[0]
+check(t0.at is not None and t0.exitat is not None and t0.at <= t0.exitat, "fill times kept")
+check(getattr(win, "datashowntf", win.datatf) == 5 and win.datatf == 5, "in the time frame of the test")
+dn = int(m15.daynos(np.array([t0.at // 1000]))[0])
+check(win.datakey[1] == m15.Data.daydate(dn), "on the day of its entry")
+g = win.datageom
+check(g.view() is not None and g.t0 <= g.tx(t0.at / 1000) <= g.vt1 and g.t0 <= g.tx(t0.exitat / 1000) <= g.vt1,
+	"zoomed on the trade")
+check(g.bot <= t0.price <= g.top and g.bot <= t0.exitprice <= g.top, "with its prices")
+check(win.tradeshown is not None and win.tradeshown["at"] == t0.at, "drawn as a position")
+win.grab().save(os.path.join(os.environ.get("SHOTS", src), "trade.png"))
+from PySide6.QtGui import QImage, QPainter
+im = QImage(g.W, g.H, QImage.Format.Format_ARGB32)
+im.fill(0)
+p = QPainter(im)
+backtest.tradepainter(dict(win.tradeshown, sl=t0.price - 20, tp=t0.price + 40))(p, g)
+p.end()
+check(im.pixelColor(int(g.X(g.tx(t0.at / 1000))) + 2, int(g.Y(t0.price + 20))).alpha() > 0, "a target zone")
+tw.close()
+app.processEvents()
+check(win.tradeshown is None, "the trade goes with the tester")
 seen = []
 tw.settings(accept=lambda dlg: seen.append(dlg) or 0)
 check(seen, "the strategy's settings")
