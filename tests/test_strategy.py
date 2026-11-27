@@ -187,7 +187,7 @@ check(tw.isVisible() and tw.strategy.currentText() == "Cross" and tw.tf.findData
 tw.tf.setCurrentIndex(tw.tf.findData(5))
 tw.run(wait=True)
 app.processEvents()
-check(tw.rep is not None and tw.table.rowCount() == len(tw.rep.trades) and "trades, net $" in tw.status.text(),
+check(tw.rep is not None and tw.table.rowCount() == len(tw.rep.trades) and "trades, net " in tw.status.text(),
 	"run in the background, its report: " + tw.status.text()[:90])
 check(tw.figures.rowCount() > 10 and tw.hours.rowCount() > 0, "figures, by hour")
 img = tw.grab()

@@ -281,7 +281,10 @@ class EquityChart(QWidget):
 			x = X(i)
 			p.setPen(text)
 			lab = nytime(ts[i]).strftime("%d %b %y")
-			p.drawText(QRectF(x - 40, r.bottom() + 6, 80, 16), Qt.AlignmentFlag.AlignCenter, lab)
+			box = QRectF(x - 40, r.bottom() + 6, 80, 16)
+			if box.right() > self.width():
+				box.moveRight(self.width() - 2)
+			p.drawText(box, Qt.AlignmentFlag.AlignCenter, lab)
 		# the line, decimated to the pixels
 		step = max(1, n // max(int(r.width()), 1))
 		idx = np.arange(0, n, step)
@@ -309,7 +312,7 @@ class EquityChart(QWidget):
 		i = int(round((ev.position().x() - r.left()) / max(r.width(), 1) * (n - 1)))
 		i = max(0, min(n - 1, i))
 		self.at = i
-		QToolTip.showText(ev.globalPosition().toPoint(), f"{fmttime(rep.etimes[i])}\nnet profit: ${rep.equity[i]:,.2f}", self)
+		QToolTip.showText(ev.globalPosition().toPoint(), f"{fmttime(rep.etimes[i])}\nnet profit: {money(rep.equity[i])}", self)
 		self.update()
 
 	def leaveEvent(self, ev):
@@ -589,9 +592,9 @@ class TesterWindow(QDialog):
 			self.status.setText(head + rep.error)
 		else:
 			pf = st["Profit factor"]
-			msg = (f"{st['Trades']} trades, net ${st['Net profit']:,.2f} ({st['Net points']:,.2f} points), "
-				f"win rate {pct(st['Win rate'])}, profit factor {num(pf)}, max drawdown ${st['Max drawdown']:,.2f}. "
-				f"{rep.chart.n - rep.k0:,} candles in {rep.seconds:.0f} s.")
+			msg = (f"{st['Trades']} trades, net {money(st['Net profit'])} ({st['Net points']:,.2f} points), "
+				f"win rate {pct(st['Win rate'])}, profit factor {num(pf)}, max drawdown {money(st['Max drawdown'])}. "
+				f"{rep.chart.n - rep.k0:,} candles in {rep.seconds:.1f} s.")
 			if rep.only is not None:
 				msg += f" Only the trades entered on the {len(rep.only):,} days the search leaves in the list."
 			if rep.cancelled:
@@ -625,7 +628,7 @@ class TesterWindow(QDialog):
 		hrs = rep.byhour()
 		self.hours.setRowCount(len(hrs))
 		for k, (h, n, p, w) in enumerate(hrs):
-			for j, v in enumerate([f"{h:02d}:00", str(n), f"${p:,.2f}", pct(w)]):
+			for j, v in enumerate([f"{h:02d}:00", str(n), money(p), pct(w)]):
 				self.hours.setItem(k, j, QTableWidgetItem(v))
 
 	def showtrade(self, row, _col):
@@ -655,6 +658,9 @@ class TesterWindow(QDialog):
 			self.stopper.set()
 		super().closeEvent(ev)
 
+def money(v):
+	return "—" if v != v else ("-" if v < 0 else "") + f"${abs(v):,.2f}"
+
 def pct(x):
 	return "—" if x != x else f"{x:.1%}"
 
@@ -668,4 +674,4 @@ def fmtfig(key, v):
 		return pct(v)
 	if key in ("Profit factor", "Win / loss ratio", "Average bars in trade", "Net points"):
 		return num(v)
-	return "—" if v != v else f"${v:,.2f}"
+	return money(v)
