@@ -697,6 +697,47 @@ Only the part of Pine the journal's indicators use is understood: a script
 that uses something else, or fails as it runs, says why at the bottom of
 the chart and in the status bar.
 
+### Swing times
+
+**View ▸ Swing Times…** looks at all the m15 data of the journal for the
+times that usually start a significant move. A **swing** is a leg of the
+zigzag of the candles that reverses at least **Swing ≥** times the average
+range before it (of the 20 days before, for the day; 8 weeks, for the week;
+6 months, for the month); a **retracement** is a pullback against a swing
+of at least **Retracement ≥** times that range that does not end it. Each
+one starts at the high or low it leaves from, and that candle's time is
+counted.
+
+- **Day**: the time of the trading day (18:00 to 17:00, New York time, in
+  slots of 15, 30 or 60 minutes) with, as bars, the share of the days where
+  a swing (blue) or a retracement (orange) started in that slot.
+- **Week**: a grid of weekday and hour; the darker a cell, the more weeks a
+  swing (or a retracement) started there.
+- **Month**: the trading day of the month (1st, 2nd…), from the daily
+  candles.
+
+Pointing at a bar or cell tells its shares of swing and retracement starts and the mean
+size of the swings that started there. The text below the chart names the
+most likely times. **Range** takes only part of the data (the last 3 or 6
+months, the last year…).
+
+#### Macro times
+
+**Macro Times…** turns the slots of the day most likely to start a swing (or
+a retracement) into macro windows: the slots with at least the share set
+(the slider), next ones joined, as `HHMM-HHMM` times, such as
+`0930-1000,1030-1100`, which can be edited. **Set in Indicator…** writes
+them in an indicator's source, after showing the change and asking: it
+replaces the first string of each line of the script marked with a
+`// @dj-macros` comment, and keeps the old source next to it, with `.bak`
+added to its name. For example, a script with
+
+    string djMacros = "0950-1010,1050-1110" // @dj-macros
+
+gets the new times in that string; the script decides how to use them
+(splitting them at the commas, say). Only indicators with such a line are
+listed.
+
 ## Exporting
 
 **File ▸ Export All…** (⇧⌘E) saves the captures shown in the list, as the

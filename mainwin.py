@@ -839,6 +839,9 @@ class MainWindow(QMainWindow):
 		self.profileact.setCheckable(True)
 		dataview.SHOWPROFILE = settings().value("dataprofile", True) not in (False, "false")
 		self.profileact.setChecked(dataview.SHOWPROFILE)
+		self.swingact = self.mkaction("S&wing Times…", self.swingtimes, None, None,
+			"the times of the day, the hours of the week and the days of the month when swings and retracements "
+			"started, from the data")
 		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
 			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
 		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
@@ -949,6 +952,7 @@ class MainWindow(QMainWindow):
 		self.indmenu.aboutToShow.connect(self.fillindicators)
 		v.addAction(self.sessionsact)
 		v.addAction(self.profileact)
+		v.addAction(self.swingact)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -1485,6 +1489,24 @@ class MainWindow(QMainWindow):
 				w.sessionsact.setChecked(bool(on))
 				if w.datamode and w.datakey is not None:
 					w.showdata(w.datakey, force=True)
+
+	def swingtimes(self):
+		"""the window of the times swings and retracements started"""
+		if self.data is None or not len(self.data):
+			QMessageBox.information(self, "Swing Times", "There is no data: File ▸ Import Data…")
+			return
+		import patterns
+		w = getattr(self, "swingwin", None)
+		if w is not None and isValid(w) and w.data is self.data:
+			w.show()
+			w.raise_()
+			return
+		QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+		try:
+			self.swingwin = patterns.PatternsWindow(self.data, self)
+		finally:
+			QApplication.restoreOverrideCursor()
+		self.swingwin.show()
 
 	def setprofilelines(self, on):
 		"""draw the profile lines on the data charts or not, in every window"""
