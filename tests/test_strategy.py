@@ -213,12 +213,15 @@ with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.St
 from PySide6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication([])
 import mainwin
+import sandbox
 import indicators
 import ocrworker
 ocrworker.ocrcommand = lambda: (sys.executable, ["-c", "import sys\nfor l in sys.stdin: pass"])
 with open(os.path.join(src, "Cross.txt"), "w") as f:
 	f.write(cross)
 win = mainwin.MainWindow(j)
+check(indicators.DIR.startswith(sandbox.DIR) and mainwin.settings().fileName().startswith(sandbox.DIR),
+	"the indicators and settings are the test's own, not the user's")
 win.show()
 indicators.importfiles([os.path.join(src, "Cross.txt")])
 win.testeract.trigger()

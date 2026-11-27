@@ -48,6 +48,8 @@ import dj
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 import mainwin, indicators, ocrworker
+sys.path.insert(0, os.path.join(%r, "tests"))
+import sandbox
 ocrworker.ocrcommand = lambda: (sys.executable, ["-c", "import sys\nfor l in sys.stdin: pass"])
 real = mainwin.MainWindow
 class Opened(real):
@@ -70,7 +72,7 @@ class Opened(real):
 mainwin.MainWindow = Opened
 sys.argv = ["dj.py", j]
 dj.main()
-''' % (root, j, src))
+''' % (root, j, src, root))
 r = subprocess.run([sys.executable, driver], env=env, capture_output=True, text=True, timeout=90)
 check(r.returncode == 0, "quitting with data windows and indicators running exits cleanly: %d %s" % (r.returncode, r.stderr[-800:]))
 print("ALL OK")

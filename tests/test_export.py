@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog
 
 import mainwin
+import sandbox
 import ocrworker
 from drawing import RectShape
 

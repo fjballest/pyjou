@@ -86,6 +86,7 @@ check('string djMacros = "0930-1000" // @dj-macros the journal sets them' in new
 
 # the window, from the menu
 import mainwin
+import sandbox
 import indicators
 import ocrworker
 ocrworker.ocrcommand = lambda: (sys.executable, ["-c", "import sys\nfor l in sys.stdin: pass"])

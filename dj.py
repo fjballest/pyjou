@@ -39,8 +39,8 @@ def finish():
 	except Exception:
 		pass
 	try:
-		from PySide6.QtCore import QSettings
-		QSettings("pyjou", "DayJournal").sync()
+		import mainwin
+		mainwin.settings().sync()
 	except Exception:
 		pass
 	sys.stdout.flush()

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication([])
 import m15
 import mainwin
+import sandbox
 import indicators
 import ocrworker
 ocrworker.ocrcommand = lambda: (sys.executable, ["-c", "import sys\nfor l in sys.stdin: pass"])
