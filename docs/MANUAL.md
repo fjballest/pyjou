@@ -460,7 +460,8 @@ The color button, the width list, the line style list (solid, dashed,
 dotted) and the text size list (**Aa 16** by default, for text boxes, labels
 and fib numbers) set how new drawings look, and change the ones selected.
 **Clear** deletes every drawing on the image; **Undo** brings them back. **Undo** and **Redo** (⌘Z, ⇧⌘Z) undo and redo the
-drawing changes of the image shown.
+drawing changes of the image shown. On the bar, Undo, Redo and Delete are
+icons: the curved arrows and the bin.
 
 Drawings are kept until you **Save** them (⌘S, or the Save button in the
 toolbar); meanwhile the window title says *(unsaved)*. You can go to other
@@ -652,8 +653,15 @@ and news days a green one.
 TradingView Pine indicators can be drawn on the data charts. **View ▸
 Indicators ▸ Import Indicators…** takes their source (the `.txt` or `.pine`
 files of the script, as copied from the Pine editor), keeps a copy for
-every journal and turns them on; the menu lists them, checked when on, and
-remembers which are. **Remove** forgets one, and **Show Indicators Folder**
+every journal and turns them on; the menu lists them, checked when on in
+the window, and remembers which are for the windows opened next.
+
+Each window shows its own indicators: the **Ind** menu at the end of the
+drawing bar, in the data view, lists them, checked when shown in the
+window. Clicking one shows or hides it there, and the menu stays open to
+click more; a click outside closes it. A right click on one opens its
+settings. A new window starts with the indicators of the one it was opened
+from. **Remove** forgets one, and **Show Indicators Folder**
 opens where they are kept. **Indicator Folders…** adds other folders to
 look for indicators in (a folder of Pine scripts kept elsewhere, say): the
 imported ones are looked for first, then those folders in the order listed
