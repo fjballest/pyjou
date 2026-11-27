@@ -1455,6 +1455,16 @@ class MainWindow(QMainWindow):
 				names=self.windowind())
 			if bad and not self.datapending:
 				self.statusBar().showMessage("; ".join(bad), 10000)
+		tr = getattr(self, "tradeshown", None)
+		if tr is not None and tr["tf"] == tf and g.ok:	# a trade of the Strategy Tester, drawn as a position
+			import backtest
+			ov, paint = self.dataoverlay, backtest.tradepainter(tr)
+			def both(p, geom, ov=ov, paint=paint):
+				if ov is not None:
+					ov(p, geom)
+				paint(p, geom)
+			both.reach = getattr(ov, "reach", None)
+			self.dataoverlay = both
 		margin = 0
 		far = getattr(self.dataoverlay, "reach", None)
 		share = self.marginshare()

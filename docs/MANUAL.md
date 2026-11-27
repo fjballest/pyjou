@@ -780,8 +780,15 @@ runs on all the candles.
 - **Overview**: the net profit as it went (closed trades and the one open)
   and the figures of all the trades, the longs and the shorts: net profit,
   profit factor, win rate, average and largest trades, max drawdown…
-- **List of Trades**: each trade, with its run-up and drawdown; a double
-  click shows its day in the data view.
+- **List of Trades**: each trade, with its run-up and drawdown. Clicking
+  one shows it in the data view, in the time frame of the test, zoomed on
+  it, and drawn as a long or short position: a green zone from the entry
+  to the target and a red one to the stop (as the trade's exits first had
+  them, with their distance in points), the entry (a blue dot), and a
+  dashed line to the exit with the result in points and dollars. A trade
+  without a stop or target gets a zone to its exit, green if it won. The
+  drawing goes when the Strategy Tester is closed; double-click the chart
+  to see the whole day again.
 - **By Hour**: the trades by the hour they were entered.
 
 **Export Trades…** saves the list as CSV. While a strategy runs, the

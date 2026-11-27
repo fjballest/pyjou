@@ -415,7 +415,7 @@ class TesterWindow(QDialog):
 		self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 		self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 		self.table.setToolTip("double click a trade to show its day in the data view")
-		self.table.cellDoubleClicked.connect(self.showtrade)
+		self.table.cellClicked.connect(self.showtrade)
 		self.tabs.addTab(self.table, "List of Trades")
 		self.hours = QTableWidget(0, 4)
 		self.hours.setHorizontalHeaderLabels(["Entry hour (New York)", "Trades", "Net profit", "Win rate"])
@@ -631,18 +631,31 @@ class TesterWindow(QDialog):
 			for j, v in enumerate([f"{h:02d}:00", str(n), money(p), pct(w)]):
 				self.hours.setItem(k, j, QTableWidgetItem(v))
 
-	def showtrade(self, row, _col):
+	def showtrade(self, row, _col=0):
+		"""show trade row on the data view, in the time frame of the test,
+		zoomed on it, drawn as a position"""
 		if self.rep is None or row >= len(self.rep.trades):
 			return
 		t = self.rep.trades[row]
-		d = m15.Data.daydate(int(m15.daynos(np.array([t.time // 1000]))[0]))
 		w = self.win
-		if not getattr(w, "datamode", False) and hasattr(w, "setdatamode"):
+		if not hasattr(w, "setdatamode"):
+			return
+		info = tradeinfo(t, self.rep.tf)
+		w.tradeshown = info
+		if not w.datamode:
 			w.setdatamode(True)
-		if getattr(w, "datamode", False):
-			w.showdata(("d", d))
-			w.raise_()
-			w.activateWindow()
+		if not w.datamode:
+			return
+		tf = self.rep.tf
+		w.setdatatf(tf)
+		d = m15.Data.daydate(int(m15.daynos(np.array([info["at"] // 1000]))[0]))
+		from dataview import Geom
+		g = Geom(w.data, "d", d, tf, w.getlow() if tf < 15 else None)
+		if g.ok:
+			w.datazooms[("d", d, tf)] = tradeview(g, info)
+		w.showdata(("d", d), force=True)
+		w.raise_()
+		w.activateWindow()
 
 	def export(self, path=None):
 		if self.rep is None:
@@ -656,7 +669,115 @@ class TesterWindow(QDialog):
 	def closeEvent(self, ev):
 		if self.stopper is not None:
 			self.stopper.set()
+		w = self.win
+		if getattr(w, "tradeshown", None) is not None:	# the trade drawn goes with the tester
+			w.tradeshown = None
+			if w.datamode and w.datakey is not None:
+				w.showdata(w.datakey, force=True)
 		super().closeEvent(ev)
+
+# ---------------------------------------------------------------- a trade on the chart
+
+def tradeinfo(t, tf):
+	"""what tradepainter draws of strategy.Trade t, run in time frame tf"""
+	at = t.at if t.at is not None else t.time
+	exitat = t.exitat if t.exitat is not None else t.exittime
+	return {"tf": tf, "dir": t.dir, "id": t.id, "at": int(at), "exitat": None if exitat is None else int(exitat),
+		"price": t.price, "exitprice": t.exitprice, "sl": t.sl, "tp": t.tp, "points": t.points, "profit": t.profit,
+		"exitid": t.exitid}
+
+def tradeview(g, info):
+	"""the part of the chart of g to show for trade info: (top, bot, t0, t1)"""
+	top0, bot0, w0, w1 = g.whole
+	te = g.tx(info["at"] / 1000)
+	tx = g.tx(info["exitat"] / 1000) if info["exitat"] else te + 10 * g.cw
+	tx = min(tx, w1)
+	span = max(tx - te, 8 * g.cw)
+	t0, t1 = max(w0, te - 2.5 * span), min(w1, tx + 1.5 * span)
+	wall, o, h, l, c, zero = g.bars
+	tt = (wall - zero) / g.unit
+	m = (tt >= t0) & (tt <= t1)
+	ps = [x for x in (info["price"], info["exitprice"], info["sl"], info["tp"]) if x is not None]
+	his = ([float(h[m].max())] if m.any() else []) + ps
+	los = ([float(l[m].min())] if m.any() else []) + ps
+	hi, lo = (max(his), min(los)) if his else (top0, bot0)
+	pad = (hi - lo) * 0.08 or 1
+	return (hi + pad, lo - pad, t0, t1)
+
+ZGREEN = QColor(8, 153, 129)
+ZRED = QColor(242, 54, 69)
+
+def tradepainter(info):
+	"""fn(painter, geom) drawing trade info as a long or short position
+	tool: the target zone over the stop zone from the entry, the entry
+	line, and the path to the exit with its result"""
+	from PySide6.QtGui import QFont, QFontMetricsF
+
+	def fn(p, g):
+		d = info["dir"]
+		xs = g.X(g.tx(info["at"] / 1000))
+		xe = g.X(g.tx(info["exitat"] / 1000)) if info["exitat"] else g.X(g.vt1)
+		slot = g.cw / (g.t1 - g.t0) * g.pw
+		xe = max(xe, xs + 3 * slot)
+		ye = g.Y(info["price"])
+		p.save()
+		p.setRenderHint(QPainter.RenderHint.Antialiasing)
+		f = QFont()
+		f.setPixelSize(14)
+		p.setFont(f)
+		fm = QFontMetricsF(f)
+		def zone(level, col):
+			if level is None:
+				return None
+			y = g.Y(level)
+			r = QRectF(xs, min(y, ye), xe - xs, abs(y - ye))
+			fill = QColor(col)
+			fill.setAlpha(80)
+			p.fillRect(r, fill)
+			edge = QColor(col)
+			edge.setAlpha(160)
+			p.setPen(QPen(edge, 1))
+			p.drawLine(QPointF(xs, y), QPointF(xe, y))
+			return y
+		ytp = zone(info["tp"], ZGREEN)
+		ysl = zone(info["sl"], ZRED)
+		if ytp is None and ysl is None and info["exitprice"] is not None:	# no stop or target: entry to exit
+			zone(info["exitprice"], ZGREEN if info["points"] > 0 else ZRED)
+		p.setPen(QPen(QColor(90, 100, 115), 1.5))
+		p.drawLine(QPointF(xs, ye), QPointF(xe, ye))
+		def tag(text, x, y, col, above):
+			w, h = fm.horizontalAdvance(text) + 10, fm.height() + 4
+			r = QRectF(x - w / 2, (y - h - 3) if above else (y + 3), w, h)
+			p.fillRect(r, col)
+			p.setPen(QColor("white"))
+			p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
+		mid = (xs + xe) / 2
+		if ytp is not None:
+			tag(f"Target {info['tp']:.2f} ({(info['tp'] - info['price']) * d:+.2f})", mid, ytp, ZGREEN, ytp < ye)
+		if ysl is not None:
+			tag(f"Stop {info['sl']:.2f} ({(info['sl'] - info['price']) * d:+.2f})", mid, ysl, ZRED, ysl < ye)
+		if info["exitprice"] is not None:
+			yx = g.Y(info["exitprice"])
+			col = ZGREEN if info["points"] > 0 else ZRED if info["points"] < 0 else QColor(120, 120, 120)
+			pen = QPen(col, 1.6, Qt.PenStyle.DashLine)
+			p.setPen(pen)
+			p.drawLine(QPointF(xs, ye), QPointF(xe, yx))
+			p.setPen(QPen(QColor("white"), 1.5))
+			p.setBrush(col)
+			p.drawEllipse(QPointF(xe, yx), 5, 5)
+			p.setBrush(Qt.BrushStyle.NoBrush)
+			text = f"{'Long' if d > 0 else 'Short'} {info['points']:+.2f} pts  {money(info['profit'])}"
+			w = fm.horizontalAdvance(text) + 12
+			x = min(xe + 8, g.L + g.pw - w)
+			r = QRectF(x, yx - fm.height() / 2 - 2, w, fm.height() + 4)
+			p.fillRect(r, col)
+			p.setPen(QColor("white"))
+			p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
+		p.setPen(QPen(QColor("white"), 1.5))
+		p.setBrush(QColor(37, 125, 224))
+		p.drawEllipse(QPointF(xs, ye), 5, 5)
+		p.restore()
+	return fn
 
 def money(v):
 	return "—" if v != v else ("-" if v < 0 else "") + f"${abs(v):,.2f}"
