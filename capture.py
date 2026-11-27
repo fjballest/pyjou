@@ -4,6 +4,7 @@
 # let the user confirm or change it, and copy it with the right name.
 #
 import os
+import sys
 import re
 import shutil
 from collections import Counter
@@ -130,14 +131,57 @@ def savecapture(journal, src, name, replace=()):
 		if os.path.exists(tmp):
 			os.remove(tmp)
 		raise
+	syncfile(tmp)
 	notes = "\n\n".join(e.notes.strip() for e in replace if e.notes and e.notes.strip())
 	for e in replace:
 		journal.delete(e)
 	os.replace(tmp, dst)
+	syncfile(journal.dir)
 	journal.load()
 	if notes:
 		journal.savenotes(journal.find(name), notes + "\n")
 	return dst
+
+def syncfile(path):
+	"""make sure what was written to file (or the names in folder) path is
+	on the disk, not just in the system's buffers"""
+	try:
+		fd = os.open(path, os.O_RDONLY)
+	except OSError:
+		return
+	try:
+		os.fsync(fd)
+	except OSError:
+		pass	# folders can't be synced on some systems
+	finally:
+		os.close(fd)
+
+def safecopy(src, dst):
+	"""whether dst, the capture saved from image src, is on disk and
+	reads as the same image"""
+	if not os.path.isfile(dst) or os.path.getsize(dst) == 0:
+		return False
+	if src.lower().endswith(".png") and os.path.getsize(src) != os.path.getsize(dst):
+		return False
+	a, b = QImage(src), QImage(dst)
+	return not b.isNull() and (a.isNull() or a.size() == b.size())
+
+def totrash(path):
+	"""move the file at path to the Trash (Recycle Bin); whether it went"""
+	from PySide6.QtCore import QFile
+	def move():
+		ok = QFile.moveToTrash(path)
+		return ok[0] if isinstance(ok, tuple) else bool(ok)
+	if move():
+		return True
+	if sys.platform.startswith("linux"):	# Qt doesn't make the folder the trash goes in
+		data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+		try:
+			os.makedirs(data, exist_ok=True)
+		except OSError:
+			return False
+		return move()
+	return False
 
 def injournal(journal, src):
 	"""whether src is already one of the images of the journal"""

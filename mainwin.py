@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 	QVBoxLayout, QWidget, QDialogButtonBox
 )
 
-from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, savecapture, weekname
+from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, safecopy, savecapture, totrash, weekname
 from journal import Journal, defaultjournals, setdrawing, groupkeys, tradedir, weekno
 from ocrworker import startocr
 from search import Search
@@ -59,6 +59,10 @@ ALIASHELP = ("One word per line, then : and the words it also finds, separated b
 
 def settings():
 	return QSettings("pyjou", "DayJournal")
+
+def trashdropped():
+	"""whether captures dragged in go to the Trash once added (File ▸ Move Dropped Captures to Trash)"""
+	return settings().value("trashdropped", True) not in (False, "false")
 
 # where temporary directories are made: /tmp, and /var/folders on macOS
 TEMPDIRS = ("/tmp", "/var/tmp", "/var/folders")
@@ -826,6 +830,11 @@ class MainWindow(QMainWindow):
 		self.dellistact = QAction("Delete Capture", self)
 		self.dellistact.setShortcuts([QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)])
 		self.dellistact.triggered.connect(lambda: self.delpressed(False))
+		self.trashact = self.mkaction("&Move Dropped Captures to Trash", lambda: settings().setValue("trashdropped",
+			self.trashact.isChecked()), None, None,
+			"move the image files dragged into the journal to the Trash once their copy is safe on disk")
+		self.trashact.setCheckable(True)
+		self.trashact.setChecked(trashdropped())
 		self.askdelact = self.mkaction("As&k Before Deleting", lambda: settings().setValue("askdelete",
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
@@ -904,12 +913,14 @@ class MainWindow(QMainWindow):
 	def mkmenus(self):
 		mb = self.menuBar()
 		f = mb.addMenu("&File")
+		f.aboutToShow.connect(lambda: self.trashact.setChecked(trashdropped()))
 		f.addAction(self.newwinact)
 		f.addAction(self.syncact)
 		f.addAction(self.openact)
 		f.addMenu(self.recentmenu)
 		f.addAction(self.saveact)
 		f.addAction(self.addact)
+		f.addAction(self.trashact)
 		f.addAction(self.importdataact)
 		f.addAction(self.newsact)
 		f.addAction(self.addchartact)
@@ -2257,7 +2268,9 @@ class MainWindow(QMainWindow):
 			return
 		ev.acceptProposedAction()
 		# after the drop is over, so the dialog doesn't hold the program it came from
-		QTimer.singleShot(0, lambda: self.addcaptures(paths))
+		# a capture of another journal's window is copied, never trashed
+		trash = not ev.mimeData().hasFormat(DRAGMIME) and trashdropped()
+		QTimer.singleShot(0, lambda: self.addcaptures(paths, trash))
 
 	def choosecaptures(self):
 		if self.journal is None:
@@ -2267,11 +2280,14 @@ class MainWindow(QMainWindow):
 			f"Images ({exts})")
 		self.addcaptures(paths)
 
-	def addcaptures(self, paths):
-		"""add the images at paths to the journal, asking the date of each"""
+	def addcaptures(self, paths, trash=False):
+		"""add the images at paths to the journal, asking the date of each;
+		with trash (dragged in, and Move Dropped Captures to Trash on), each
+		one added is moved to the Trash once its copy is safe on disk"""
 		if self.journal is None:
 			return
 		added = None
+		trashed, kept = 0, []
 		for p in paths:
 			if injournal(self.journal, p):
 				QMessageBox.information(self, "Add Capture", f"{os.path.basename(p)} is already in the journal.")
@@ -2298,6 +2314,17 @@ class MainWindow(QMainWindow):
 				self.savecache()
 			added = name
 			self.statusBar().showMessage(f"Added {name}", 3000)
+			if trash:
+				if safecopy(p, os.path.join(self.journal.dir, name)) and totrash(p):
+					trashed += 1
+				else:
+					kept.append(os.path.basename(p))
+		if trashed:
+			self.statusBar().showMessage(f"Added {added}; {trashed} dropped file{'s' if trashed > 1 else ''} "
+				"moved to the Trash", 5000)
+		if kept:
+			QMessageBox.warning(self, "Add Capture", "Added, but not moved to the Trash (the copy couldn't be "
+				"checked, or the file couldn't be moved): " + ", ".join(kept))
 		if added is not None:
 			self.reload()
 			self.reveal(self.journal.find(added))
