@@ -582,6 +582,10 @@ there.
 
 ### Scaling a chart
 
+A data chart is as wide as its window: a wider window shows the hours wider
+instead of leaving room at the sides, and it is drawn again when the window
+changes size. Drawings stay at their times and prices.
+
 Scrolling over the price axis of a data chart (its right edge), or inside
 the chart by its left or right edge, shows more or fewer prices around the
 one under the mouse; scrolling over the time axis (its bottom edge), or
@@ -696,6 +700,86 @@ every journal, and the charts are drawn again with them.
 Only the part of Pine the journal's indicators use is understood: a script
 that uses something else, or fails as it runs, says why at the bottom of
 the chart and in the status bar.
+
+### Swing times
+
+**View ▸ Swing Times…** looks at all the m15 data of the journal for the
+times that usually start a significant move. A **swing** is a leg of the
+zigzag of the candles that reverses at least **Swing ≥** times the average
+range before it (of the 20 days before, for the day; 8 weeks, for the week;
+6 months, for the month); a **retracement** is a pullback against a swing
+of at least **Retracement ≥** times that range that does not end it. Each
+one starts at the high or low it leaves from, and that candle's time is
+counted.
+
+- **Day**: the time of the trading day (18:00 to 17:00, New York time, in
+  slots of 15, 30 or 60 minutes) with, as bars, the share of the days where
+  a swing (blue) or a retracement (orange) started in that slot.
+- **Week**: a grid of weekday and hour; the darker a cell, the more weeks a
+  swing (or a retracement) started there.
+- **Month**: the trading day of the month (1st, 2nd…), from the daily
+  candles.
+
+Pointing at a bar or cell tells its shares of swing and retracement starts and the mean
+size of the swings that started there. The text below the chart names the
+most likely times. The list at the top left takes only part of the data (the last 3 or 6
+months, the last year…). With a search in the list, only the days (and,
+for the week, the weeks) it leaves are counted: search `CPI` to see when
+swings start on CPI days. The swings are still found on all the candles,
+and the window counts again when the search changes.
+
+#### Macro times
+
+**Macro Times…** turns the slots of the day most likely to start a swing (or
+a retracement) into macro windows: the slots with at least the share set
+(the slider), next ones joined, as `HHMM-HHMM` times, such as
+`0930-1000,1030-1100`, which can be edited. **Set in Indicator…** writes
+them in an indicator's source, after showing the change and asking: it
+replaces the first string of each line of the script marked with a
+`// @dj-macros` comment, and keeps the old source next to it, with `.bak`
+added to its name. For example, a script with
+
+    string djMacros = "0950-1010,1050-1110" // @dj-macros
+
+gets the new times in that string; the script decides how to use them
+(splitting them at the commas, say). Only indicators with such a line are
+listed.
+
+### Strategy Tester
+
+**View ▸ Strategy Tester…** runs a Pine strategy (a script declaring
+`strategy(...)`) on the journal's data, as TradingView's Strategy Tester
+does on a chart. The indicators that are strategies are listed; **Add
+File…** adds one kept elsewhere. Pick the **Time frame** of its candles
+(those under m15 need the lower time frame data), the **Range** of days, and
+**Run**: it runs in the background with a progress bar, and **Stop** ends it
+with the trades made so far. **Settings…** shows its inputs, the same ones
+the charts use.
+
+Orders are filled as TradingView's broker emulator does: market orders at
+the close of the candle when the strategy says `process_orders_on_close`,
+or else at the next open; stops and limits (of entries and of
+`strategy.exit`) on later candles, as the price goes from the open to the
+nearest of the high and the low, to the other, and to the close; a candle
+opening past one fills it at the open. An entry the other way reverses the
+position. **Commission** (a contract, each side) and **Slippage** (ticks)
+replace the strategy's own when set. Profits are in dollars at the
+symbol's point value (2 for MNQ, 20 for NQ).
+
+A range starts 5000 candles earlier, so the strategy has its history, and
+only the trades entered in the range count. With a search in the list,
+only the trades entered on the days it leaves count: the strategy still
+runs on all the candles.
+
+- **Overview**: the net profit as it went (closed trades and the one open)
+  and the figures of all the trades, the longs and the shorts: net profit,
+  profit factor, win rate, average and largest trades, max drawdown…
+- **List of Trades**: each trade, with its run-up and drawdown; a double
+  click shows its day in the data view.
+- **By Hour**: the trades by the hour they were entered.
+
+**Export Trades…** saves the list as CSV. While a strategy runs, the
+indicators of the charts wait for it.
 
 ## Exporting
 

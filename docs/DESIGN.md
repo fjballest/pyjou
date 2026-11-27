@@ -7,6 +7,8 @@ pylg, and uses easyocr for the OCR.
 
 ## The pieces
 
+![The modules and who calls whom](img/dj-modules.svg)
+
 | File | What is in it |
 |------|---------------|
 | `dj.py` | `main`: starts the window, or the OCR process with `--ocr` |
@@ -22,8 +24,13 @@ pylg, and uses easyocr for the OCR.
 | `weekprof.py` | `profile`: the swings of a week found in its week profile's image; `Profiles`, their cache |
 | `weekedit.py` | `ProfileEditor`: adjusting a week profile on its image, with event filters on the view |
 | `m15.py` | `Data`: the m15 candles of the journal, imported from CSV and kept in files of at most `MAXFILE` bytes named after their first day (`storeof`, `Data.write`), their trading days and weeks in New York time, profiles and sessions. No widgets |
-| `dataview.py` | `render` (the chart of a day or week from the candles) and `DataPanel`, the list of the data view; `MainWindow.setdatamode` and `showdata` switch to it |
-| `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo, delete) |
+| `dataview.py` | `Geom` (where a chart puts times and prices), `render` (the chart of a day or week from the candles) and `DataPanel`, the list of the data view; `MainWindow.setdatamode` and `showdata` switch to it |
+| `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo and delete as icons drawn by `glyph`), and `IndMenu`, the Ind menu of the data view |
+| `news.py` | `News`: the FOMC, CPI, PPI and NFP days, built in and fetched, and the holidays, reckoned from their rules and fetched |
+| `indicators.py` | the Pine scripts imported and found in other folders, which are on, their inputs, the background `Runner` and its cache of runs, `overlay` (what they draw on a chart), the settings dialog |
+| `pine/` | the Pine interpreter: `parse.py`, `compile.py` (to Python), `runtime.py` (series, built-ins, drawing objects), `feed.py` (bars of every time frame from the journal's data), `draw.py` (a run painted on a chart), `strategy.py` (the broker of strategies) |
+| `patterns.py` | when swings and retracements start (`byday`, `byweek`, `bymonth`), `PatternsWindow` (View ▸ Swing Times) and the macro times set in an indicator's source (`MacrosDialog`, `withmacros`) |
+| `backtest.py` | `backtest` (a strategy run on the data), `Report` (its trades and figures) and `TesterWindow` (View ▸ Strategy Tester) |
 | `tests/` | headless tests; the OCR is faked |
 | `dj.spec` | pyinstaller spec: `DayJournal.app` on macOS |
 
@@ -57,6 +64,8 @@ instead of written.
 The tags cache keeps the raw OCR text, not the tags, so changing the rules
 in `tags.py` takes effect at once without reading the images again. An
 image is read again when its modification time changes.
+
+![A journal on disk, the settings and the app data folder](img/dj-disk.svg)
 
 A drawing file:
 
@@ -413,15 +422,19 @@ and per visit.
 ## Tests
 
 ```
-QT_QPA_PLATFORM=offscreen python3 tests/test_journal.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_drawing.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_capture.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_clip.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_panels.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_window.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_layout.py
-QT_QPA_PLATFORM=offscreen python3 tests/test_weekprof.py
+for t in tests/test_*.py; do QT_QPA_PLATFORM=offscreen python3 $t || echo FAILED $t; done
 ```
+
+Each file is a script that prints `ok` and what it checked, and exits with
+an error at the first check that fails. `test_journal`, `test_drawing`,
+`test_capture`, `test_clip`, `test_panels`, `test_window`, `test_layout`
+and `test_weekprof` are the captures; `test_m15`, `test_periods`,
+`test_scale`, `test_v3`, `test_v33` and `test_fill` the data view;
+`test_news` and `test_holidays` the news and holidays; `test_pine`,
+`test_indmenu` and `test_quit` the indicators; `test_patterns` the swing
+times and macro times; `test_strategy` the broker and the Strategy Tester.
+`test_strategy` also runs ICTScalp strategy when `ICTSCALP` names its
+source.
 
 `tests/sandbox.py` makes them keep their settings in files of their own,
 since on macOS `QSettings` ignores `HOME` and would use the user's.
@@ -462,6 +475,9 @@ The PDFs next to these documents are made with `docs/mkpdf.sh`.
 | change how searches match | `search.py` (`wordpattern`, the parser) |
 | add a kind of drawing | a shape class with `todict`, `setend`, `small` and `setstyle` in `drawing.py`, `fromdict`, the tool in `ImageView.mousePressEvent` and `drawbar.TOOLS` |
 | add a menu entry | `MainWindow.mkactions` and `mkmenus` |
+| support more of Pine | `parse.py` (syntax), `compile.py` (statements), `runtime.builtins` (functions, constants, variables), `strategy.builtins` |
+| change how orders fill | `strategy.Broker.candle`, `triggers`, `gaps` |
+| add a figure to the tester | `backtest.Report.stats` |
 | change the list groups | `journal.groupkeys` and `MainWindow.initialgroups` |
 
 ## Scaling a panel
@@ -553,3 +569,200 @@ week itself and the weeks in progress, keeps `matching`, `matchsrc` and
 `matchend` for `RowDelegate.paintprofile` (the score, and the red part, by
 clipping), and opens a `MatchDialog`; closing it clears them.
 
+
+## Data structures
+
+![The main data structures and how they feed each other](img/dj-structures.svg)
+
+The captures are files and `Entry` objects (above). Everything else that
+is computed works on numpy arrays of candles:
+
+- `m15.Data(dir, tf)` reads the candle files of a time frame (m15 by
+  default; `m15.lowtfs(dir)` lists the lower ones there are) into parallel
+  arrays: `t` (UTC seconds), `o`, `h`, `l`, `c`, `wall` (the same instant on
+  New York's clock) and `dayno`, the trading day of each candle in days since
+  1970, where a day runs from 18:00 the day before to 17:00. `days()` and
+  `weeks()` are the trading days and the Mondays with candles;
+  `periodbars` gives the candles of days, weeks or months. A `Data` has no
+  widgets and is shared by the window, the indicators, the swing times and
+  the tester; nothing changes it but `add` (an import).
+- `dataview.Geom` is a chart: which candles (`bars`), the pixels (`W`×`H`,
+  the margins `L R T B`, the plot `pw`×`ph`) and what is shown (`top`, `bot`
+  in prices; `t0`, `t1` in hours of the day or days of the week, `vt1` where
+  the candles end). `X`, `Y`, `t`, `price` and `tx` go between them. Its own
+  width `W0` is 1800 for a day, 2400 for a week and 2000 for days, weeks or
+  months; `W` is what it is drawn at.
+- `pine.runtime.Series` are the bars a script sees (lists of `t`, `o`, `h`,
+  `l`, `c`, `v`, `tc` in milliseconds, and per bar fields for `hour`,
+  `dayofweek`…), made by `pine.feed.Feed` from `Data`, resampled and cut at
+  the last candle shown (`upto`).
+- `pine.Result` is what a run left: the drawing objects alive at the end,
+  the plots, the inputs it asked for and, for a strategy, its `Broker`.
+
+## The data view
+
+![Drawing a data chart: from the list to the image view](img/dj-dataview.svg)
+
+The data view shows the candles of the journal (`m15.Data`) instead of a
+capture, in the same `ImageView`, so the drawing tools work on it.
+`MainWindow.setdatamode` switches the left panel to `DataPanel` (weeks
+with their days, in month groups, each with its profile) and `showdata(key)`
+(`key` is `("d", date)` or `("w", monday)`) draws the chart:
+
+1. `renderdata` makes a `Geom` for the day or week, the time frame shown
+   (`datashowntf`; `getlow` reads the lower time frame data when it is
+   under m15), the zoom of that chart (`datazooms[(kind, d, tf)]`) and the
+   width that fills the view (`datawidth`: as tall as the chart's own
+   height, as wide as the view's shape; `viewresized` draws it again 250 ms
+   after the view changes size).
+2. `indicators.overlay` gives a painter for what the indicators on in this
+   window (`windowind`) draw: the runs cached for that chart, or the last
+   ones of it while a `Job` with the runs it needs goes to the `Runner`
+   thread (see below). Their `reach`, the furthest time they draw at past
+   the last candle, makes room right of it (`margin`, at most `MAXMARGIN`
+   of the times shown).
+3. `dataview.render` paints the candles, sessions, profile, news and
+   holidays (`paintchart`) and the overlay into a `QImage` of `W`×`H`, and
+   the view shows it with the chart's drawing.
+
+Drawings of a data chart are kept in `m15draw/` in pixels of the whole
+chart at its own width (`W0`): `g.mapped()` says the chart shown is not that
+(zoomed, a margin, another width), and `mapdrawing` moves the points to it
+when showing and back when saving (`drawchanged`). Drawings of the lower
+time frames say their `width`, since those charts were once wider
+(`oldwidth`, `widened`).
+
+The wheel on a chart (`wheelzone`) scales the prices near the left and
+right edges and the times near the top and bottom, zooms both at the
+center and pans elsewhere; each makes a new view (`Geom.zoomed`,
+`zoomedat`). While the chart moves (`datamoved`), indicator runs are not
+started and those going on are stopped; one second after the last move
+(`QUIET`, `dataquiet`) they run where it went.
+
+## News and holidays
+
+`news.News` holds the days with news (`{date: [names]}`) and their release
+times: the built in ones, those fetched (`fetch`: the Federal Reserve's FOMC
+calendar and the BLS's CPI, PPI and NFP schedules, kept in `FETCHED` for
+every journal) and a journal's `news.txt`. Holidays are reckoned from their
+rules (`holidays(year)`: `observed`, `nth`, `easter`, and `SPECIAL` days),
+with the NYSE and Federal Reserve tables fetched (`fetchholidays`,
+`FETCHEDHOL`) adding those they name; `HOLIDAYS` maps their names to the
+abbreviations of the lists. `names(d)` are the tags of a day (the news, the
+holiday's name and `Holiday`), `marks(d, week)` the short text of the
+lists, and the calendar colors a holiday red and a news day green
+(`markcalendar`). The search sees a data day as an entry with those tags
+and its notes (`dataentry`).
+
+## Indicators and Pine
+
+![Running a Pine script](img/dj-pine.svg)
+
+`indicators.py` is the only code that knows about Pine. The scripts are
+the `.txt` or `.pine` files imported into `DIR` (in the app data folder,
+for every journal) and those of the folders added
+(`folders`; `scripts()` takes the first of a name, in that order). Which are
+on is a list in the settings (`indicators/on`), as is each one's inputs
+changed from their defaults (`indicators/inputs/<name>`). A window keeps
+its own list (`MainWindow.indon`), changed with the Ind menu (`IndMenu`) or
+View ▸ Indicators.
+
+`needed(data, low, g, tf, names)` says what a chart needs: a run key per
+script (its path and modification time, its inputs, the time frame and the
+last candle shown, `upto`). `results` returns the runs in the cache and
+hands the missing ones as a `Job` to the `Runner`, a thread that makes one
+job at a time, keeps only the newest job of each chart, and emits `done`
+when it has some; `cancel` stops them. `compute(job)` builds a
+`pine.feed.Feed` (the bars of any time frame from `Data` and the lower
+data, cut at `upto`) and calls `pine.run` for each script.
+
+The interpreter (`pine/`):
+
+- `parse.py` reads the source into a tree of tuples (`("if", cond, then,
+  else)`, `("call", name, args, kwargs)`…), with Pine's line rules.
+- `compile.py` turns the tree into Python source: the top level becomes
+  `_bar(_c)`, run once a bar, with the variables as module globals (`var`
+  ones kept between bars); the inputs and constants go to `_init(_c)`, run
+  once. Functions that keep state (`ta.*` calls, `var`, `x[n]`) take the
+  call site's `Ctx` first. `Script` compiles once and caches by the
+  source's SHA-1.
+- `runtime.py` is what that code runs on: `na` (a float NaN), `Hist` (a
+  series' values by bar, for `x[n]`), `Ctx` (a call site's state), the
+  `Series` of each time frame, `RT` (the one runtime: the bar, the drawing
+  objects with their limits, the plots, the inputs) and the built-ins.
+  `request.security` runs the expression on the other time frame's
+  `Series` in a context of its own up to the chart bar's time (`_Sec`,
+  `_swap`).
+- `pine.run` (`_run`) resets `RT`, runs `_init` and then `_bar` for each bar
+  (`setbar` sets `open`, `close`, `time`… first), stopping when `stop` is
+  set. A run holds `LOCK`, since the runtime is one.
+- `draw.py` paints a `Result` on a `Geom` (`Mapper` puts bar indexes and
+  times on the chart).
+
+## Strategies
+
+`pine/strategy.py` makes a script declaring `strategy(...)` a strategy:
+`strategy_` in the runtime calls `Broker.declare` with its arguments
+(`process_orders_on_close`, `pyramiding`, the default quantity, the
+commission and slippage), and `strategy.entry`, `exit`, `close`,
+`close_all`, `cancel` and `order` go to `RT.st`, the run's `Broker`.
+`strategy.position_size`, `position_avg_price`, `equity`, `netprofit`,
+`opentrades`… read it.
+
+![Fills on a bar](img/dj-broker.svg)
+
+The broker works as TradingView's emulator. On each bar `_run` calls:
+
+- `before(i)`: the orders placed on earlier bars fill as the price goes
+  through bar `i` (`candle`): market orders at the open when not
+  `process_orders_on_close`; then what the open is already past (`gaps`:
+  filled at the open); then along the path open → nearest of high and low
+  → the other → close, the order nearest on each leg first (`triggers`),
+  again after each fill, since a fill arms other orders (an exit is armed
+  once its entry is open; a stop limit entry becomes a limit).
+- the script (`_bar`), which places orders: an `Order` per entry id, an
+  `Exit` per exit id (stop and limit as prices, or `profit` and `loss` in
+  ticks from the entry), closes.
+- `after(i)`: market orders at the close when `process_orders_on_close`,
+  and the equity of that bar (`closedeq`, `openeq`).
+
+An entry the other way closes the trades open first (a reversal); one the
+same way is ignored past `pyramiding`. Closing a trade drops the exits of
+its entry. A `Trade` keeps its entry and exit (id, price, bar, time), its
+profit in points and in money at the symbol's point value
+(`pine.POINTVALUES`) less commission, and the best and worst prices while
+open (run-up and drawdown).
+
+`backtest.backtest` runs a strategy on the candles of a time frame
+(`WholeFeed`: every time frame it asks for has all its bars, not the last
+20000) for a range of days, starting `WARM` candles earlier, without
+keeping plots (`plots=False`); `onstrategy` sets the commission and
+slippage asked for. `Report` keeps the trades entered in the range (and on
+the days of the search, `only`), `stats(which)` the figures of all, long
+or short trades, `byhour` and `tocsv`. `TesterWindow` runs it in a thread
+of its own with a progress bar (`progress`, every 1024 bars) and `Stop`,
+and shows the equity (`EquityChart`), the figures, the trades (a double
+click shows the day) and the trades by hour.
+
+## Swing times
+
+`patterns.py` finds swings with a zigzag (`zigzag(h, l, thr)`: a turn is
+confirmed when the price reverses by `thr`, which is a share of the average
+range of the 20 days, 8 weeks or 6 months before) and retracements as the
+turns of a smaller zigzag that go against a leg of the large one without
+ending it (`retracements`). `byday` counts, per slot of the trading day,
+the days a swing or a retracement started there (`Result.swing`, `retr`:
+shares of the days; `hits` keeps which days for `windows`); `byweek`
+does it per weekday and hour, and `bymonth` per trading day of the month
+on daily candles. `only` (from `MainWindow.filtered`, the days and weeks
+the search leaves) counts only those, with the zigzag still run on all the
+candles. `PatternsWindow` draws them (`Chart`: bars, or a heatmap for the
+week).
+
+`windows(res)` joins the slots of a day at least as likely as a threshold
+into macro windows (`HHMM-HHMM`, with the share of the days that had a
+start in any of their slots). `MacrosDialog` lists them and writes them
+into an indicator: `marked` finds the lines with `// @dj-macros`,
+`withmacros` replaces the first string of each, and the file is saved
+through a temporary one after the user confirms the change, the old one
+kept as `.bak`.

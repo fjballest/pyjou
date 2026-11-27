@@ -580,6 +580,9 @@ class Runtime:
 		self.title = ""
 		self.overlay = True
 		self.depth = 0
+		self.keepplots = True	# a backtest keeps none
+		from .strategy import Broker
+		self.st = Broker()
 
 	# barstate
 	@property
@@ -1816,6 +1819,8 @@ def _plot(kind):
 	def f(c, site, *a, **k):
 		if RT.depth:
 			return na
+		if not RT.keepplots:
+			return site
 		d = RT.plots.get(site)
 		if d is None:
 			d = RT.plots[site] = (kind, {}, k.get("title", a[1] if len(a) > 1 and kind != "bgcolor" else ""))
@@ -1835,6 +1840,10 @@ def indicator(*a, **k):
 		if n is not None:
 			RT.limits[kind] = int(n)
 
+def strategy_(*a, **k):
+	indicator(*a, **k)
+	RT.st.declare(k)
+
 def runtime_error(msg):
 	raise PineRuntimeError(msg)
 
@@ -1852,11 +1861,9 @@ def builtins():
 		"time": time_, "time_close": time_close_, "timestamp": timestamp,
 		"hour": _tfield(3), "minute": _tfield(4), "second": _tfield(5), "dayofweek": _tfield(6),
 		"dayofmonth": _tfield(2), "month": _tfield(1), "year": _tfield(0), "weekofyear": weekofyear,
-		"indicator": indicator, "strategy": indicator, "library": indicator,
+		"indicator": indicator, "strategy": strategy_, "library": indicator,
 		"alert": noop, "alertcondition": noop, "max_bars_back": noop, "barcolor": noop,
 		"runtime.error": runtime_error,
-		"strategy.entry": noop, "strategy.exit": noop, "strategy.close": noop, "strategy.close_all": noop,
-		"strategy.cancel": noop, "strategy.cancel_all": noop, "strategy.order": noop,
 		"ticker.modify": ident, "ticker.new": lambda prefix, ticker, *a, **k: f"{prefix}:{ticker}",
 		"ticker.standard": ident, "ticker.heikinashi": ident, "ticker.inherit": ident, "log.info": log_, "log.warning": log_, "log.error": log_,
 		"color.new": color_new, "color.rgb": rgb, "color.r": color_r, "color.g": color_g, "color.b": color_b,
@@ -1900,6 +1907,9 @@ def builtins():
 		"plotarrow": _plot("arrow"),
 	}
 	F.update(S)
+	from . import strategy as ST
+	SF, SD = ST.builtins()
+	F.update(SF)
 	K = {}
 	for name, h in COLORS.items():
 		K["color." + name] = hexcolor(h)
@@ -1946,7 +1956,11 @@ def builtins():
 		"scale.none": "none", "adjustment.none": "none", "barmerge.gaps": False,
 		"settlement_as_close.on": "on", "settlement_as_close.off": "off", "settlement_as_close.inherit": "inherit",
 		"strategy.long": "long", "strategy.short": "short", "strategy.fixed": "fixed", "strategy.cash": "cash",
-		"strategy.percent_of_equity": "percent", "chart.bg_color": hexcolor("#FFFFFF"),
+		"strategy.percent_of_equity": "percent", "strategy.commission.percent": "percent",
+		"strategy.commission.cash_per_contract": "cash_per_contract", "strategy.commission.cash_per_order": "cash_per_order",
+		"strategy.direction.all": "all", "strategy.direction.long": "long", "strategy.direction.short": "short",
+		"strategy.oca.none": "none", "strategy.oca.cancel": "cancel", "strategy.oca.reduce": "reduce",
+		"chart.bg_color": hexcolor("#FFFFFF"),
 		"chart.fg_color": hexcolor("#131722")})
 	D = {
 		"barstate.isfirst": "_RT.isfirst", "barstate.islast": "_RT.islast", "barstate.isconfirmed": "True",
@@ -1963,12 +1977,12 @@ def builtins():
 		"syminfo.mintick": "_RT.mintick", "syminfo.pointvalue": "_RT.sym['pointvalue']",
 		"syminfo.timezone": "_RT.tz", "syminfo.session": "'regular'", "syminfo.currency": "'USD'",
 		"syminfo.basecurrency": "''", "syminfo.main_tickerid": "_RT.sym['tickerid']",
-		"chart.is_standard": "True", "strategy.position_size": "0", "strategy.position_avg_price": "_na",
-		"strategy.equity": "0", "strategy.netprofit": "0", "strategy.opentrades": "0", "strategy.closedtrades": "0", "chart.left_visible_bar_time": "_RT.S.t[0]",
+		"chart.is_standard": "True", "chart.left_visible_bar_time": "_RT.S.t[0]",
 		"chart.right_visible_bar_time": "_RT.S.t[-1]",
 		"line.all": "_RT.all('line')", "label.all": "_RT.all('label')", "box.all": "_RT.all('box')",
 		"table.all": "_RT.all('table')",
 	}
+	D.update(SD)
 	return F, S, K, D
 
 def _all(kind):

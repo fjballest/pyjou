@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 470" width="1000" height="470" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" xml:space="preserve" style="white-space:pre"><title>Drawing a data chart</title><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9aa5b1"/></marker></defs><rect width="1000" height="470" fill="#ffffff"/><rect x="20" y="30" width="170" height="70" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="30" y="49" font-weight="600" font-size="13.5" fill="#1f2933">showdata(key)</text>
+<text x="30" y="68" font-size="12.5" fill="#52606d">a day or week picked</text>
+<rect x="220" y="30" width="180" height="70" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="230" y="49" font-weight="600" font-size="13.5" fill="#1f2933">renderdata</text>
+<text x="230" y="68" font-size="12.5" fill="#52606d">Geom(view, width)</text>
+<text x="230" y="84" font-size="12.5" fill="#52606d">width: the view's shape</text>
+<rect x="430" y="30" width="200" height="70" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="440" y="49" font-weight="600" font-size="13.5" fill="#1f2933">indicators.overlay</text>
+<text x="440" y="68" font-size="12.5" fill="#52606d">needed → cached runs</text>
+<text x="440" y="84" font-size="12.5" fill="#52606d">or a Job to the Runner</text>
+<rect x="660" y="30" width="150" height="70" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="670" y="49" font-weight="600" font-size="13.5" fill="#1f2933">dataview.render</text>
+<text x="670" y="68" font-size="12.5" fill="#52606d">QImage W×H</text>
+<text x="670" y="84" font-size="12.5" fill="#52606d">paintchart</text>
+<rect x="840" y="30" width="140" height="70" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="850" y="49" font-weight="600" font-size="13.5" fill="#1f2933">ImageView</text>
+<text x="850" y="68" font-size="12.5" fill="#52606d">pixmap, fit,</text>
+<text x="850" y="84" font-size="12.5" fill="#52606d">drawings</text>
+<path d="M190,65 L218,65" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M400,65 L428,65" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M630,65 L658,65" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="622.0" y="57.0" font-size="11.5" fill="#52606d" text-anchor="start" font-weight="normal">painter</text>
+<path d="M810,65 L838,65" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="430" y="140" width="200" height="110" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="440" y="159" font-weight="600" font-size="13.5" fill="#1f2933">Runner thread</text>
+<text x="440" y="178" font-size="12.5" fill="#52606d">one Job a chart, newest</text>
+<text x="440" y="194" font-size="12.5" fill="#52606d">wins; cancel() sets stop</text>
+<text x="440" y="210" font-size="12.5" fill="#52606d">compute: Feed(data, low,</text>
+<text x="440" y="226" font-size="12.5" fill="#52606d">upto) → pine.run each</text>
+<path d="M530,100 L530,138" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="536.0" y="115.0" font-size="11.5" fill="#52606d" text-anchor="start" font-weight="normal">submit</text>
+<rect x="660" y="140" width="320" height="110" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="670" y="159" font-weight="600" font-size="13.5" fill="#1f2933">done signal</text>
+<text x="670" y="178" font-size="12.5" fill="#52606d">the chart is drawn again with the new</text>
+<text x="670" y="194" font-size="12.5" fill="#52606d">results (indicatorsdone); while the</text>
+<text x="670" y="210" font-size="12.5" fill="#52606d">chart moves, no runs: QUIET 1 s after</text>
+<text x="670" y="226" font-size="12.5" fill="#52606d">the last scroll or drag (dataquiet)</text>
+<path d="M630,195 L658,195" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="20" y="290" width="300" height="160" rx="6" fill="#eef7ee" stroke="#2a9d5c" stroke-width="1.4"/>
+<text x="30" y="309" font-weight="600" font-size="13.5" fill="#1f2933">drawings of a data chart</text>
+<text x="30" y="328" font-size="12.5" fill="#52606d">saved in pixels of the whole chart</text>
+<text x="30" y="344" font-size="12.5" fill="#52606d">at its own width W0 (unzoomed)</text>
+<text x="30" y="360" font-size="12.5" fill="#52606d">shown: mapdrawing(saved,</text>
+<text x="30" y="376" font-size="12.5" fill="#52606d">  g.unzoomed(), g) when g.mapped()</text>
+<text x="30" y="392" font-size="12.5" fill="#52606d">saved: mapdrawing(shown, g,</text>
+<text x="30" y="408" font-size="12.5" fill="#52606d">  g.unzoomed())</text>
+<rect x="340" y="290" width="300" height="160" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="350" y="309" font-weight="600" font-size="13.5" fill="#1f2933">what makes g mapped</text>
+<text x="350" y="328" font-size="12.5" fill="#52606d">a zoom (view = top, bot, t0, t1)</text>
+<text x="350" y="344" font-size="12.5" fill="#52606d">a margin past the last candle</text>
+<text x="350" y="360" font-size="12.5" fill="#52606d">  for what indicators draw there</text>
+<text x="350" y="376" font-size="12.5" fill="#52606d">a width other than W0, to fill</text>
+<text x="350" y="392" font-size="12.5" fill="#52606d">  the window (datawidth; redrawn</text>
+<text x="350" y="408" font-size="12.5" fill="#52606d">  250 ms after a resize)</text>
+<rect x="660" y="290" width="320" height="160" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="670" y="309" font-weight="600" font-size="13.5" fill="#1f2933">the wheel on a chart (wheelzone)</text>
+<text x="670" y="328" font-size="12.5" fill="#52606d">by the left/right edges: prices</text>
+<text x="670" y="344" font-size="12.5" fill="#52606d">by the top/bottom edges: times</text>
+<text x="670" y="360" font-size="12.5" fill="#52606d">the center: zoom both</text>
+<text x="670" y="376" font-size="12.5" fill="#52606d">elsewhere: pan</text>
+<text x="670" y="392" font-size="12.5" fill="#52606d">each makes a new view in</text>
+<text x="670" y="408" font-size="12.5" fill="#52606d">datazooms[(kind, d, tf)]</text></svg>
