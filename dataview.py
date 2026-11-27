@@ -9,7 +9,7 @@ import os
 from datetime import date, timedelta
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPalette, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPalette, QPen, QPolygonF
 from PySide6.QtWidgets import (
 	QGraphicsPixmapItem, QStyleOptionGraphicsItem, QCheckBox, QComboBox, QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 )
@@ -45,6 +45,17 @@ SHOWSESSIONS = True	# the session rectangles of the days are drawn (View ▸ Ses
 SHOWPROFILE = True	# the profile lines are drawn, with the drawings (View ▸ Profile Lines)
 MINW, MAXW = 1000, 4000	# the widths a chart can take to fill its window
 MAXMARGIN = 0.25	# of the times shown, at most, kept right of the last candle for what indicators draw there
+MAXSHARE = 0.6	# of the chart's width, at most, the margin set by hand (see marginshare)
+GRIP = 11	# half the width of the margin's grip on the time axis, pixels
+
+def marginof(share, t0, vt1):
+	"""the margin (in t) that takes share of the width of a chart showing t0 to vt1"""
+	share = min(max(float(share), 0.0), MAXSHARE)
+	return share * (vt1 - t0) / (1 - share)
+
+def gripx(g):
+	"""where the margin's grip is: x of the last time shown before the margin"""
+	return g.X(g.vt1)
 
 def title(data, kind, d, tf=15):
 	if tf in m15.PERIODS:
@@ -98,7 +109,7 @@ class Geom:
 		self.margin = 0
 		self.vt1 = self.t1
 		if margin > 0:
-			self.margin = min(float(margin), MAXMARGIN * (self.t1 - self.t0))
+			self.margin = min(float(margin), marginof(MAXSHARE, self.t0, self.t1))
 			self.t1 = self.vt1 + self.margin
 
 	def view(self):
@@ -448,6 +459,24 @@ def paintchart(p, g, data, kind, d, tf=15, profile=True, news=None, clip=None, o
 		hs = [(day, news.holiday(day)) for day in days if news.holiday(day)]
 		hol = "   · " + ", ".join(h if kind == "d" else f"{day:%a} {h}" for day, h in hs) if hs else ""
 	p.drawText(QRectF(L, 8, pw, 30), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title(data, kind, d, tf) + "   (New York time)" + hol)
+	paintgrip(p, g)
+
+def paintgrip(p, g):
+	"""the grip on the time axis that sets the room right of the last candle"""
+	x, y = gripx(g), g.T + g.ph
+	if g.margin > 0:
+		pen = QPen(QColor(120, 130, 145, 150), 1, Qt.PenStyle.DotLine)
+		p.setPen(pen)
+		p.drawLine(QPointF(x, g.T), QPointF(x, y))
+	path = QPainterPath()
+	path.moveTo(x, y + 2)
+	path.lineTo(x - GRIP, y + 2 + GRIP * 1.4)
+	path.lineTo(x + GRIP, y + 2 + GRIP * 1.4)
+	path.closeSubpath()
+	p.setPen(QPen(QColor(37, 125, 224), 1.2))
+	p.setBrush(QColor(37, 125, 224, 90))
+	p.drawPath(path)
+	p.setBrush(Qt.BrushStyle.NoBrush)
 
 class ChartItem(QGraphicsPixmapItem):
 	"""the image of a data chart in the view, that paints the chart again,

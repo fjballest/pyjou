@@ -95,5 +95,43 @@ time.sleep(0.3)
 settle(w)
 g2 = w.datageom
 check(g2.W < g.W, f"a narrower window draws it again narrower: {g2.W}")
+
+# the room right of the last candle, set by dragging the grip on the time axis
+from PySide6.QtTest import QTest
+from PySide6.QtCore import QPointF, Qt as _Qt
+w.resize(1600, 800)
+settle(w)
+time.sleep(0.3)
+settle(w)
+g = w.datageom
+check(g.margin == 0 and w.marginshare() is None, "no margin without indicators, until set")
+vp = w.view.viewport()
+def at(x, y):
+	return w.view.mapFromScene(QPointF(x, y))
+grip = at(dataview.gripx(g), g.T + g.ph + 6)
+QTest.mousePress(vp, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, grip)
+to = at(g.L + g.pw * 0.75, g.T + g.ph + 6)
+QTest.mouseMove(vp, to)
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QEvent
+ev = QMouseEvent(QEvent.Type.MouseMove, QPointF(to), QPointF(vp.mapToGlobal(to)), _Qt.MouseButton.NoButton,
+	_Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier)
+app.sendEvent(vp, ev)
+settle(w)
+QTest.mouseRelease(vp, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, to)
+settle(w)
+g2 = w.datageom
+share = w.marginshare()
+check(share is not None and abs(share - 0.25) < 0.02, f"dragged to a quarter of the width: {share}")
+check(abs((dataview.gripx(g2) - g2.L) / g2.pw - 0.75) < 0.02 and g2.margin > 0, "the candles end where the grip was left")
+w.datazooms[("d", d, 15)] = (g2.whole[0], g2.whole[1], g2.whole[2] + 3, g2.whole[3] - 3)
+w.showdata(("d", d), force=True)
+settle(w)
+g3 = w.datageom
+check(abs((dataview.gripx(g3) - g3.L) / g3.pw - 0.75) < 0.02, "the same share when zoomed")
+grip = at(dataview.gripx(g3), g3.T + g3.ph + 6)
+QTest.mouseDClick(vp, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, grip)
+settle(w)
+check(w.marginshare() is None and w.datageom.margin == 0, "a double click on it: as the indicators need again")
 print("ALL OK")
 os._exit(0)

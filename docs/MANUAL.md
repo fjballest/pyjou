@@ -691,6 +691,12 @@ When an indicator draws past the last candle (a label or line ahead of
 it), the chart keeps room for it right of that candle, up to a quarter of
 the times shown, with no candles in it.
 
+The small blue triangle on the time axis marks where the candles' times
+end. Drag it left to keep more room right of the last candle, or right to
+keep less: the room stays that share of the chart's width, zoomed or not,
+in every window, and with or without indicators. A double click on it goes
+back to the room the indicators need.
+
 **Indicators ▸ Settings** shows the inputs of an indicator as TradingView
 does, in their groups and rows, with their tooltips: numbers, choices,
 checkboxes, colors (with their opacity), texts and times. **Restore
