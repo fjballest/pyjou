@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication([])
 import m15
 import mainwin
+import sandbox
 import indicators
 import ocrworker
 from dataview import Geom

@@ -39,6 +39,7 @@ app = QApplication.instance() or QApplication([])
 
 import journal
 import mainwin
+import sandbox
 import m15
 import dataview
 import ocrworker

@@ -17,6 +17,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 import mainwin
+import sandbox
 import ocrworker
 
 def check(cond, what):
