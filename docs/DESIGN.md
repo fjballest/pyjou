@@ -478,6 +478,7 @@ The PDFs next to these documents are made with `docs/mkpdf.sh`.
 | support more of Pine | `parse.py` (syntax), `compile.py` (statements), `runtime.builtins` (functions, constants, variables), `strategy.builtins` |
 | change how orders fill | `strategy.Broker.candle`, `triggers`, `gaps` |
 | add a figure to the tester | `backtest.Report.stats` |
+| add a way to group the trades | `backtest.BYKINDS`, `periodof`, `periodsort`, `periodlabel` |
 | change the list groups | `journal.groupkeys` and `MainWindow.initialgroups` |
 
 ## Scaling a panel
@@ -743,10 +744,28 @@ close) and the stop and target its exits first had (`sl`, `tp`, set by
 keeping plots (`plots=False`); `onstrategy` sets the commission and
 slippage asked for. `Report` keeps the trades entered in the range (and on
 the days of the search, `only`), `stats(which)` the figures of all, long
-or short trades, `byhour` and `tocsv`. `TesterWindow` runs it in a thread
-of its own with a progress bar (`progress`, every 1024 bars) and `Stop`,
-and shows the equity (`EquityChart`), the figures, the trades and the
-trades by hour.
+or short trades, `byhour`, `by(kind)` (the trades by `BYKINDS`: year,
+month, weekday, killzone session as `SESSIONS` has them, or hour, with
+`periodof`, `periodsort` and `periodlabel`) and `tocsv`. `TesterWindow`
+runs it in a thread of its own with a progress bar (`progress`, every 1024
+bars) and `Stop`, and shows the equity (`EquityChart`), the figures, the
+trades, the trades by hour and by period.
+
+`compare` runs `backtest` once for each combination (`combos`) of the
+values of some inputs, `[(input key, [values])]`, on top of the inputs as
+set, one after the other (pine runs one script at a time), calling `each`
+after each run. `inputspecs` gets a script's inputs from a short run,
+`findinput` finds one by its title or key and `parsevalue` reads a value
+written for it. The Compare tab of `TesterWindow` lists the inputs
+(`listinputs`, when the tab is shown), runs `compare` in the tester's
+thread (`compare_`), adds a row per run as it ends (`oncompared`: the
+figures and the net points of each year) and shows a run in the other
+tabs when clicked (`showcompared`).
+
+`main` is the command line (`python3 backtest.py`, see `USAGE`): it loads a
+journal's data, sets inputs (`-i`), compares values (`-I`) and prints the
+figures, the tables by period (`-b`) and the trades, so long tests can run
+without the window.
 
 Clicking a trade (`showtrade`) sets `MainWindow.tradeshown` to
 `tradeinfo(trade, tf)`, the data view's time frame to the test's, and a

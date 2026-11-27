@@ -790,9 +790,37 @@ runs on all the candles.
   drawing goes when the Strategy Tester is closed; double-click the chart
   to see the whole day again.
 - **By Hour**: the trades by the hour they were entered.
+- **By Period**: the trades by the year, month or weekday they were
+  entered, or by the killzone (New York time: Asia 20:00-00:00, London
+  02:00-05:00, NY AM 07:00-11:30, NY PM 13:30-16:00, or Other): trades,
+  net profit and points, win rate and profit factor. A strategy that only
+  makes money in one year or one session shows it here.
+- **Compare**: runs the strategy once for each value of an input, or of
+  two (every combination), with the time frame, range, commission and
+  slippage above and the other inputs as set. Pick the input and write
+  its values separated by commas (`10, 20, 30`, `true, false`, or options
+  as the settings show them), and **Compare**. Each run adds a row: its
+  values, trades, net points and points a trade, net profit, win rate,
+  profit factor, max drawdown and the net points of each year. Clicking a
+  row shows that run in the other tabs. **Stop** ends it with the runs
+  made.
 
 **Export Trades…** saves the list as CSV. While a strategy runs, the
 indicators of the charts wait for it.
+
+The same tests run without the window, from a terminal in the source
+folder, for long runs or many of them:
+
+    python3 backtest.py -t 5 -f 2022-01-01 -b year -b session ~/u/trade/DayJournalNQ ICTScalpStrategy.txt
+    python3 backtest.py -t 5 -I Auto=true,false -I "Risk ratio=1.5,2,3" -q journal strategy.txt
+
+`-t` is the time frame in minutes, `-f` and `-l` the first and last day,
+`-i name=value` sets an input (by its title or the start of it, or by
+its key, `group|title|inline`, when titles repeat), `-I name=v1,v2` compares values
+(more than one `-I`: every combination), `-b` prints the trades by Year,
+Month, Weekday, Session or Hour, `-c` and `-s` are the commission and
+slippage, `-o` exports the trades to CSV and `-q` leaves out the list of
+trades.
 
 ## Exporting
 
