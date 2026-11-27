@@ -10,6 +10,7 @@ shows the report."""
 import csv
 import os
 import re
+import sys
 import threading
 import time as _time
 from datetime import datetime, timedelta, timezone
@@ -180,6 +181,31 @@ class Report:
 			r[2] += t.profit > 0
 		return [(h, n, p, w / n) for h, (n, p, w) in sorted(rows.items(), key=lambda x: (x[0] - 18) % 24)]
 
+	def by(self, kind):
+		"""[(label, trades, net profit, net points, win rate, profit factor)]
+		of the closed trades by the year, month, weekday, killzone session
+		(New York time, as ICTlevels has them) or hour they were entered in
+		(kind: one of BYKINDS)"""
+		rows = {}
+		for t in self.trades:
+			if t.open:
+				continue
+			k = periodof(nytime(t.time), kind)
+			r = rows.setdefault(k, [0, 0.0, 0.0, 0, 0.0, 0.0])
+			r[0] += 1
+			r[1] += t.profit
+			r[2] += t.points
+			r[3] += t.profit > 0
+			if t.profit > 0:
+				r[4] += t.profit
+			else:
+				r[5] -= t.profit
+		out = []
+		for k in sorted(rows, key=lambda k: periodsort(k, kind)):
+			n, p, pts, w, gp, gl = rows[k]
+			out.append((periodlabel(k, kind), n, p, pts, w / n, gp / gl if gl else (float("inf") if gp else float("nan"))))
+		return out
+
 	def tocsv(self, path):
 		with open(path, "w", newline="") as f:
 			w = csv.writer(f)
@@ -189,6 +215,110 @@ class Report:
 				w.writerow([k, "Long" if t.dir > 0 else "Short", t.id, fmttime(t.time), t.price,
 					t.exitid or "Open", fmttime(t.exittime) if t.exittime else "", "" if t.exitprice is None else t.exitprice,
 					t.qty, round(t.points, 4) + 0.0, round(t.profit, 2) + 0.0, round(t.runup(), 4) + 0.0, round(t.drawdown(), 4) + 0.0])
+
+BYKINDS = ["Year", "Month", "Weekday", "Session", "Hour"]
+WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+SESSIONS = [("Asia", 20 * 60, 24 * 60), ("London", 2 * 60, 5 * 60), ("NY AM", 7 * 60, 11 * 60 + 30),
+	("NY PM", 13 * 60 + 30, 16 * 60)]	# the killzones (New York time), as ICTlevels
+
+def periodof(nt, kind):
+	"""the period of kind (BYKINDS) of nt, a New York time"""
+	if kind == "Year":
+		return nt.year
+	if kind == "Month":
+		return (nt.year, nt.month)
+	if kind == "Weekday":
+		return nt.weekday()
+	if kind == "Hour":
+		return nt.hour
+	m = nt.hour * 60 + nt.minute
+	for k, (_, a, b) in enumerate(SESSIONS):
+		if a <= m < b:
+			return k
+	return len(SESSIONS)	# outside them
+
+def periodsort(k, kind):
+	return (k - 18) % 24 if kind == "Hour" else k
+
+def periodlabel(k, kind):
+	if kind == "Month":
+		return f"{k[0]}-{k[1]:02d}"
+	if kind == "Weekday":
+		return WEEKDAYS[k]
+	if kind == "Session":
+		return SESSIONS[k][0] if k < len(SESSIONS) else "Other"
+	if kind == "Hour":
+		return f"{k:02d}:00"
+	return str(k)
+
+def parsevalue(inp, s):
+	"""the value of input inp (a runtime.Input) written as s"""
+	s = s.strip()
+	if inp.kind == "bool":
+		if s.lower() in ("true", "on", "yes", "1"):
+			return True
+		if s.lower() in ("false", "off", "no", "0"):
+			return False
+		raise ValueError(f"{inp.title}: {s} is not true or false")
+	if inp.kind == "int":
+		return int(float(s))
+	if inp.kind == "float":
+		return float(s)
+	opts = inp.args.get("options")
+	if opts and s not in opts:
+		m = [o for o in opts if str(o).lower() == s.lower()]
+		if not m:
+			raise ValueError(f"{inp.title}: {s} is not one of {', '.join(map(str, opts))}")
+		s = m[0]
+	return s
+
+def combos(axes):
+	"""the combinations of axes [(input key, [values])]: [{key: value}]"""
+	out = [{}]
+	for key, vals in axes:
+		out = [{**c, key: v} for c in out for v in vals]
+	return out
+
+def compare(script, data, low, tf, axes, first=None, last=None, inputs=None, stop=None, progress=None,
+		commission=None, slippage=None, only=None, each=None):
+	"""backtest script for each combination of the values of axes [(input
+	key, [values])] on top of inputs: [(combination, Report)], one after
+	the other (pine runs one script at a time). each(k, n, combination,
+	report) is called after each run; stop ends it with the runs made"""
+	out = []
+	cs = combos(axes)
+	for k, c in enumerate(cs):
+		if stop is not None and stop.is_set():
+			break
+		def prog(i, n, k=k):
+			if progress:
+				progress(k * n + i, len(cs) * n)
+		rep = backtest(script, data, low, tf, first, last, {**(inputs or {}), **c}, stop, prog, commission, slippage, only)
+		if rep.cancelled and out:
+			break
+		out.append((c, rep))
+		if each:
+			each(k, len(cs), c, rep)
+	return out
+
+def inputspecs(script, data, low, tf):
+	"""the inputs of script ([runtime.Input]), from a short run"""
+	import pine
+	from pine.feed import Feed
+	feed = Feed(data, low, int(max(data.t[-1], low.t[-1] if low is not None and len(low) else 0)) + 900)
+	r = pine.run(script, feed.minutes(tf, nbars=300), feed, symbol=data.symbol or "NQ", plots=False)
+	return r.inputs
+
+def findinput(specs, name):
+	"""the input of specs named name: its key, or its title when only one has it"""
+	for i in specs:
+		if i.key == name:
+			return i
+	m = [i for i in specs if i.title == name] or [i for i in specs if i.title.lower().startswith(name.lower())]
+	if len(m) != 1:
+		raise ValueError(f"no input {name}" if not m else f"{name} is the title of {len(m)} inputs: give its key, one of "
+			+ "; ".join(i.key for i in m))
+	return m[0]
 
 def maxrun(mask):
 	best = run = 0
@@ -215,7 +345,7 @@ def fmttime(ms):
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-	QMessageBox, QProgressBar, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolTip,
+	QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolTip,
 	QVBoxLayout, QWidget)
 
 BLUE = QColor("#257de0")
@@ -322,6 +452,8 @@ class EquityChart(QWidget):
 class _Signals(QObject):
 	progress = Signal(int, int)
 	done = Signal(object)
+	compared = Signal(int, int, object, object)	# a run of a comparison: k, n, combination, report
+	comparedone = Signal(object)
 
 class TesterWindow(QDialog):
 	"""View ▸ Strategy Tester: a strategy run on the data, its figures,
@@ -423,6 +555,62 @@ class TesterWindow(QDialog):
 		self.hours.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 		self.hours.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 		self.tabs.addTab(self.hours, "By Hour")
+		per = QWidget()
+		pl = QVBoxLayout(per)
+		pl.setContentsMargins(0, 0, 0, 0)
+		prow = QHBoxLayout()
+		prow.addWidget(QLabel("By"))
+		self.bykind = QComboBox()
+		for k in BYKINDS[:-1]:
+			self.bykind.addItem(k)
+		self.bykind.setToolTip("the trades by the year, month or weekday they were entered in, or by the killzone "
+			"(New York time: Asia 20:00-00:00, London 02:00-05:00, NY AM 07:00-11:30, NY PM 13:30-16:00, or Other)")
+		self.bykind.currentIndexChanged.connect(self.fillperiods)
+		prow.addWidget(self.bykind)
+		prow.addStretch(1)
+		pl.addLayout(prow)
+		self.periods = QTableWidget(0, 6)
+		self.periods.setHorizontalHeaderLabels(["", "Trades", "Net profit", "Net points", "Win rate", "Profit factor"])
+		self.periods.verticalHeader().hide()
+		self.periods.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+		self.periods.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+		pl.addWidget(self.periods, 1)
+		self.tabs.addTab(per, "By Period")
+		cmp = QWidget()
+		cl = QVBoxLayout(cmp)
+		cl.setContentsMargins(0, 0, 0, 0)
+		crow = QHBoxLayout()
+		self.cmpin, self.cmpvals = [], []
+		for k in range(2):
+			crow.addWidget(QLabel("Input" if k == 0 else "and"))
+			c = QComboBox()
+			c.setMinimumWidth(200)
+			c.setToolTip("an input of the strategy whose values are compared" if k == 0 else
+				"a second input: every combination of the values of both is run")
+			crow.addWidget(c)
+			e = QLineEdit()
+			e.setPlaceholderText("values, by commas: 1, 2, 3 · true, false · an option")
+			crow.addWidget(e, 1)
+			self.cmpin.append(c)
+			self.cmpvals.append(e)
+		self.cmpbtn = QPushButton("Compare")
+		self.cmpbtn.setToolTip("run the strategy once for each value (or combination), with the time frame, range, "
+			"commission and slippage above and the other inputs as set")
+		self.cmpbtn.clicked.connect(self.compareorstop)
+		crow.addWidget(self.cmpbtn)
+		cl.addLayout(crow)
+		self.cmptable = QTableWidget(0, 0)
+		self.cmptable.verticalHeader().hide()
+		self.cmptable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+		self.cmptable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+		self.cmptable.setToolTip("net points by year at the right; click a run to see its figures and trades in "
+			"the other tabs")
+		self.cmptable.cellClicked.connect(self.showcompared)
+		cl.addWidget(self.cmptable, 1)
+		self.tabs.addTab(cmp, "Compare")
+		self.tabs.currentChanged.connect(self.ontab)
+		self.cmpspecs = None	# (path, tf, [runtime.Input]) the inputs are listed for
+		self.cmpruns = []
 		lay.addWidget(self.tabs, 1)
 		row = QHBoxLayout()
 		self.exportbtn = QPushButton("Export Trades…")
@@ -437,6 +625,9 @@ class TesterWindow(QDialog):
 		self.sig = _Signals()
 		self.sig.progress.connect(self.onprogress)
 		self.sig.done.connect(self.ondone)
+		self.sig.compared.connect(self.oncompared)
+		self.sig.comparedone.connect(self.oncomparedone)
+		self.strategy.currentIndexChanged.connect(lambda _: self.listinputs(False))
 		self.fill()
 
 	# ------------------------------------------------------------ choices
@@ -625,11 +816,185 @@ class TesterWindow(QDialog):
 					it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 				self.table.setItem(k, j, it)
 		self.table.resizeColumnsToContents()
+		self.fillperiods()
 		hrs = rep.byhour()
 		self.hours.setRowCount(len(hrs))
 		for k, (h, n, p, w) in enumerate(hrs):
 			for j, v in enumerate([f"{h:02d}:00", str(n), money(p), pct(w)]):
 				self.hours.setItem(k, j, QTableWidgetItem(v))
+
+	def fillperiods(self, _=None):
+		rep = self.rep
+		rows = rep.by(self.bykind.currentText()) if rep is not None and rep.broker is not None else []
+		self.periods.setRowCount(len(rows))
+		for k, (lb, n, p, pts, w, pf) in enumerate(rows):
+			for j, v in enumerate([lb, f"{n:,}", money(p), num(pts), pct(w), num(pf)]):
+				it = QTableWidgetItem(v)
+				if j == 2:
+					it.setForeground(GREEN if p > 0 else RED if p < 0 else it.foreground())
+				self.periods.setItem(k, j, it)
+
+	# ------------------------------------------------------------ comparing inputs
+
+	def ontab(self, k):
+		if self.tabs.tabText(k) == "Compare":
+			self.listinputs(True)
+
+	def listinputs(self, load=True):
+		"""list the strategy's inputs in the Compare tab (a short run)"""
+		import pine
+		name, path = self.name()
+		key = (path, self.tf.currentData())
+		if self.cmpspecs is not None and self.cmpspecs[0] == key:
+			return
+		for c in self.cmpin:
+			c.clear()
+		self.cmpspecs = None
+		if not path or not load:
+			return
+		with open(path, encoding="utf-8", errors="replace") as f:
+			script = pine.Script(f.read(), name)
+		if script.error:
+			self.status.setText(f"{name}: {script.error}")
+			return
+		try:
+			specs = [i for i in inputspecs(script, self.data, self.win.getlow(), key[1] or 15)
+				if i.kind in ("bool", "int", "float", "string", "timeframe", "session")]
+		except Exception as x:
+			self.status.setText(f"{name}: its inputs: {x}")
+			return
+		self.cmpspecs = (key, specs)
+		for k, c in enumerate(self.cmpin):
+			if k:
+				c.addItem("—", None)
+			for i in specs:
+				grp = i.args.get("group") or ""
+				c.addItem((f"{grp}: " if grp else "") + (i.title or i.key), i.key)
+				c.setItemData(c.count() - 1, f"{i.kind}, now {i.defval}" + (f"; one of {', '.join(map(str, i.args['options']))}"
+					if i.args.get("options") else ""), Qt.ItemDataRole.ToolTipRole)
+
+	def axes(self):
+		"""[(input key, [values])] of the Compare tab; ValueError when wrong"""
+		if self.cmpspecs is None:
+			raise ValueError("the strategy's inputs are not listed")
+		specs = {i.key: i for i in self.cmpspecs[1]}
+		out = []
+		for c, e in zip(self.cmpin, self.cmpvals):
+			key = c.currentData()
+			if key is None:
+				continue
+			vals = [v for v in e.text().split(",") if v.strip()]
+			if not vals:
+				if not out:
+					raise ValueError("no values to compare")
+				continue
+			out.append((key, [parsevalue(specs[key], v) for v in vals]))
+		return out
+
+	def compareorstop(self):
+		if self.thread is not None:
+			self.stopper.set()
+			self.cmpbtn.setEnabled(False)
+			return
+		self.compare_()
+
+	def compare_(self, wait=False):
+		import indicators
+		import pine
+		name, path = self.name()
+		if not path:
+			return
+		self.listinputs(True)
+		try:
+			axes = self.axes()
+		except ValueError as x:
+			self.status.setText(f"Compare: {x}")
+			return
+		with open(path, encoding="utf-8", errors="replace") as f:
+			script = pine.Script(f.read(), name)
+		tf = self.tf.currentData()
+		low = self.win.getlow()
+		first, last = self.period()
+		com = self.commission.value() or None
+		slip = self.slippage.value() or None
+		values = indicators.inputs(name)
+		f = self.win.filtered() if hasattr(self.win, "filtered") else None
+		only = f[0] if f else None
+		titles = {i.key: i.title for i in self.cmpspecs[1]}
+		self.cmpcols = [titles.get(k, k) for k, _ in axes]
+		self.cmpkeys = [k for k, _ in axes]
+		self.cmpruns = []
+		self.cmptable.setRowCount(0)
+		self.stopper = threading.Event()
+		self.cmpbtn.setText("Stop")
+		self.runbtn.setEnabled(False)
+		self.bar.setRange(0, 0)
+		self.bar.show()
+		n = len(combos(axes))
+		self.status.setText(f"Comparing {n} runs of {name} on {m15.tfname(tf)} candles…")
+		indicators.cancel()
+		def work():
+			try:
+				res = compare(script, self.data, low, tf, axes, first, last, values, self.stopper,
+					lambda i, n: self.sig.progress.emit(i, n), com, slip, only,
+					lambda k, n, c, rep: self.sig.compared.emit(k, n, c, rep))
+			except Exception as x:
+				res = x
+			self.sig.comparedone.emit(res)
+		self.thread = threading.Thread(target=work, daemon=True)
+		self.thread.start()
+		if wait:
+			self.thread.join()
+			from PySide6.QtWidgets import QApplication
+			QApplication.processEvents()
+
+	def oncompared(self, k, n, c, rep):
+		self.cmpruns.append((c, rep))
+		years = sorted({y for _, r in self.cmpruns if r.broker is not None for y, *_ in r.by("Year")})
+		cols = self.cmpcols + ["Trades", "Net points", "Points a trade", "Net profit", "Win rate", "Profit factor",
+			"Max drawdown"] + [str(y) for y in years]
+		self.cmptable.setColumnCount(len(cols))
+		self.cmptable.setHorizontalHeaderLabels(cols)
+		self.cmptable.setRowCount(len(self.cmpruns))
+		for row, (c, r) in enumerate(self.cmpruns):
+			st = r.stats() if r.broker is not None else None
+			ys = {lb: pts for lb, _, _, pts, _, _ in r.by("Year")} if st else {}
+			vals = [str(c.get(key)) for key in self.cmpkeys]
+			if st:
+				nt = st["Trades"]
+				vals += [f"{nt:,}", num(st["Net points"]), num(st["Net points"] / nt) if nt else "—", money(st["Net profit"]),
+					pct(st["Win rate"]), num(st["Profit factor"]), money(st["Max drawdown"])]
+				vals += [num(ys[str(y)]) if str(y) in ys else "" for y in years]
+			else:
+				vals += [r.error or "failed"]
+			for j, v in enumerate(vals):
+				it = QTableWidgetItem(v)
+				if j >= len(self.cmpkeys):
+					it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+				self.cmptable.setItem(row, j, it)
+		self.cmptable.resizeColumnsToContents()
+		self.status.setText(f"Compared {k + 1} of {n} runs…")
+
+	def oncomparedone(self, res):
+		self.thread = None
+		self.cmpbtn.setText("Compare")
+		self.cmpbtn.setEnabled(True)
+		self.runbtn.setEnabled(True)
+		self.bar.hide()
+		if isinstance(res, Exception):
+			self.status.setText(f"The comparison failed: {type(res).__name__}: {res}")
+			return
+		traded = [cr for cr in res if cr[1].broker is not None and cr[1].stats()["Trades"]]
+		best = max(traded, key=lambda cr: cr[1].stats()["Net points"], default=None)
+		msg = f"Compared {len(res)} runs."
+		if best is not None:
+			msg += " Most net points: " + ", ".join(f"{t} = {best[0].get(k)}" for t, k in zip(self.cmpcols, self.cmpkeys)) + \
+				f" ({best[1].stats()['Net points']:,.2f} points). Click a run to see it in the other tabs."
+		self.status.setText(msg)
+
+	def showcompared(self, row, _col=0):
+		if 0 <= row < len(self.cmpruns):
+			self.show_(self.cmpruns[row][1])
 
 	def showtrade(self, row, _col=0):
 		"""show trade row on the data view, in the time frame of the test,
@@ -796,3 +1161,115 @@ def fmtfig(key, v):
 	if key in ("Profit factor", "Win / loss ratio", "Average bars in trade", "Net points"):
 		return num(v)
 	return money(v)
+
+# ---------------------------------------------------------------- command line
+
+USAGE = """usage: python3 backtest.py [options] journal strategy.txt
+run a Pine strategy on the data of a journal (its folder) and print its figures
+	-t min	time frame in minutes (5)
+	-f date	first day (YYYY-MM-DD), -l date	last day
+	-i name=value	set an input, by its title or its start (or key, group|title|inline)
+	-I name=v1,v2,...	compare the values of an input (more -I: their combinations)
+	-b kind	the figures by Year, Month, Weekday, Session or Hour (more -b: more tables)
+	-c usd	commission a contract a side, -s ticks	slippage
+	-o file.csv	export the trades (of the last run)
+	-q	no per trade lines"""
+
+def main(argv):
+	import getopt
+	from datetime import date
+	import pine
+	try:
+		opts, args = getopt.getopt(argv, "t:f:l:i:I:b:c:s:o:q")
+	except getopt.GetoptError as x:
+		print(x, file=sys.stderr)
+		print(USAGE, file=sys.stderr)
+		return 2
+	if len(args) != 2:
+		print(USAGE, file=sys.stderr)
+		return 2
+	tf, first, last, sets, axes, bys, com, slip, out, quiet = 5, None, None, [], [], [], None, None, None, False
+	for o, v in opts:
+		if o == "-t":
+			tf = int(v)
+		elif o == "-f":
+			first = date.fromisoformat(v)
+		elif o == "-l":
+			last = date.fromisoformat(v)
+		elif o == "-i":
+			sets.append(v.split("=", 1))
+		elif o == "-I":
+			axes.append(v.split("=", 1))
+		elif o == "-b":
+			k = [x for x in BYKINDS if x.lower() == v.lower()]
+			if not k:
+				print(f"-b {v}: one of {', '.join(BYKINDS)}", file=sys.stderr)
+				return 2
+			bys.append(k[0])
+		elif o == "-c":
+			com = float(v)
+		elif o == "-s":
+			slip = int(v)
+		elif o == "-o":
+			out = v
+		elif o == "-q":
+			quiet = True
+	jdir, path = args
+	data = m15.Data(jdir)
+	lows = m15.lowtfs(jdir)
+	low = m15.Data(jdir, lows[0]) if lows else None
+	if not len(data):
+		print(f"{jdir}: no m15 data", file=sys.stderr)
+		return 1
+	if tf not in tfs(data, low):
+		print(f"-t {tf}: the data has {', '.join(map(str, tfs(data, low)))}", file=sys.stderr)
+		return 1
+	with open(path, encoding="utf-8", errors="replace") as f:
+		script = pine.Script(f.read(), os.path.splitext(os.path.basename(path))[0])
+	if script.error:
+		print(f"{path}: {script.error}", file=sys.stderr)
+		return 1
+	try:
+		specs = inputspecs(script, data, low, tf)
+		inputs = {}
+		for name, v in sets:
+			i = findinput(specs, name)
+			inputs[i.key] = parsevalue(i, v)
+		ax = []
+		for name, vs in axes:
+			i = findinput(specs, name)
+			ax.append((i.key, [parsevalue(i, x) for x in vs.split(",")]))
+	except ValueError as x:
+		print(x, file=sys.stderr)
+		return 2
+	titles = {i.key: i.title for i in specs}
+	def show(c, rep):
+		st = rep.stats()
+		head = ", ".join(f"{titles.get(k, k)} = {v}" for k, v in c.items()) or (rep.title or "strategy")
+		if rep.error and rep.broker is None:
+			print(f"{head}: {rep.error}")
+			return
+		print(f"{head}: {st['Trades']} trades, net {money(st['Net profit'])} ({st['Net points']:,.2f} points, "
+			f"{num(st['Net points'] / st['Trades']) if st['Trades'] else '—'} a trade), win rate {pct(st['Win rate'])}, "
+			f"profit factor {num(st['Profit factor'])}, max drawdown {money(st['Max drawdown'])}"
+			+ (f"; failed: {rep.error}" if rep.error else ""))
+		for kind in bys:
+			print(f"  by {kind.lower()}:")
+			for lb, n, p, pts, w, pf in rep.by(kind):
+				print(f"    {lb:>10} {n:6d} trades {money(p):>14} {pts:12,.2f} points {pct(w):>7} win  pf {num(pf)}")
+	t0 = _time.time()
+	res = compare(script, data, low, tf, ax, first, last, inputs, None, None, com, slip,
+		each=lambda k, n, c, rep: show(c, rep))
+	if not quiet and len(res) == 1:
+		for t in res[0][1].trades:
+			print(f"  {fmttime(t.time)} {'long ' if t.dir > 0 else 'short'} {t.price:10.2f} -> "
+				f"{'' if t.exitprice is None else f'{t.exitprice:.2f}':>10} {t.points:+9.2f} {t.exitid or 'open'}")
+	if out and res:
+		res[-1][1].tocsv(out)
+	print(f"{len(res)} run(s) in {_time.time() - t0:.1f} s")
+	return 0
+
+if __name__ == "__main__":
+	sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+	os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+	sys.exit(main(sys.argv[1:]))

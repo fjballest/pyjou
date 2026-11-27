@@ -171,6 +171,44 @@ check(backtest.backtest(pine.Script('//@version=6\nindicator("I")\nplot(close)',
 csvp = os.path.join(src, "t.csv")
 rep.tocsv(csvp)
 check(len(open(csvp).read().splitlines()) == len(rep.trades) + 1, "trades exported")
+by = {k: rep.by(k) for k in backtest.BYKINDS}
+closed = [t for t in rep.trades if not t.open]
+check(all(sum(r[1] for r in rows) == len(closed) for rows in by.values()) and
+	all(abs(sum(r[3] for r in rows) - st["Net points"]) < 1e-6 for rows in by.values()), "the trades by period add up")
+check([r[0] for r in by["Year"]] == ["2026"] and len(by["Month"]) >= 2 and by["Month"][0][0] < by["Month"][-1][0],
+	"by year and month: " + ", ".join(r[0] for r in by["Month"]))
+check({r[0] for r in by["Weekday"]} <= set(backtest.WEEKDAYS[:5] + ["Sunday"])
+	and {r[0] for r in by["Session"]} <= {"Asia", "London", "NY AM", "NY PM", "Other"}, "by weekday and killzone")
+check(backtest.periodof(datetime(2026, 7, 1, 11, 29), "Session") == 2 and
+	backtest.periodof(datetime(2026, 7, 1, 11, 30), "Session") == 4, "NY AM ends at 11:30")
+xsrc = cross.replace("f = ta.sma(close, 10)", 'n = input.int(10, "Fast")\nlossIn = input.float(40, "Loss")\n'
+	'f = ta.sma(close, n)').replace("loss = 40", "loss = lossIn")
+xs = pine.Script(xsrc, "CrossIn")
+specs = backtest.inputspecs(xs, data, low, 5)
+fast = backtest.findinput(specs, "Fast")
+check(fast.kind == "int" and backtest.parsevalue(fast, " 7 ") == 7, "an input found by its title, its value parsed")
+loss = backtest.findinput(specs, "Loss")
+cmp = backtest.compare(xs, data, low, 5, [(fast.key, [10, 20]), (loss.key, [40.0, 60.0])])
+check([tuple(c.values()) for c, _ in cmp] == [(10, 40.0), (10, 60.0), (20, 40.0), (20, 60.0)], "compared: every combination")
+check(abs(cmp[0][1].stats()["Net profit"] - st["Net profit"]) < 1e-6 and
+	cmp[0][1].stats()["Trades"] > cmp[2][1].stats()["Trades"], "the defaults as without inputs, a slower average fewer trades")
+try:
+	backtest.parsevalue(fast, "x")
+	check(False, "a wrong value")
+except ValueError:
+	check(True, "a wrong value is refused")
+import contextlib, io
+xp = os.path.join(src, "CrossIn.txt")
+with open(xp, "w") as f:
+	f.write(xsrc)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+	rc = backtest.main(["-t", "5", "-I", "Fast=10,20", "-b", "year", "-q", j, xp])
+outp = buf.getvalue()
+check(rc == 0 and outp.count(" trades, net ") == 2 and "Fast = 20" in outp and "by year:" in outp and "2 run(s)" in outp,
+	"the command line: " + outp.splitlines()[0][:80])
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+	check(backtest.main(["-I", "Nope=1", j, xp]) == 2, "the command line: an unknown input")
 
 from PySide6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication([])
@@ -193,6 +231,10 @@ app.processEvents()
 check(tw.rep is not None and tw.table.rowCount() == len(tw.rep.trades) and "trades, net " in tw.status.text(),
 	"run in the background, its report: " + tw.status.text()[:90])
 check(tw.figures.rowCount() > 10 and tw.hours.rowCount() > 0, "figures, by hour")
+check(tw.periods.rowCount() == 1 and tw.periods.item(0, 0).text() == "2026", "by period: the year")
+tw.bykind.setCurrentText("Session")
+check(tw.periods.rowCount() >= 1 and tw.periods.item(0, 0).text() in ("Asia", "London", "NY AM", "NY PM", "Other"),
+	"by period: the killzones")
 img = tw.grab()
 img.save(os.path.join(os.environ.get("SHOTS", src), "tester.png"))
 tw.tabs.setCurrentIndex(1)
@@ -217,6 +259,25 @@ p = QPainter(im)
 backtest.tradepainter(dict(win.tradeshown, sl=t0.price - 20, tp=t0.price + 40))(p, g)
 p.end()
 check(im.pixelColor(int(g.X(g.tx(t0.at / 1000))) + 2, int(g.Y(t0.price + 20))).alpha() > 0, "a target zone")
+indicators.importfiles([xp])
+tw.fill()
+tw.strategy.setCurrentIndex(tw.strategy.findText("CrossIn"))
+tw.tabs.setCurrentIndex(tw.tabs.count() - 1)
+app.processEvents()
+check(tw.tabs.tabText(tw.tabs.currentIndex()) == "Compare" and tw.cmpin[0].findText("Fast") >= 0
+	and tw.cmpin[1].itemText(0) == "—", "Compare lists the strategy's inputs")
+tw.cmpin[0].setCurrentIndex(tw.cmpin[0].findText("Fast"))
+tw.cmpvals[0].setText("10, 20, 30")
+tw.compare_(wait=True)
+app.processEvents()
+check(tw.cmptable.rowCount() == 3 and tw.cmptable.item(2, 0).text() == "30" and "Compared 3 runs" in tw.status.text()
+	and tw.cmptable.horizontalHeaderItem(tw.cmptable.columnCount() - 1).text() == "2026", "compared, net points by year")
+tw.grab().save(os.path.join(os.environ.get("SHOTS", src), "compare.png"))
+tw.showcompared(1)
+check(tw.rep is tw.cmpruns[1][1] and tw.table.rowCount() == len(tw.rep.trades), "a run compared shown in the tabs")
+tw.cmpvals[0].setText("x")
+tw.compare_()
+check("Compare:" in tw.status.text() and tw.thread is None, "a wrong value said")
 tw.close()
 app.processEvents()
 check(win.tradeshown is None, "the trade goes with the tester")
