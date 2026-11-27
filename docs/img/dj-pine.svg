@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 444" width="1000" height="444" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" xml:space="preserve" style="white-space:pre"><title>Running a Pine script</title><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9aa5b1"/></marker></defs><rect width="1000" height="444" fill="#ffffff"/><rect x="20" y="20" width="150" height="80" rx="6" fill="#f5f5f4" stroke="#78716c" stroke-width="1.4"/>
+<text x="30" y="39" font-weight="600" font-size="13.5" fill="#1f2933">source</text>
+<text x="30" y="58" font-size="12.5" fill="#52606d">the .txt/.pine</text>
+<text x="30" y="74" font-size="12.5" fill="#52606d">as TradingView</text>
+<rect x="200" y="20" width="170" height="80" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="210" y="39" font-weight="600" font-size="13.5" fill="#1f2933">parse.py</text>
+<text x="210" y="58" font-size="12.5" fill="#52606d">lines, tokens →</text>
+<text x="210" y="74" font-size="12.5" fill="#52606d">tree of tuples</text>
+<rect x="400" y="20" width="200" height="80" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="410" y="39" font-weight="600" font-size="13.5" fill="#1f2933">compile.py</text>
+<text x="410" y="58" font-size="12.5" fill="#52606d">→ Python source:</text>
+<text x="410" y="74" font-size="12.5" fill="#52606d">_init(_c), _bar(_c)</text>
+<rect x="630" y="20" width="160" height="80" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="640" y="39" font-weight="600" font-size="13.5" fill="#1f2933">Script</text>
+<text x="640" y="58" font-size="12.5" fill="#52606d">compiled once,</text>
+<text x="640" y="74" font-size="12.5" fill="#52606d">cached by SHA-1</text>
+<rect x="820" y="20" width="160" height="80" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="830" y="39" font-weight="600" font-size="13.5" fill="#1f2933">pine.run</text>
+<text x="830" y="58" font-size="12.5" fill="#52606d">one at a time</text>
+<text x="830" y="74" font-size="12.5" fill="#52606d">(LOCK)</text>
+<path d="M170,60 L198,60" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M370,60 L398,60" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M600,60 L628,60" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M790,60 L818,60" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="20" y="140" width="640" height="170" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="30" y="159" font-weight="600" font-size="13.5" fill="#1f2933">the loop (pine/__init__.py, _run)</text>
+<text x="30" y="178" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">RT.reset(); exec the code; setbar(0); _init(ctx)</text>
+<text x="30" y="194" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">for i in range(chart.n):</text>
+<text x="30" y="210" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">    stop set? → cancelled          progress(i, n) every 1024</text>
+<text x="30" y="226" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">    setbar(ns, chart, i)           open, high, low, close, time… of bar i</text>
+<text x="30" y="242" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">    broker.before(i)               fills of the orders placed before (strategies)</text>
+<text x="30" y="258" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">    _bar(ctx)                      the script, once a bar</text>
+<text x="30" y="274" font-size="12" fill="#52606d" font-family="Menlo, Consolas, monospace">    broker.after(i)                market orders at the close; equity</text>
+<path d="M900,100 L900,120 L600,120 L600,138" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="690" y="140" width="290" height="170" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="700" y="159" font-weight="600" font-size="13.5" fill="#1f2933">request.security</text>
+<text x="700" y="178" font-size="12.5" fill="#52606d">another time frame: its Series</text>
+<text x="700" y="194" font-size="12.5" fill="#52606d">from Feed(key), run on its own</text>
+<text x="700" y="210" font-size="12.5" fill="#52606d">Ctx up to the chart bar's time</text>
+<text x="700" y="226" font-size="12.5" fill="#52606d">(_Sec, _swap); lookahead</text>
+<text x="700" y="242" font-size="12.5" fill="#52606d">as Pine. The backtest's</text>
+<text x="700" y="258" font-size="12.5" fill="#52606d">WholeFeed gives all its bars</text>
+<rect x="20" y="340" width="300" height="80" rx="6" fill="#fdf0e7" stroke="#f47230" stroke-width="1.4"/>
+<text x="30" y="359" font-weight="600" font-size="13.5" fill="#1f2933">Result</text>
+<text x="30" y="378" font-size="12.5" fill="#52606d">what is alive at the end, plots,</text>
+<text x="30" y="394" font-size="12.5" fill="#52606d">inputs, strategy (Broker)</text>
+<rect x="350" y="340" width="300" height="80" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="360" y="359" font-weight="600" font-size="13.5" fill="#1f2933">indicators: draw.painter</text>
+<text x="360" y="378" font-size="12.5" fill="#52606d">lines, labels, boxes, tables,</text>
+<text x="360" y="394" font-size="12.5" fill="#52606d">plots painted on the chart</text>
+<rect x="680" y="340" width="300" height="80" rx="6" fill="#e8f1fc" stroke="#257de0" stroke-width="1.4"/>
+<text x="690" y="359" font-weight="600" font-size="13.5" fill="#1f2933">strategies: backtest.Report</text>
+<text x="690" y="378" font-size="12.5" fill="#52606d">trades of the range, figures,</text>
+<text x="690" y="394" font-size="12.5" fill="#52606d">equity, by hour, CSV</text>
+<path d="M170,310 L170,338" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M320,380 L348,380" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M170,420 L170,432 L830,432 L830,422" fill="none" stroke="#9aa5b1" stroke-width="1.5" marker-end="url(#a)"/></svg>

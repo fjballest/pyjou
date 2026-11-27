@@ -37,10 +37,10 @@ class Trade:
 		return self.exitbar is None
 
 	def runup(self):
-		return (self.best - self.price) * self.dir
+		return (self.best - self.price) * self.dir + 0.0	# no -0.0
 
 	def drawdown(self):
-		return (self.price - self.worst) * self.dir
+		return (self.price - self.worst) * self.dir + 0.0
 
 class Order:
 	"""an entry order: dir, qty, limit and stop (na: none, a market order)"""

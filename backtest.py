@@ -188,7 +188,7 @@ class Report:
 			for k, t in enumerate(self.trades, 1):
 				w.writerow([k, "Long" if t.dir > 0 else "Short", t.id, fmttime(t.time), t.price,
 					t.exitid or "Open", fmttime(t.exittime) if t.exittime else "", "" if t.exitprice is None else t.exitprice,
-					t.qty, round(t.points, 4), round(t.profit, 2), round(t.runup(), 4), round(t.drawdown(), 4)])
+					t.qty, round(t.points, 4) + 0.0, round(t.profit, 2) + 0.0, round(t.runup(), 4) + 0.0, round(t.drawdown(), 4) + 0.0])
 
 def maxrun(mask):
 	best = run = 0
