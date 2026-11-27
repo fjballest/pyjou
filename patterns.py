@@ -123,10 +123,11 @@ def legsize(h, l, turns):
 			out.append(np.nan)
 	return out
 
-def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None):
+def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None, only=None):
 	"""the times of the trading day (18:00 to 17:00 New York, slots of slot
 	minutes) where swings of swing x the average daily range, and
-	retracements of retr x it, started"""
+	retracements of retr x it, started; only those of the days only (a set
+	of day numbers) when given: the swings are found on all the candles"""
 	keys, ranges = dailyranges(data)
 	adr = dict(zip(keys.tolist(), avgbefore(keys, ranges, 20).tolist()))
 	i0, j0 = select(data, first, last)
@@ -139,12 +140,14 @@ def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None):
 	rets = retracements(big, small)
 	tod = ((data.wall[i0:j0] - DAYSTART * 3600) % 86400) // 60	# minutes since 18:00
 	nslots = 24 * 60 // slot
-	days = sorted({int(x) for x in dn if m15.Data.daydate(int(x)).weekday() < 5})
+	days = sorted({int(x) for x in dn if m15.Data.daydate(int(x)).weekday() < 5 and (only is None or int(x) in only)})
 	n = len(days)
 	sw, rt = np.zeros(nslots), np.zeros(nslots)
 	size, cnt = np.zeros(nslots), np.zeros(nslots)
 	seen = set()
 	for (i, s), z in zip(big, legsize(h, l, big)):
+		if only is not None and int(dn[i]) not in only:
+			continue
 		k = int(tod[i] // slot)
 		if (int(dn[i]), k) not in seen:
 			seen.add((int(dn[i]), k))
@@ -154,6 +157,8 @@ def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None):
 			cnt[k] += 1
 	seen = set()
 	for i, s in rets:
+		if only is not None and int(dn[i]) not in only:
+			continue
 		k = int(tod[i] // slot)
 		if (int(dn[i]), k) not in seen:
 			seen.add((int(dn[i]), k))
@@ -168,10 +173,11 @@ def byday(data, swing=0.3, retr=0.12, slot=30, first=None, last=None):
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
-def byweek(data, swing=0.3, retr=0.12, first=None, last=None):
+def byweek(data, swing=0.3, retr=0.12, first=None, last=None, only=None):
 	"""the hours of the week (its trading days, Sunday 18:00 to Friday
 	17:00, by hour) where swings of swing x the average weekly range, and
-	retracements of retr x it, started"""
+	retracements of retr x it, started; only those of the weeks only (a
+	set of the day numbers of their Mondays) when given"""
 	dn = data.dayno
 	wk = (dn - 4) // 7	# weeks from Monday (day 4 since 1970 was a Monday)
 	starts = np.flatnonzero(np.r_[True, wk[1:] != wk[:-1]])
@@ -188,14 +194,15 @@ def byweek(data, swing=0.3, retr=0.12, first=None, last=None):
 	rets = retracements(big, small)
 	wd = (dn[i0:j0] - 4) % 7	# 0 Monday
 	hour = ((data.wall[i0:j0] - DAYSTART * 3600) % 86400) // 3600	# hours since 18:00
-	n = len(set(w.tolist()))
+	keep = None if only is None else {(int(x) - 4) // 7 for x in only}
+	n = len(set(w.tolist()) if keep is None else set(w.tolist()) & keep)
 	sw, rt = np.zeros((5, 23)), np.zeros((5, 23))
 	size, cnt = np.zeros((5, 23)), np.zeros((5, 23))
 	for turns, arr, sized in ((big, sw, True), (rets, rt, False)):
 		seen = set()
 		zs = legsize(h, l, turns) if sized else [np.nan] * len(turns)
 		for (i, s), z in zip(turns, zs):
-			if wd[i] > 4 or hour[i] > 22:
+			if wd[i] > 4 or hour[i] > 22 or (keep is not None and int(w[i]) not in keep):
 				continue
 			key = (int(w[i]), int(wd[i]), int(hour[i]))
 			if key not in seen:
@@ -208,10 +215,10 @@ def byweek(data, swing=0.3, retr=0.12, first=None, last=None):
 	return Result("week", names, (sw / max(n, 1)).ravel(), (rt / max(n, 1)).ravel(), n,
 		(size / np.maximum(cnt, 1)).ravel(), rows=5)
 
-def bymonth(data, swing=0.3, retr=0.12, first=None, last=None):
+def bymonth(data, swing=0.3, retr=0.12, first=None, last=None, only=None):
 	"""the trading days of the month (1st, 2nd...) where swings of swing x
 	the average monthly range, and retracements of retr x it, started, from
-	the daily candles"""
+	the daily candles; only on the days only (day numbers) when given"""
 	keys, _ = dailyranges(data)
 	dn = data.dayno
 	starts = np.flatnonzero(np.r_[True, dn[1:] != dn[:-1]])
@@ -242,14 +249,17 @@ def bymonth(data, swing=0.3, retr=0.12, first=None, last=None):
 	slots = 23
 	sw, rt = np.zeros(slots), np.zeros(slots)
 	size, cnt = np.zeros(slots), np.zeros(slots)
+	ok = lambda i: only is None or int(days[i]) in only
 	for i, s in big:
-		sw[min(nth[i], slots - 1)] += 1
+		if ok(i):
+			sw[min(nth[i], slots - 1)] += 1
 	for (i, s), z in zip(big, legsize(dh, dl, big)):
-		if not np.isnan(z):
+		if ok(i) and not np.isnan(z):
 			size[min(nth[i], slots - 1)] += z
 			cnt[min(nth[i], slots - 1)] += 1
 	for i, s in rets:
-		rt[min(nth[i], slots - 1)] += 1
+		if ok(i):
+			rt[min(nth[i], slots - 1)] += 1
 	names = [f"day {k + 1}" for k in range(slots)]
 	return Result("month", names, sw / max(n, 1), rt / max(n, 1), n, size / np.maximum(cnt, 1))
 
@@ -505,13 +515,21 @@ class PatternsWindow(QDialog):
 		last = self.data.last()
 		return (last - timedelta(days=days) if days else None), last
 
+	def filter(self):
+		"""(day numbers, Monday day numbers) the search in the list leaves, or None"""
+		w = self.parent()
+		return w.filtered() if w is not None and hasattr(w, "filtered") else None
+
 	def compute(self):
 		first, last = self.period()
 		sw, rt = self.swing.value(), self.retr.value()
+		f = self.filter()
+		days, weeks = f if f else (None, None)
+		self.filtered = f is not None
 		self.results = {
-			"day": byday(self.data, sw, rt, self.slot.currentData(), first, last),
-			"week": byweek(self.data, sw, rt, first, last),
-			"month": bymonth(self.data, sw, rt, first, last),
+			"day": byday(self.data, sw, rt, self.slot.currentData(), first, last, days),
+			"week": byweek(self.data, sw, rt, first, last, weeks),
+			"month": bymonth(self.data, sw, rt, first, last, days),
 		}
 		for k, c in self.charts.items():
 			c.set(self.results[k])
@@ -525,7 +543,8 @@ class PatternsWindow(QDialog):
 			return
 		def fmt(top):
 			return ", ".join(f"{n} ({p:.0%})" for n, p in top) or "none"
-		self.summary.setText(f"From {r.n} {Chart.unit(r)}. Most likely swing starts: {fmt(r.top(5))}. "
+		only = " the search leaves in the list" if getattr(self, "filtered", False) else ""
+		self.summary.setText(f"From {r.n} {Chart.unit(r)}{only}. Most likely swing starts: {fmt(r.top(5))}. "
 			f"Retracements: {fmt(r.top(5, 'retr'))}.")
 
 # ---------------------------------------------------------------- macro times in an indicator's source

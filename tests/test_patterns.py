@@ -70,6 +70,10 @@ check(m is not None and len(m.names) == 23 and 20 <= m.n <= 24, "the month, by t
 part = patterns.byday(data, first=date(2025, 6, 1))
 check(part.n < r.n, "for a part of the data")
 
+mondays = {data.dayn(d) for d in data.days() if d.weekday() == 0}
+mon = patterns.byday(data, only=mondays)
+check(mon.n == 100 and mon.swing.max() > 0, "only some days: " + str(mon.n))
+check(patterns.byweek(data, only={min(mondays)}).n == 1 and patterns.bymonth(data, only=mondays) is not None, "or weeks")
 wins = patterns.windows(r, least=0.25)
 check(wins and wins[0][0].startswith(("09", "10")) and "-" in wins[0][0], "macro windows: " + str(wins[:3]))
 times = patterns.sortedtimes(wins)
@@ -97,6 +101,13 @@ pw.compute()
 check(pw.results["day"].n < 140, "the last 6 months")
 pw.tabs.setCurrentIndex(1)
 check("weeks" in pw.summary.text(), "the week's summary")
+win.datapanel.match = lambda kind, d: d.weekday() == 0
+pw.range.setCurrentIndex(0)
+pw.tabs.setCurrentIndex(0)
+pw.compute()
+check(pw.results["day"].n == 100 and "the search leaves" in pw.summary.text(), "only the days the search leaves")
+win.datapanel.match = None
+pw.compute()
 img = pw.grab()
 check(img.width() > 500, "drawn")
 

@@ -62,15 +62,16 @@ class Result:
 		self.title = ""
 		self.inputs = []	# [runtime.Input], as the script asked for them
 		self.cancelled = False	# stopped midway: not what it draws
+		self.strategy = None	# a strategy's: its strategy.Broker, with the trades
 
-def run(script, chart, sources, symbol="NQ", inputs=None, tz="America/New_York", stop=None):
+def run(script, chart, sources, symbol="NQ", inputs=None, tz="America/New_York", stop=None, progress=None, plots=True, onstrategy=None):
 	"""run script on the chart bars (a runtime.Series) and those sources
 	returns for a time frame key (see runtime.tfkind): a Result. stop, a
 	threading.Event, stops it midway when set: the Result says cancelled"""
 	with LOCK:
-		return _run(script, chart, sources, symbol, inputs, tz, stop)
+		return _run(script, chart, sources, symbol, inputs, tz, stop, progress, plots, onstrategy)
 
-def _run(script, chart, sources, symbol, inputs, tz, stop=None):
+def _run(script, chart, sources, symbol, inputs, tz, stop=None, progress=None, plots=True, onstrategy=None):
 	res = Result()
 	res.S = chart
 	res.title = script.title
@@ -81,6 +82,7 @@ def _run(script, chart, sources, symbol, inputs, tz, stop=None):
 	RT = R.RT
 	RT.reset()
 	RT.tz = tz
+	RT.keepplots = plots
 	RT.sources = sources
 	RT.inputs = inputs or {}
 	RT.chart = chart.tfp
@@ -95,6 +97,11 @@ def _run(script, chart, sources, symbol, inputs, tz, stop=None):
 	ns.update(script.consts)
 	RT.ns = ns
 	ctx = R.Ctx()
+	st = RT.st
+	st.S = chart
+	st.pointvalue = RT.sym["pointvalue"]
+	st.mintick = RT.mintick
+	st.hook = onstrategy
 	try:
 		if chart.n == 0:
 			raise R.PineRuntimeError("no candles")
@@ -106,8 +113,15 @@ def _run(script, chart, sources, symbol, inputs, tz, stop=None):
 			if stop is not None and not i & 15 and stop.is_set():
 				res.cancelled = True
 				break
+			if progress is not None and not i & 1023:
+				progress(i, chart.n)
 			R.setbar(ns, chart, i)
-			bar(ctx)
+			if st.on:
+				st.before(i)
+				bar(ctx)
+				st.after(i)
+			else:
+				bar(ctx)
 	except Exception as x:
 		tb = traceback.extract_tb(x.__traceback__)
 		where = ""
@@ -126,6 +140,7 @@ def _run(script, chart, sources, symbol, inputs, tz, stop=None):
 	res.linefills = [o for o in RT.objs["linefill"] if o.alive]
 	res.plots = RT.plots
 	res.inputs = list(RT.specs.values())
+	res.strategy = st if st.on else None
 	res.seconds = _time.time() - t0
 	RT.ns = None
 	RT.sources = None

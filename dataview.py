@@ -43,6 +43,7 @@ def nicestep(span, n):
 
 SHOWSESSIONS = True	# the session rectangles of the days are drawn (View ▸ Session Rectangles)
 SHOWPROFILE = True	# the profile lines are drawn, with the drawings (View ▸ Profile Lines)
+MINW, MAXW = 1000, 4000	# the widths a chart can take to fill its window
 MAXMARGIN = 0.25	# of the times shown, at most, kept right of the last candle for what indicators draw there
 
 def title(data, kind, d, tf=15):
@@ -61,11 +62,13 @@ class Geom:
 	"""where the chart of day or week d in time frame tf puts times and
 	prices: the same size in every time frame (the lower ones are seen
 	zooming in, on the image or its time axis)"""
-	def __init__(self, data, kind, d, tf=15, low=None, view=None, margin=0):
+	def __init__(self, data, kind, d, tf=15, low=None, view=None, margin=0, width=None):
 		"""view, when given, is the (top, bottom, t0, t1) shown instead of
 		the whole day or week (see zoomed); margin, in t, is room right of
 		t1 for what indicators draw past the last candle: t1 moves right
-		by it, and the candles, profile and sessions end at vt1"""
+		by it, and the candles, profile and sessions end at vt1. width, in
+		pixels, makes the chart that wide (to fill a window) instead of
+		its own width (what drawings are kept in: see mapped)"""
 		self.kind, self.d, self.tf = kind, d, tf
 		self.periods = tf in m15.PERIODS	# candles of days, weeks or months, up to d: t counts them
 		if self.periods:
@@ -80,6 +83,9 @@ class Geom:
 		wall, o, h, l, c, zero = self.bars
 		self.ok = len(wall) > 0
 		self.W, self.H = (2000, 1000) if self.periods else (1800, 1000) if kind == "d" else (2400, 1100)
+		self.W0 = self.W	# its own width
+		if width:
+			self.W = int(min(max(int(width), MINW), MAXW))
 		self.L, self.R, self.T, self.B = 16, 100, 44, 40
 		self.pw, self.ph = self.W - self.L - self.R, self.H - self.T - self.B
 		self.t0, self.t1 = (-0.5, len(wall) + 2.5) if self.periods else trange(kind)
@@ -102,7 +108,7 @@ class Geom:
 
 	def mapped(self):
 		"""whether its points aren't those of the whole day or week"""
-		return self.view() is not None or self.margin > 0
+		return self.view() is not None or self.margin > 0 or self.W != self.W0
 
 	def when(self, x, y):
 		"""the time (hours since day 1, New York clock) and price at point x, y"""
@@ -167,6 +173,8 @@ class Geom:
 		g = copy.copy(self)
 		g.top, g.bot, g.t0, g.t1 = self.whole
 		g.vt1, g.margin = g.t1, 0
+		g.W = g.W0
+		g.pw = g.W - g.L - g.R
 		return g
 
 	def zoomed(self, axis, at, factor):
@@ -239,14 +247,15 @@ class Geom:
 	def frompx(self, px):
 		return [(round(self.t(x), 4), round(self.price(y), 2)) for x, y in px]
 
-def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None, overlay=None, margin=0):
+def render(data, kind, d, path=None, tf=15, low=None, view=None, profile=True, news=None, overlay=None, margin=0, width=None):
 	"""the chart of day d or week d (its Monday) in time frame tf (from
 	low, the data of a lower time frame, under m15) as a QImage, saved at
 	path when given; None without candles. view is the part shown (see
 	Geom), profile whether its profile is drawn, news a news.News whose
 	releases are marked, overlay a function painting more on it (painter,
-	geometry), margin room right of the last candle (see Geom)"""
-	g = Geom(data, kind, d, tf, low, view, margin)
+	geometry), margin room right of the last candle, width the image's
+	(see Geom)"""
+	g = Geom(data, kind, d, tf, low, view, margin, width)
 	if not g.ok:
 		return None
 	img = QImage(g.W, g.H, QImage.Format.Format_RGB32)

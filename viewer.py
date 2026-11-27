@@ -88,6 +88,7 @@ class ImageView(QGraphicsView):
 		self.undo.indexChanged.connect(self.undochanged)
 		self.loading = False
 		self.navkeys = NAVKEYS
+		self.resizehook = None	# called when the view changes size
 		self.zoomhook = None	# zoomhook(factor, viewport point), True when it zoomed instead (factor None: all again)
 		self.dclickzoom = True	# double clicks on the image zoom; a trackpad double tap always does
 		# the crosshair: a horizontal and a vertical line through the mouse,
@@ -321,6 +322,8 @@ class ImageView(QGraphicsView):
 		super().resizeEvent(ev)
 		if self.mode == "fit":
 			self.fit()
+		if self.resizehook is not None:
+			self.resizehook()
 
 	# ---- tools ----
 	def settool(self, tool):

@@ -842,6 +842,8 @@ class MainWindow(QMainWindow):
 		self.swingact = self.mkaction("S&wing Times…", self.swingtimes, None, None,
 			"the times of the day, the hours of the week and the days of the month when swings and retracements "
 			"started, from the data")
+		self.testeract = self.mkaction("Strategy &Tester…", self.strategytester, None, None,
+			"run a Pine strategy on the data and see its trades, as TradingView's Strategy Tester")
 		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
 			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
 		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
@@ -953,6 +955,7 @@ class MainWindow(QMainWindow):
 		v.addAction(self.sessionsact)
 		v.addAction(self.profileact)
 		v.addAction(self.swingact)
+		v.addAction(self.testeract)
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)
@@ -1066,6 +1069,11 @@ class MainWindow(QMainWindow):
 		self.view.hint.connect(lambda t: self.statusBar().showMessage(t) if t else self.statusBar().clearMessage())
 		self.view.drawchanged.connect(self.drawchanged)
 		self.view.hiddenchanged.connect(self.datahidden)
+		self.resizetimer = QTimer(self)
+		self.resizetimer.setSingleShot(True)
+		self.resizetimer.setInterval(250)
+		self.resizetimer.timeout.connect(self.viewresized)
+		self.view.resizehook = self.resizetimer.start	# the data chart fills the window once it's done resizing
 		self.view.zoomhook = self.datazoom	# zooming a data chart scales its axes, which stay in the window
 		self.view.viewport().installEventFilter(self)	# scrolling on the axes of the data charts
 		drawbar = self.mkdrawbar()
@@ -1409,6 +1417,26 @@ class MainWindow(QMainWindow):
 		self.updateactions()
 		self.moved()
 
+	def datawidth(self, kind, tf):
+		"""the width of the data charts so they fill the view, as tall as
+		their own height: None while the view has no size yet"""
+		vp = self.view.maximumViewportSize()
+		if vp.width() < 200 or vp.height() < 150:
+			return None
+		H = 1000 if tf in m15.PERIODS or kind == "d" else 1100
+		return round(H * vp.width() / vp.height())
+
+	def viewresized(self):
+		"""the view changed size: the data chart is drawn again to fill it"""
+		if not self.datamode or self.datakey is None or not self.view.hasimage():
+			return
+		g = self.datageom
+		kind, tf = self.datakey[0], getattr(self, "datashowntf", self.datatf)
+		w = self.datawidth(kind, tf)
+		if g is None or w is None or abs(min(max(w, dataview.MINW), dataview.MAXW) - g.W) < 8:
+			return
+		self.showdata(self.datakey, force=True)
+
 	def renderdata(self, kind, d, path, tf, low, wait=False):
 		"""draw the chart of day or week d in tf at path, as zoomed, with or
 		without its profile as the drawings are shown or not; its Geom
@@ -1417,7 +1445,8 @@ class MainWindow(QMainWindow):
 		drawn again when they are done, see indicatorsdone), or as they are
 		run now with wait"""
 		view = self.datazooms.get((kind, d, tf))
-		g = Geom(self.data, kind, d, tf, low, view)
+		width = self.datawidth(kind, tf)
+		g = Geom(self.data, kind, d, tf, low, view, 0, width)
 		self.dataoverlay = None
 		self.datapending = False
 		if g.ok and self.windowind():
@@ -1431,9 +1460,9 @@ class MainWindow(QMainWindow):
 		if far is not None and g.ok:	# room right of the last candle for what they draw there
 			margin = max(0.0, g.tx(far / 1000) + 3 * g.cw - g.vt1)
 			if margin:
-				g = Geom(self.data, kind, d, tf, low, view, margin)
+				g = Geom(self.data, kind, d, tf, low, view, margin, width)
 		img = render(self.data, kind, d, path, tf, low, view, self.profileshown(),
-			self.journal.news if self.journal else None, self.dataoverlay, margin)
+			self.journal.news if self.journal else None, self.dataoverlay, margin, width)
 		self.datageom = g if img is not None else None
 		return img
 
@@ -1490,6 +1519,31 @@ class MainWindow(QMainWindow):
 				if w.datamode and w.datakey is not None:
 					w.showdata(w.datakey, force=True)
 
+	def filtered(self):
+		"""the data the search leaves in the list: (day numbers of its days,
+		day numbers of the Mondays of its weeks), or None without a search"""
+		m = self.datapanel.match if self.data is not None else None
+		if m is None:
+			return None
+		days = {self.data.dayn(d) for d in self.data.days() if m("d", d)}
+		weeks = {self.data.dayn(w) for w in self.data.weeks() if m("w", w)}
+		return days, weeks
+
+	def strategytester(self):
+		"""the window to run Pine strategies on the data"""
+		if self.data is None or not len(self.data):
+			QMessageBox.information(self, "Strategy Tester", "There is no data: File ▸ Import Data…")
+			return
+		import backtest
+		w = getattr(self, "testerwin", None)
+		if w is not None and isValid(w) and w.data is self.data:
+			w.fill()
+			w.show()
+			w.raise_()
+			return
+		self.testerwin = backtest.TesterWindow(self)
+		self.testerwin.show()
+
 	def swingtimes(self):
 		"""the window of the times swings and retracements started"""
 		if self.data is None or not len(self.data):
@@ -1498,6 +1552,7 @@ class MainWindow(QMainWindow):
 		import patterns
 		w = getattr(self, "swingwin", None)
 		if w is not None and isValid(w) and w.data is self.data:
+			w.compute()
 			w.show()
 			w.raise_()
 			return
@@ -1873,9 +1928,9 @@ class MainWindow(QMainWindow):
 				data = mapdrawing(data, g, g.unzoomed())
 			saved = self.data.readdrawing(*k, tf)
 			if data and tf < 15 and g is not None:	# so it isn't taken for one of the wider charts of before
-				data = {**data, "width": g.W}
+				data = {**data, "width": g.W0}
 				if saved and "width" not in saved:
-					saved = {**widened(saved, g.unzoomed(), tf), "width": g.W}
+					saved = {**widened(saved, g.unzoomed(), tf), "width": g.W0}
 			if data == saved:
 				self.pending.pop(name, None)
 			else:
@@ -2844,6 +2899,9 @@ class MainWindow(QMainWindow):
 		self.datapanel.match = (lambda kind, d: search.match(self.dataentry(kind, d))) if search.expr is not None else None
 		if self.data is not None:
 			self.datapanel.refill()
+			sw = getattr(self, "swingwin", None)
+			if sw is not None and isValid(sw) and sw.isVisible():
+				sw.compute()	# for the days the search leaves
 		if keep and self.current is not None and self.current in self.shown:
 			self.selectitem(self.current)
 		elif keep and self.shown and self.current is not None:
