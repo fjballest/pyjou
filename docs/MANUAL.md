@@ -86,9 +86,17 @@ capture and asks for its date:
   new one.
 
 **Add** copies the capture into the journal with that name (as PNG if it was
-another format), keeps what the OCR read as its tags, and shows it. The
-dropped file is left where it was. Dropping several captures asks for each
-one in turn.
+another format), keeps what the OCR read as its tags, and shows it.
+Dropping several captures asks for each one in turn.
+
+A file dropped is then moved to the Trash (the Recycle Bin on Windows),
+once its copy in the journal is written to the disk and reads back as the
+same image, so the Desktop doesn't fill with captures already in the
+journal. If the copy can't be checked, or the file can't be moved, it is
+left where it was and DayJournal says so. **File ▸ Move Dropped Captures
+to Trash** (on at first) turns this off: the dropped files are then left
+where they were. Files added with **Add Capture…** and captures dragged
+from another DayJournal window are never moved.
 
 ## Tags
 

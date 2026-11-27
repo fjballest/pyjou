@@ -119,6 +119,9 @@ new = mkimage(os.path.join(src, "shot.jpg"), date(2026, 10, 14), "JPG")
 md = QMimeData()
 md.setUrls([QUrl.fromLocalFile(new)])
 ev = QDropEvent(QPointF(100, 100), Qt.DropAction.CopyAction, md, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+check(w.trashact.isChecked(), "Move Dropped Captures to Trash is on at first")
+w.trashact.trigger()
+check(not mainwin.trashdropped(), "and can be turned off")
 w.dropEvent(ev)
 for _ in range(200):
 	QTest.qWait(50)
@@ -128,7 +131,7 @@ check(dlgs and dlgs[0][:3] == (date(2026, 10, 14), False, "day261014c.png"), f"d
 e = w.journal.find("day261014c.png")
 check(e is not None and w.current is e, "added and shown")
 check(QImage(os.path.join(jd, "day261014c.png")).width() == 800, "converted to PNG")
-check(os.path.exists(new), "the original is kept")
+check(os.path.exists(new), "the original is kept, with the setting off")
 check("EQH" in e.tags and not w.journal.needsocr(e), "the OCR is kept as its tags")
 # picking a date found sets the week profile box: on for weekend days
 dl = capture.CaptureDialog(w.journal, new)
@@ -222,5 +225,37 @@ check(QImage(w.journal.path(r)).width() == 800 and w.current is r, "the new one 
 check(r.notes.strip() == "old notes" and not os.path.exists(os.path.join(jd, "day261014c.png"))
 	and not os.path.exists(os.path.join(jd, "day261014c.drw")) and not os.path.exists(os.path.join(jd, "day261014.drw")),
 	"keeps the notes, drops the old images and drawings")
+# with the setting on, a file dropped goes to the Trash once its copy is checked
+w.trashact.trigger()
+check(mainwin.trashdropped(), "the setting on again")
+new2 = mkimage(os.path.join(src, "shot2.png"), date(2026, 10, 21), "PNG")
+def answer4():
+	dl = QApplication.activeModalWidget()
+	if not isinstance(dl, capture.CaptureDialog):
+		QTimer.singleShot(50, answer4)
+		return
+	dl.touched = True
+	dl.dateedit.setDate(QDate(2026, 10, 21))
+	dl.weekbox.setChecked(False)
+	dl.replacebox.setChecked(False)
+	dl.accept()
+QTimer.singleShot(50, answer4)
+QMessageBox.warning = staticmethod(lambda *a, **k: said.append(a[2]))
+said.clear()
+md = QMimeData()
+md.setUrls([QUrl.fromLocalFile(new2)])
+w.dropEvent(QDropEvent(QPointF(100, 100), Qt.DropAction.CopyAction, md, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+for _ in range(200):
+	QTest.qWait(50)
+	if w.journal.find("day261021.png") and not os.path.exists(new2):
+		break
+check(w.journal.find("day261021.png") is not None and QImage(os.path.join(jd, "day261021.png")).width() == 800,
+	"the dropped capture is added")
+check(not os.path.exists(new2) and not said, "and the file dropped is in the Trash " + str(said))
+# not when the copy isn't the same image
+bad = os.path.join(src, "bad.png")
+with open(bad, "wb") as f:
+	f.write(b"x" * 10)
+check(not capture.safecopy(new, bad), "a copy that isn't the image is not safe")
 w.close()
 print("ALL OK")
