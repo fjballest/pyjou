@@ -1,7 +1,8 @@
 #
 # queries on the candles of a journal: a small language to ask about
 # periods (years, months, weeks, days, sessions, hours, windows of time),
-# their conditions (trend, consolidation, reversal, retrace), their highs
+# their conditions (trend, consolidation, reversal, retrace: what price did
+# in them), their highs
 # and lows and when they were made, and what price did after (took the
 # Asia low, then its high). A query gives a table: counts, shares,
 # distributions or averages, by a key if asked. No widgets here; the
@@ -43,11 +44,12 @@ GROUPS = {"trend": ("uptrend", "downtrend"), "reversal": ("upreversal", "downrev
 	"retrace": ("upretrace", "downretrace"), "up": ("up",), "down": ("down",)}
 # the thresholds of the conditions, which conditions.txt in the journal can change
 DEFAULTS = {
-	"consolidation": 0.6,	# a range under this part of the average range of the periods before
-	"trend": 0.6,		# a move from open to close of at least this part of the range
-	"reversal": 0.5,	# a move to the extreme, and back past the open, of at least this part of the range
-	"reversal_edge": 0.15,	# the extreme of a reversal not in the first or last part of the time
-	"retrace": 0.3,		# a move against the trend of the period before, of at least this part of the range
+	"flat": 0.25,		# consolidation: a close this near the open, as a part of the range
+	"swing": 0.5,		# a swing inside the period goes at least this part of the range...
+	"swings": 4,		# ...and with this many of them the period went back and forth: consolidation
+	"reversal": 0.4,	# a reversal first goes this part of the range away from the open, one way
+	"retrace": 0.4,		# a retrace gives back this part of the range from its extreme
+	"trend": 0.6,		# a trend closes this part of the range away from the open
 }
 CONDFILE = "conditions.txt"
 STATS = ["count", "share", "dist", "avg", "median", "min", "max", "sum", "list"]
@@ -63,35 +65,66 @@ def thresholds(dir):
 	th = dict(DEFAULTS)
 	try:
 		with open(os.path.join(dir, CONDFILE), encoding="utf-8") as f:
-			for line in f:
-				line = line.split("#")[0].strip()
-				if "=" in line:
-					k, v = (x.strip() for x in line.split("=", 1))
-					if k in th:
-						try:
-							th[k] = float(v)
-						except ValueError:
-							pass
+			text = f.read()
 	except OSError:
-		pass
+		return th
+	if not re.search(r"^\s*flat\s*=", text, re.M):
+		return th	# one of the first queries, whose conditions were others
+	for line in text.splitlines():
+		line = line.split("#")[0].strip()
+		if "=" in line:
+			k, v = (x.strip() for x in line.split("=", 1))
+			if k in th:
+				try:
+					th[k] = float(v)
+				except ValueError:
+					pass
 	return th
 
 def writedefaults(dir):
 	"""write conditions.txt with the defaults, explained, when there is none"""
 	p = os.path.join(dir, CONDFILE)
-	if os.path.exists(p):
-		return p
+	try:
+		with open(p, encoding="utf-8") as f:
+			if re.search(r"^\s*flat\s*=", f.read(), re.M):
+				return p
+	except OSError:
+		pass	# none, or one of the first queries, with other conditions: written again
 	with open(p, "w", encoding="utf-8") as f:
-		f.write("# the thresholds of the conditions of queries (View ▸ Queries)\n"
-			"# consolidation: a range under this part of the average range of the periods before\n"
-			"# trend: a move from open to close of at least this part of the range\n"
-			"# reversal: to the extreme and back past the open, each at least this part of the range\n"
-			"# reversal_edge: the extreme of a reversal is not in the first or last part of the time\n"
-			"# retrace: a move against the trend of the period before, at least this part of the range,\n"
-			"#	that does not go past its open\n")
+		f.write("# the thresholds of the conditions of queries (View ▸ Queries), as parts of\n"
+			"# the range of the period (its high minus its low), from what price did in it:\n"
+			"# flat: a close this near the open is a consolidation\n"
+			"# swing, swings: as many swings of this size as swings, back and forth in the\n"
+			"#	range, is a consolidation too, wherever it closes\n"
+			"# reversal: first this far away from the open one way, then a close past the open\n"
+			"#	the other way (by more than flat)\n"
+			"# retrace: a move one way that gives back this much from its extreme, closing\n"
+			"#	still on its side of the open\n"
+			"# trend: a close this far from the open\n")
 		for k, v in DEFAULTS.items():
 			f.write(f"{k} = {v:g}\n")
 	return p
+
+def zigzag(h, l, t):
+	"""the turns of the zigzag of candles h, l whose moves are at least t
+	(as in patterns.py): [(index, +1 a high / -1 a low)]"""
+	out = []
+	if not len(h):
+		return out
+	d = 0
+	hi, hix, lo, lox = h[0], 0, l[0], 0
+	for i in range(1, len(h)):
+		if d >= 0 and h[i] > hi:
+			hi, hix = h[i], i
+		if d <= 0 and l[i] < lo:
+			lo, lox = l[i], i
+		if d >= 0 and hi - l[i] >= t and (d == 1 or hix < i):
+			out.append((hix, 1))
+			d, lo, lox = -1, l[i], i
+		elif d <= 0 and h[i] - lo >= t and (d == -1 or lox < i):
+			out.append((lox, -1))
+			d, hi, hix = 1, h[i], i
+	return out
 
 # --- the candles ---
 
@@ -219,6 +252,15 @@ class Period:
 	def cond(self):
 		return self.m.cond(self)
 
+	def swings(self):
+		return self.m.swings(self)
+
+	def rel(self):
+		"""its range as a part of the average range of the periods of its kind before"""
+		a = self.m.avgrange(self)
+		r = self.m.rangeof(self)
+		return r / a if a and r is not None else None
+
 	def move(self):
 		"""close minus open"""
 		return None if self.empty() else self.close() - self.open()
@@ -228,7 +270,7 @@ class Period:
 
 ATTRS = {"open": Period.open, "close": Period.close, "high": Period.high, "low": Period.low,
 	"range": Period.range, "mid": Period.mid, "dir": Period.dir, "cond": Period.cond, "move": Period.move,
-	"start": Period.time}
+	"swings": Period.swings, "rel": Period.rel, "start": Period.time}
 
 class Hour(int):
 	"""an hour of the day, in the order of the trading day (18 first)"""
@@ -408,50 +450,57 @@ class Model:
 			self.ranges[k] = p.range()
 		return self.ranges[k]
 
-	def cond(self, p, retrace=True):
-		"""the condition of period p: uptrend, downtrend, upreversal (down
-		then up), downreversal, upretrace (up against the downtrend of the
-		period before), downretrace, consolidation or mixed"""
-		k = (p.kind, p.key, retrace)
-		if k in self.conds:
-			return self.conds[k]
-		self.conds[k] = c = self.findcond(p, retrace)
-		return c
+	def cond(self, p):
+		"""the condition of period p, from what price did in it (see
+		findcond), or None without candles"""
+		k = (p.kind, p.key)
+		if k not in self.conds:
+			self.conds[k] = self.findcond(p)
+		return self.conds[k]
 
-	def findcond(self, p, retrace):
+	def swings(self, p):
+		"""how many swings of at least th["swing"] of the range price made in p"""
+		r = self.rangeof(p)
+		if not r:
+			return 0 if r is not None else None
+		c = self.c
+		return len(zigzag(c.h[p.i:p.j], c.l[p.i:p.j], self.th["swing"] * r))
+
+	def findcond(self, p):
+		"""in this order, with r the range and the thresholds th:
+		consolidation: closes within flat x r of the open, or made swings
+			swings of swing x r, back and forth;
+		upreversal: went down first, at least reversal x r below the open,
+			then closed above it (by more than flat x r); downreversal the
+			other way;
+		upretrace: went up, then gave back at least retrace x r from the
+			high, closing above the open; downretrace the other way;
+		uptrend: closed at least trend x r above the open; downtrend below;
+		mixed: none of those"""
 		th = self.th
 		r = self.rangeof(p)
 		if r is None:
 			return None
 		if r <= 0:
 			return "consolidation"
-		avg = self.avgrange(p)
-		if avg and r < th["consolidation"] * avg:
-			return "consolidation"
 		o, c = p.open(), p.close()
 		hi, lo = p.high(), p.low()
-		n = p.j - p.i
-		edge = th["reversal_edge"]
-		def inside(k):
-			f = (k - p.i) / max(1, n - 1)
-			return edge <= f <= 1 - edge
-		rv = th["reversal"]
-		if c > o and inside(lo.k) and (o - lo.price) >= rv * r and (c - lo.price) >= rv * r and lo.k < hi.k:
-			return "upreversal"
-		if c < o and inside(hi.k) and (hi.price - o) >= rv * r and (hi.price - c) >= rv * r and hi.k < lo.k:
-			return "downreversal"
 		e = (c - o) / r
+		if abs(e) <= th["flat"] or self.swings(p) >= th["swings"]:
+			return "consolidation"
+		rv = th["reversal"]
+		if e > 0 and lo.k < hi.k and (o - lo.price) >= rv * r:
+			return "upreversal"
+		if e < 0 and hi.k < lo.k and (hi.price - o) >= rv * r:
+			return "downreversal"
+		if e > 0 and (hi.price - c) >= th["retrace"] * r:
+			return "upretrace"
+		if e < 0 and (c - lo.price) >= th["retrace"] * r:
+			return "downretrace"
 		if e >= th["trend"]:
 			return "uptrend"
 		if e <= -th["trend"]:
 			return "downtrend"
-		if retrace:
-			q = self.shift(p, -1)
-			before = self.cond(q, False) if q is not None else None
-			if before == "uptrend" and e <= -th["retrace"] and lo.price > q.open():
-				return "downretrace"
-			if before == "downtrend" and e >= th["retrace"] and hi.price < q.open():
-				return "upretrace"
 		return "mixed"
 
 	def first(self, i, j, side, level, close=False):

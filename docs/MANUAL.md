@@ -845,74 +845,194 @@ trades.
 ### Queries
 
 **View ▸ Queries…**, also in the gear's menu, asks the data a question
-in a line and answers with a table and a chart. Type the query and press
-Return or **Run**:
+in one line and answers with a table and a chart. Type the query and press
+Return or **Run**, or pick one of the list at the left:
 
-    dist week.high.day where mon is uptrend
-    dist london.cond where asia is consolidation
-    dist day.cond by monthname in 2025
-    share day is consolidation by weekday
     share day takes asia.low then asia.high by weekday tf 5
-    dist (when day takes asia.low).session tf 5
 
-A query is a **stat**, what it is about, and then, in any order, **by**,
-**where**, **in** and **tf**:
+reads "of the days, the share that took the Asia low and then its high, by
+weekday, on m5 candles". A query is made of:
 
-- **count** *periods* and **list** *periods* count or list them (clicking
-  one of a list shows it in the data view); **share** *condition* gives the
-  part of them where it holds; **dist** *value* how many had each value;
-  **avg**, **median**, **min**, **max** and **sum** *number*.
-- **Periods**: `year`, `month`, `week`, `day`; in a week, `mon` to `fri`;
-  in a day, the sessions `asia` (20:00–00:00), `london` (02:00–05:00),
-  `nyam` (07:00–11:30) and `nypm` (13:30–16:00), an hour `h9` (09:00–10:00),
-  or any window such as `08:30-10:00` (`20:00-02:00` starts the evening
-  before). `prev day`, `next week`, `prev 2 day` are those around it, and
-  `mon.asia` Monday's Asia. What is counted is the smallest period named:
-  days for sessions and hours, weeks for weekdays.
-- **What a period has**: `open`, `high`, `low`, `close`, `range`, `mid`,
-  `move` (close − open), `dir` (up or down) and `cond`, its condition. A
-  high or a low also has when it was made: `.hour`, `.time`, `.day` (mon…fri),
-  `.session` (or other) and `.date`; `week.high.day` is the day of the
-  week's high. Numbers can be worked out: `day.range / prev day.range`.
-- **Conditions** (`cond`): `uptrend` and `downtrend` (`trend` is either),
-  `upreversal` (down, then up past the open) and `downreversal`
-  (`reversal`), `upretrace` (up, against the downtrend of the period before,
-  not past its open) and `downretrace` (`retrace`), `consolidation` (a
-  range small for the periods before) and `mixed`. `asia is consolidation`
-  asks for the condition, `day is up` for the direction.
-- **What price did**: `day takes asia.low` holds when, in the day, price
-  went below Asia's low after Asia; `takes` goes above a high and below a
-  low. `above` and `below` take any level (`nyam above london.mid`), and
-  `closes above` / `closes below` need a close past it. `then` puts things
-  one after the other: `day takes asia.low then asia.high` is the low first
-  and the high later, and `then nyam takes london.high` changes where it is
-  looked for. `(when …)` is when the last of them happened, with `.hour`,
-  `.session`… as a high's.
-- **where** *condition*, joined with `and`, `or`, `not` and parentheses,
-  and comparisons (`>`, `<`, `>=`, `<=`, `=`, `!=`): `where day.range > 300`.
-- **by** a key, or two for a grid: `weekday`, `month` (2025-03),
-  `monthname` (Mar), `year`, `quarter`, or any value (`by asia.cond`).
-- **in** `2025`, `2025-03`, `2024-03..2025-06` or `last 6 months` (days,
-  weeks, months, years).
-- **tf** `5` (or `on m5`, `tf h1`) takes candles of that time frame,
-  made from the lowest kept in the journal that fits: highs, lows and what
-  was taken are found to the minute with m1. The box by **Run** sets it
-  when the query does not. The data under m15 often starts later, so the
-  query counts only the periods it has.
+1. a **stat**, what to work out: `count`, `share`, `dist`, `avg`…;
+2. **what it is about**: periods, and what they have or did;
+3. then, in any order, **where** (which periods count), **by** (a row for
+   each key), **in** (the dates) and **tf** (the time frame).
+
+#### Periods
+
+A period is a stretch of time with candles; the query names them:
+
+| Write | It is |
+|---|---|
+| `year`, `month`, `week`, `day` | a year, a month, a week (Sunday 18:00 to Friday 17:00), a trading day (18:00 the day before to 17:00) |
+| `mon`, `tue`, `wed`, `thu`, `fri` | that day of the week |
+| `asia`, `london`, `nyam`, `nypm` | the sessions of a day: 20:00–00:00, 02:00–05:00, 07:00–11:30, 13:30–16:00 |
+| `h9` | an hour of the day, 09:00–10:00 (`h20` is 20:00 the evening before) |
+| `08:30-10:00` | any window of the day; `20:00-02:00` starts the evening before |
+| `prev day`, `next week`, `prev 2 day` | the period before or after (the London before is `prev london`) |
+
+All times are New York's. A dot goes into a period: `mon.asia` is the Asia
+of Monday, `week.fri` the week's Friday.
+
+**What is counted** is the smallest of the periods named: a query about
+`asia` or `london` counts days (the Asia of each day), one about `mon`
+counts weeks, one about `week` alone counts weeks. `count day`, `list week`
+and `among week` say it outright.
+
+#### What a period has
+
+After the period, a dot and what you want of it:
+
+| Write | It is |
+|---|---|
+| `open`, `close`, `high`, `low`, `mid` | prices: its first and last, its highest and lowest, half way |
+| `range` | high minus low |
+| `move` | close minus open |
+| `dir` | `up` or `down`: close above or below the open |
+| `cond` | its condition (below): `uptrend`, `consolidation`… |
+| `swings` | how many swings it made (back and forth), of at least half its range |
+| `rel` | its range as a part of the average range of the periods before it (20 days, 8 weeks, 6 months): 0.5 is half the usual |
+
+A high or a low is also *when* it was made, with a dot more:
+
+| Write | It is |
+|---|---|
+| `.hour` | the hour, 18 to 16 in the order of the day |
+| `.time` | the time of its candle, 09:35 |
+| `.session` | `asia`, `london`, `nyam`, `nypm` or `other` |
+| `.day` | `mon` to `fri` |
+| `.date` | the day |
+
+So `week.high.day` is the day of the week's high, `day.low.session` the
+session of the day's low, `london.high` London's high (a price). Numbers can
+be worked out with `+ - * /` and parentheses: `day.range / prev day.range`,
+`nyam.high - asia.high`.
+
+#### Conditions of a period
+
+`cond` tells what price did in the period, from its open, high, low and
+close and the order they came in; nothing before it matters. With *r* the
+range, the first that fits:
+
+| Condition | What price did |
+|---|---|
+| `consolidation` | closed near the open (within a quarter of *r*), up and down around it; or went back and forth across the range (4 swings of half *r* or more), wherever it closed |
+| `upreversal` | went down first, at least 0.4 *r* below the open, then turned and closed above the open |
+| `downreversal` | went up first, at least 0.4 *r* above the open, then turned and closed below it |
+| `upretrace` | went up, then gave back at least 0.4 *r* from the high, closing still above the open |
+| `downretrace` | went down, then came back at least 0.4 *r* from the low, closing still below the open |
+| `uptrend` | closed at least 0.6 *r* above the open, near its high |
+| `downtrend` | closed at least 0.6 *r* below the open, near its low |
+| `mixed` | none of those: up or down some, without the rest |
+
+`trend` stands for either trend, `reversal` and `retrace` for either of
+theirs. The numbers are the journal's: **Conditions…** opens its
+`conditions.txt`, which has them as parts of the range: `flat` (0.25),
+`swing` (0.5) and `swings` (4), `reversal` (0.4), `retrace` (0.4) and
+`trend` (0.6). A change is used by the next query.
+
+They work on any period: `asia.cond`, `week.cond`, `h9.cond`,
+`08:30-10:00.cond`. Lower time frames see more of what price did inside
+it: on m1 a day has more swings than on m15.
+
+#### Conditions, to pick periods
+
+After **where**, and in `share`, a condition says yes or no for each
+period:
+
+| Write | Yes when |
+|---|---|
+| `asia is consolidation` | Asia's condition is that; `is not` for the opposite |
+| `mon is up`, `day.dir is down` | the direction |
+| `day.high.session is london` | any value, by its name |
+| `day.range > 300`, `nyam.high >= london.high`, `day.rel < 0.6` | a comparison: `>`, `<`, `>=`, `<=`, `=`, `!=` |
+| `day takes asia.low` | in the day, after Asia, price went below Asia's low |
+| `nyam takes prev day.high` | in New York's morning, price went above the day before's high |
+| `nyam above london.mid`, `day below prev day.close` | price went past any level |
+| `day closes above asia.high` | a candle closed past it |
+| `day takes asia.low then asia.high` | first one, later the other |
+
+`takes` goes above a high and below a low; `above` and `below` take any
+level. A level of a period is looked for after that period ends: `day takes
+asia.low` looks from 00:00, when Asia is over. `then` puts things one after
+another, each after the candle of the one before: `day takes asia.low then
+asia.high` is the Asia low taken first and its high later, the same day;
+`london takes asia.high then nyam takes london.low` changes where the next
+is looked for. With m1 candles (`tf 1`) what came first is found to the
+minute.
+
+Conditions join with `and`, `or`, `not` and parentheses:
+
+    where asia is consolidation and not london takes asia.high
+    where (mon is uptrend or mon is upreversal) and tue is down
+
+`(when …)` is when the last of a `then` happened, with `.hour`, `.time`,
+`.session`, `.day`: `(when day takes asia.low).session` is the session in
+which the Asia low went; a day it didn't is counted as `none`.
+
+#### Stats
+
+| Stat | It gives |
+|---|---|
+| `count` *period* | how many there are (with where: that pass it) |
+| `list` *period* | them, one a row; clicking one shows it in the data view |
+| `share` *condition* | the part of them where it holds, in % |
+| `dist` *value* | how many had each value: conditions, days, sessions, hours; numbers in ranges |
+| `avg`, `median`, `min`, `max`, `sum` *number* | of the number, over them |
+
+#### where, by, in, tf
+
+- **where** *condition* keeps the periods where it holds; the stat is over
+  those only.
+- **by** *key* makes a row for each value of the key; **by** *key*, *key* a
+  grid. Keys: `weekday`, `month` (2025-03), `monthname` (Mar, for seasons
+  across years), `year`, `quarter`, or any value: `by asia.cond`, `by
+  day.high.session`, `by mon.dir`.
+- **in** `2025`, `2025-03`, `2025-03-14`, `2024-03..2025-06`, `last 6
+  months` (or days, weeks, years).
+- **tf** `5`, `tf m1`, `tf h1` (or `on m5`): the candles the query uses,
+  made from the lowest time frame kept in the journal that fits (m1 makes
+  m3 and m5; m15 makes h1). The box by **Run** sets it when the query has
+  no tf. Highs, lows, their times and what was taken are found in those
+  candles. The data under m15 often starts later, and only the periods it
+  has are counted.
+
+#### Examples
+
+    dist day.cond                                     how days go
+    dist day.cond by weekday                          and by day of the week
+    dist day.cond by monthname in 2022..2026          by month of the year
+    dist week.cond by year
+    share day is consolidation by weekday             consolidating week days
+    dist week.high.day where mon is uptrend           the day of the week's high, when Monday went up
+    dist week.low.day where mon is downtrend and tue is down
+    dist london.cond where asia is consolidation      London, when Asia was quiet
+    dist day.cond by asia.cond                        a grid: the day by its Asia
+    share day takes asia.low then asia.high tf 5      took Asia's low, then its high
+    share day takes asia.high then asia.low by weekday tf 5
+    dist (when day takes asia.low).session tf 5       when Asia's low goes
+    dist (when nyam takes london.high).time tf 1 where london is uptrend
+    share nyam takes london.high where asia is consolidation and london is uptrend
+    share day closes above prev day.high by weekday
+    dist day.high.hour in last 12 months              the hour of the day's high
+    dist day.low.session where day is uptrend
+    avg nyam.range by weekday in last 6 months
+    avg day.range / prev day.range by weekday
+    dist day.swings tf 5                              how much days go back and forth
+    count day where day.rel < 0.6                     small days
+    list day where day is downreversal and asia is consolidation in 2026
+    list week where mon is upreversal and fri is uptrend
+
+#### More
 
 A wrong query turns red, saying what was expected and where. With a search
-in the list, only the days and weeks it leaves count, as in Swing Times.
-The text below the chart says how many periods were counted, and from when
-to when: a share of five weeks says little.
+in the list, only the days and weeks it leaves count, as in Swing Times:
+search `CPI` to ask about CPI days. The text below the chart says how many
+periods were counted and from when to when: a share of five weeks says
+little.
 
 **Save…** keeps a query with a name in the journal's `queries.txt`
 (`name: query` a line); the list shows examples until there is one.
-**Conditions…** opens the journal's `conditions.txt` with the thresholds of
-the conditions, as parts of the period's range: `trend` (0.6, the move from
-open to close), `consolidation` (0.6, of the average range of the 20 days,
-8 weeks or 6 months before), `reversal` (0.5, to the extreme and back),
-`reversal_edge` (0.15, the extreme not that near the start or end) and
-`retrace` (0.3). Queries use them as they are when run.
 
 The same queries run from a terminal in the source folder:
 

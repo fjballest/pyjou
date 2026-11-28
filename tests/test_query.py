@@ -110,6 +110,30 @@ os.remove(os.path.join(d, query.CONDFILE))
 r = j.run("count day", only=({days[0], days[1]}, set()))
 check(r.rows == [["2"]], "only the days the list leaves")
 
+# each condition, from what price did in the day
+shapes = {
+	"consolidation": [(-6, 100), (0, 110), (6, 90), (17, 101)],	# up, down, back near the open
+	"choppy": [(-6, 100), (-2, 110), (1, 100), (4, 110), (7, 100), (10, 110), (17, 111)],	# back and forth, closing high
+	"downreversal": [(-6, 100), (2, 120), (17, 85)],	# up, then down past the open
+	"upretrace": [(-6, 100), (8, 140), (17, 120)],	# up, giving back half
+	"uptrend": [(-6, 100), (17, 140)],
+	"mixed": [(-6, 100), (-2, 97), (10, 110), (17, 107)],	# up some, not near its high
+}
+crows = []
+cdays = days[:len(shapes)]
+for n, turns in zip(cdays, shapes.values()):
+	for c in range(92):
+		h0, h1 = -6 + c / 4, -6 + (c + 1) / 4
+		o, cl = (float(x) for x in path(turns, [h0, h1]))
+		wall = n * 86400 + int(h0 * 3600)
+		crows.append([wall - m15.nyoffset(wall + 5 * 3600), o, max(o, cl), min(o, cl), cl])
+cm = query.Model(query.Candles.fromrows(np.array(crows)))
+got = [cm.cond(cm.day(n)) for n in cdays]
+print(got)
+want = ["consolidation", "consolidation", "downreversal", "upretrace", "uptrend", "mixed"]
+check(got == want, "the conditions from what price did: " + ", ".join(shapes))
+check(cm.swings(cm.day(cdays[1])) >= 4 and cm.swings(cm.day(cdays[4])) == 1, "swings counts the back and forth")
+
 # the window, from the gear
 from PySide6.QtWidgets import QApplication
 app = QApplication(sys.argv)

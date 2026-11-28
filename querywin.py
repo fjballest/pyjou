@@ -253,7 +253,7 @@ class QueryWindow(QDialog):
 		lay.addWidget(self.summary)
 		bottom = QHBoxLayout()
 		cond = QPushButton("Conditions…")
-		cond.setToolTip("the thresholds of trend, consolidation, reversal and retrace, in the journal's conditions.txt")
+		cond.setToolTip("the thresholds of trend, consolidation, reversal and retrace, as parts of the range of the period, in the journal's conditions.txt")
 		cond.clicked.connect(self.conditions)
 		bottom.addWidget(cond)
 		bottom.addStretch(1)
