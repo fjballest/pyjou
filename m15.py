@@ -36,7 +36,7 @@ OLDEXT = ".m15.csv"	# kept plain, before: compressed when found
 MAXFILE = 512 * 1024	# a data file is not made larger than this, compressed: about a year and a half of m15
 MAXLOW = 2 * 1024 * 1024	# nor one of a lower time frame: about four months of m1
 DAILY, WEEKLY, MONTHLY = 1440, 10080, 43200	# the time frames of days, weeks and months, as minutes
-TFS = [1, 3, 5, 15, 30, 60, 240, DAILY, WEEKLY, MONTHLY]	# the time frames charts are drawn in, minutes
+TFS = [1, 2, 3, 5, 15, 30, 60, 240, DAILY, WEEKLY, MONTHLY]	# the time frames charts are drawn in, minutes
 PERIODS = {DAILY: 130, WEEKLY: 104, MONTHLY: 120}	# the candles a chart of days, weeks or months shows
 
 def tfname(tf):
