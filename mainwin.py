@@ -856,6 +856,9 @@ class MainWindow(QMainWindow):
 			"started, from the data")
 		self.testeract = self.mkaction("Strategy &Tester…", self.strategytester, None, None,
 			"run a Pine strategy on the data and see its trades, as TradingView's Strategy Tester")
+		self.queryact = self.mkaction("&Queries…", self.queries, None, None,
+			"ask the data in a few words: the conditions of days, weeks and sessions, their highs and lows, "
+			"what was taken after, as a table and a chart")
 		self.newsact = self.mkaction("Update &News Dates", self.updatenews, None, None,
 			"read the FOMC, CPI, PPI and NFP dates scheduled from the Federal Reserve's and the BLS's calendars")
 		self.importdataact = self.mkaction("Import &Data…", self.choosedata, None, None,
@@ -913,10 +916,10 @@ class MainWindow(QMainWindow):
 			tb.addAction(a)
 		tb.addSeparator()
 		self.toolsmenu = QMenu("Tools", self)	# the gear: the tools on the data and the profiles
-		for a in (self.swingact, self.testeract, self.matchdayact, self.matchact):
+		for a in (self.swingact, self.testeract, self.queryact, self.matchdayact, self.matchact):
 			self.toolsmenu.addAction(a)
 		self.toolsact = QAction(glyph("gear", self.palette().color(QPalette.ColorRole.ButtonText)), "Tools", self)
-		self.toolsact.setToolTip("Swing Times, Strategy Tester, Match Day and Match Week")
+		self.toolsact.setToolTip("Swing Times, Strategy Tester, Queries, Match Day and Match Week")
 		self.toolsact.setMenu(self.toolsmenu)
 		tb.addAction(self.toolsact)
 		w = tb.widgetForAction(self.toolsact)
@@ -1001,6 +1004,7 @@ class MainWindow(QMainWindow):
 		v.addAction(self.profileact)
 		v.addAction(self.swingact)
 		v.addAction(self.testeract)
+		v.addAction(self.queryact)
 		v.addSeparator()
 		bm = v.addMenu("Tool&bar")
 		grp = QActionGroup(self)
@@ -1613,6 +1617,18 @@ class MainWindow(QMainWindow):
 			return
 		self.testerwin = backtest.TesterWindow(self)
 		self.testerwin.show()
+
+	def queries(self):
+		"""the window to ask the data with queries"""
+		if self.data is None or not len(self.data):
+			QMessageBox.information(self, "Queries", "There is no data: File ▸ Import Data…")
+			return
+		import querywin
+		w = getattr(self, "querywin", None)
+		if w is None or not isValid(w) or w.dir != self.journal.dir:
+			w = self.querywin = querywin.QueryWindow(self)
+		w.show()
+		w.raise_()
 
 	def swingtimes(self):
 		"""the window of the times swings and retracements started"""

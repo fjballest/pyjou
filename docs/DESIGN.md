@@ -30,6 +30,8 @@ pylg, and uses easyocr for the OCR.
 | `indicators.py` | the Pine scripts imported and found in other folders, which are on, their inputs, the background `Runner` and its cache of runs, `overlay` (what they draw on a chart), the settings dialog |
 | `pine/` | the Pine interpreter: `parse.py`, `compile.py` (to Python), `runtime.py` (series, built-ins, drawing objects), `feed.py` (bars of every time frame from the journal's data), `draw.py` (a run painted on a chart), `strategy.py` (the broker of strategies) |
 | `patterns.py` | when swings and retracements start (`byday`, `byweek`, `bymonth`), `PatternsWindow` (View ▸ Swing Times) and the macro times set in an indicator's source (`MacrosDialog`, `withmacros`) |
+| `query.py` | the language of View ▸ Queries: `Candles` (the data in a time frame, resampled from the lowest kept), `Model` (periods, their conditions with the thresholds of `conditions.txt`, and `first`, where price goes past a level), `Parser` (a recursive descent into tuples), `Run` (a query on each period counted) and `Result` (its table and chart); `python3 query.py journal query` |
+| `querywin.py` | `QueryWindow` (View ▸ Queries and the gear): the query, the saved ones (`queries.txt`), the table and `Chart` (bars, or a grid of shares) |
 | `backtest.py` | `backtest` (a strategy run on the data), `Report` (its trades and figures) and `TesterWindow` (View ▸ Strategy Tester) |
 | `tests/` | headless tests; the OCR is faked |
 | `dj.spec` | pyinstaller spec: `DayJournal.app` on macOS |

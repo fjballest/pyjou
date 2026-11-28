@@ -329,7 +329,7 @@ remembered. It applies to the drawing tools too, each with its own icon (an
 arrow pointer for **Select**, a pencil, a line, an arrow, a circle, a
 rectangle, a T and the Fibonacci levels). A button without an icon keeps
 its text. The gear at the end of
-the toolbar is a menu with **Swing Times**, **Strategy Tester**, **Match
+the toolbar is a menu with **Swing Times**, **Strategy Tester**, **Queries**, **Match
 Day** and **Match Week**. In the drawing tools, **Copy** (two sheets) copies
 the image with its drawings, and the eye hides the drawings; it is struck
 out while they are hidden, and a click shows them again.
@@ -841,6 +841,82 @@ its key, `group|title|inline`, when titles repeat), `-I name=v1,v2` compares val
 Month, Weekday, Session or Hour, `-c` and `-s` are the commission and
 slippage, `-o` exports the trades to CSV and `-q` leaves out the list of
 trades.
+
+### Queries
+
+**View ▸ Queries…**, also in the gear's menu, asks the data a question
+in a line and answers with a table and a chart. Type the query and press
+Return or **Run**:
+
+    dist week.high.day where mon is uptrend
+    dist london.cond where asia is consolidation
+    dist day.cond by monthname in 2025
+    share day is consolidation by weekday
+    share day takes asia.low then asia.high by weekday tf 5
+    dist (when day takes asia.low).session tf 5
+
+A query is a **stat**, what it is about, and then, in any order, **by**,
+**where**, **in** and **tf**:
+
+- **count** *periods* and **list** *periods* count or list them (clicking
+  one of a list shows it in the data view); **share** *condition* gives the
+  part of them where it holds; **dist** *value* how many had each value;
+  **avg**, **median**, **min**, **max** and **sum** *number*.
+- **Periods**: `year`, `month`, `week`, `day`; in a week, `mon` to `fri`;
+  in a day, the sessions `asia` (20:00–00:00), `london` (02:00–05:00),
+  `nyam` (07:00–11:30) and `nypm` (13:30–16:00), an hour `h9` (09:00–10:00),
+  or any window such as `08:30-10:00` (`20:00-02:00` starts the evening
+  before). `prev day`, `next week`, `prev 2 day` are those around it, and
+  `mon.asia` Monday's Asia. What is counted is the smallest period named:
+  days for sessions and hours, weeks for weekdays.
+- **What a period has**: `open`, `high`, `low`, `close`, `range`, `mid`,
+  `move` (close − open), `dir` (up or down) and `cond`, its condition. A
+  high or a low also has when it was made: `.hour`, `.time`, `.day` (mon…fri),
+  `.session` (or other) and `.date`; `week.high.day` is the day of the
+  week's high. Numbers can be worked out: `day.range / prev day.range`.
+- **Conditions** (`cond`): `uptrend` and `downtrend` (`trend` is either),
+  `upreversal` (down, then up past the open) and `downreversal`
+  (`reversal`), `upretrace` (up, against the downtrend of the period before,
+  not past its open) and `downretrace` (`retrace`), `consolidation` (a
+  range small for the periods before) and `mixed`. `asia is consolidation`
+  asks for the condition, `day is up` for the direction.
+- **What price did**: `day takes asia.low` holds when, in the day, price
+  went below Asia's low after Asia; `takes` goes above a high and below a
+  low. `above` and `below` take any level (`nyam above london.mid`), and
+  `closes above` / `closes below` need a close past it. `then` puts things
+  one after the other: `day takes asia.low then asia.high` is the low first
+  and the high later, and `then nyam takes london.high` changes where it is
+  looked for. `(when …)` is when the last of them happened, with `.hour`,
+  `.session`… as a high's.
+- **where** *condition*, joined with `and`, `or`, `not` and parentheses,
+  and comparisons (`>`, `<`, `>=`, `<=`, `=`, `!=`): `where day.range > 300`.
+- **by** a key, or two for a grid: `weekday`, `month` (2025-03),
+  `monthname` (Mar), `year`, `quarter`, or any value (`by asia.cond`).
+- **in** `2025`, `2025-03`, `2024-03..2025-06` or `last 6 months` (days,
+  weeks, months, years).
+- **tf** `5` (or `on m5`, `tf h1`) takes candles of that time frame,
+  made from the lowest kept in the journal that fits: highs, lows and what
+  was taken are found to the minute with m1. The box by **Run** sets it
+  when the query does not. The data under m15 often starts later, so the
+  query counts only the periods it has.
+
+A wrong query turns red, saying what was expected and where. With a search
+in the list, only the days and weeks it leaves count, as in Swing Times.
+The text below the chart says how many periods were counted, and from when
+to when: a share of five weeks says little.
+
+**Save…** keeps a query with a name in the journal's `queries.txt`
+(`name: query` a line); the list shows examples until there is one.
+**Conditions…** opens the journal's `conditions.txt` with the thresholds of
+the conditions, as parts of the period's range: `trend` (0.6, the move from
+open to close), `consolidation` (0.6, of the average range of the 20 days,
+8 weeks or 6 months before), `reversal` (0.5, to the extreme and back),
+`reversal_edge` (0.15, the extreme not that near the start or end) and
+`retrace` (0.3). Queries use them as they are when run.
+
+The same queries run from a terminal in the source folder:
+
+    python3 query.py ~/u/trade/DayJournalNQ "dist week.high.day where mon is uptrend"
 
 ## Exporting
 

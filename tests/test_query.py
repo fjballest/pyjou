@@ -1,0 +1,153 @@
+#
+# headless tests: QT_QPA_PLATFORM=offscreen python3 tests/test_query.py
+# Days of candles made to be what queries ask about: on even days Asia
+# consolidates, London takes its low and New York then its high; on odd
+# days price rises all day. Then the window of View ▸ Queries.
+#
+import os
+import sys
+import tempfile
+from datetime import date
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
+os.environ["HOME"] = tempfile.mkdtemp()
+
+import numpy as np
+import m15
+import query
+import sandbox
+
+def check(cond, what):
+	if not cond:
+		raise AssertionError(what)
+	print("ok", what)
+
+def path(turns, hours):
+	"""the price at hours along turns [(hour, price)]"""
+	hs, ps = zip(*turns)
+	return np.interp(hours, hs, ps)
+
+UP = [(-6, 100), (-4, 100), (0, 104), (2, 103), (3, 90), (9, 130), (17, 140)]	# Asia 100..104, London below, NY above
+DOWN = [(-6, 60), (17, 140)]
+rows = []
+days = [n for n in range(query.dayn(date(2026, 1, 5)), query.dayn(date(2026, 2, 28))) if (n + 3) % 7 < 5]
+for k, n in enumerate(days):
+	turns = UP if k % 2 == 0 else DOWN
+	base = 1000 * k
+	for c in range(92):	# m15 from 18:00 to 17:00
+		h0, h1 = -6 + c / 4, -6 + (c + 1) / 4
+		o, cl = (float(x) + base for x in path(turns, [h0, h1]))
+		hi, lo = max(o, cl) + 0.25, min(o, cl) - 0.25
+		wall = n * 86400 + int(h0 * 3600)
+		t = wall - m15.nyoffset(wall + 5 * 3600)
+		rows.append([t, o, hi, lo, cl])
+rows = np.array(rows, dtype=float)
+d = tempfile.mkdtemp()
+m15.writerows(os.path.join(d, m15.filename("TEST", rows[0][0])), rows)
+# m5 from them: each m15 candle in three
+low = []
+for t, o, hi, lo, cl in rows:
+	ps = np.linspace(o, cl, 4)
+	for i in range(3):
+		a, b = ps[i], ps[i + 1]
+		low.append([t + 300 * i, a, max(a, b) + 0.1, min(a, b) - 0.1, b])
+m15.writerows(os.path.join(d, m15.filename("TEST", low[0][0], 5)), np.array(low))
+
+j = query.Journal(d)
+n = len(days)
+up = (n + 1) // 2
+def one(text, **kw):
+	r = j.run(text, **kw)
+	print(r.text())
+	return r
+
+r = one("count day")
+check(r.rows == [[str(n)]], "count day counts the days")
+r = one("share day takes asia.low then asia.high")
+check(r.rows[0][0] == f"{100 * up / n:.0f}%", "the days that took Asia's low and then its high")
+r = one("share day takes asia.high then asia.low")
+check(r.rows[0][0] == "0%", "and none the other way")
+r = one("dist day.cond")
+got = dict((row[0], row[1]) for row in r.rows)
+check(got.get("uptrend") == n, "the days rising are uptrends")
+r = one("dist (when day takes asia.low).session")
+got = dict((row[0], row[1]) for row in r.rows)
+check(got.get("london") == up and got.get("none") == n - up, "Asia's low goes in London; the other days, never")
+r = one("dist (when day takes asia.high).hour tf 5")
+check(r.unit == "day" and j.models[5].c.tf == 5, "tf 5 takes the m5 candles")
+r = one("list day where day takes asia.low")
+check(len(r.periods) == up and all(p.kind == "day" for p in r.periods), "list gives the days")
+r = one("dist week.low.day")
+check(r.unit == "week", "a week's low: weeks are counted")
+r = one("avg day.range by weekday")
+check(r.headers[0] == "weekday" and len(r.rows) == 5, "by weekday")
+r = one("share mon is uptrend in 2026-01")
+check(all(p.date().month == 1 for p in r.periods), "in a month")
+r = one("dist day.cond by asia.cond")
+check(r.chart == "grid", "two things at once make a grid")
+r = one("dist prev day.dir")
+check(r.n == n, "the day before")
+try:
+	j.run("dist day.cond wher asia is up")
+	check(False, "an error")
+except query.QueryError as e:
+	check(e.pos == 14, "an error says where it is")
+try:
+	j.run("dist foo.high")
+	check(False, "an error")
+except query.QueryError as e:
+	check("what is foo" in str(e), "and what is wrong")
+# the thresholds in conditions.txt
+query.writedefaults(d)
+with open(os.path.join(d, query.CONDFILE), "a") as f:
+	f.write("trend = 0.999\n")
+r = one("dist day.cond")
+check("uptrend" not in [row[0] for row in r.rows], "conditions.txt changes what a trend is")
+os.remove(os.path.join(d, query.CONDFILE))
+# only the days a search leaves
+r = j.run("count day", only=({days[0], days[1]}, set()))
+check(r.rows == [["2"]], "only the days the list leaves")
+
+# the window, from the gear
+from PySide6.QtWidgets import QApplication
+app = QApplication(sys.argv)
+from mainwin import MainWindow
+win = MainWindow()
+win.openjournal(d)
+win.resize(1100, 700)
+win.show()
+app.processEvents()
+check(win.queryact in win.toolsmenu.actions(), "Queries is in the gear's menu")
+win.queryact.trigger()
+app.processEvents()
+qw = win.querywin
+check(qw is not None and qw.saved.count() == len(__import__("querywin").EXAMPLES), "it opens, with examples")
+qw.edit.setEditText("dist (when day takes asia.low).session")
+qw.run()
+app.processEvents()
+check(qw.res is not None and qw.table.rowCount() == len(qw.res.rows) and not qw.error.isVisible(), "a query shows its table")
+img = qw.chart.grab().toImage()
+blue = sum(1 for x in range(0, img.width(), 3) for y in range(0, img.height(), 3)
+	if img.pixelColor(x, y).blue() > 180 and img.pixelColor(x, y).red() < 100)
+check(blue > 20, "and its chart")
+qw.grab().save(os.path.join(d, "queries.png"))
+qw.edit.setEditText("dist day.cond by weekday")
+qw.run()
+app.processEvents()
+qw.grab().save(os.path.join(d, "queries-grid.png"))
+print("window", os.path.join(d, "queries.png"))
+qw.edit.setEditText("dist day.cond whre")
+qw.run()
+check(qw.error.isVisible() and "expected" in qw.error.text(), "a wrong query says why")
+import querywin
+querywin.writequeries(d, [("asia", "share day takes asia.low then asia.high")])
+qw.fillsaved()
+check(qw.saved.count() == 1 and querywin.readqueries(d) == [("asia", "share day takes asia.low then asia.high")],
+	"queries saved in the journal")
+qw.edit.setEditText("list day where day takes asia.low")
+qw.run()
+qw.showperiod(0)
+app.processEvents()
+check(win.datamode and win.datakey == ("d", qw.res.periods[0].date()), "a day of a list shows in the data view")

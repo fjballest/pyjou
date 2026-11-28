@@ -33,7 +33,7 @@ style = lambda bar, a: bar.widgetForAction(a).toolButtonStyle()
 for a in (win.fitact, win.realact, win.zoominact, win.zoomoutact, win.copyimgact, db.hideact, win.toolsact):
 	check(not a.icon().isNull(), f"{a.iconText()} has an icon")
 names = [a.text() for a in win.toolsmenu.actions()]
-check(names == ["S&wing Times…", "Strategy &Tester…", "Match &Day…", "&Match Week…"], "the gear's menu")
+check(names == ["S&wing Times…", "Strategy &Tester…", "&Queries…", "Match &Day…", "&Match Week…"], "the gear's menu")
 
 check(style(tb, win.zoominact) == S.ToolButtonTextBesideIcon, "icons and text at first")
 check(style(tb, win.toolsact) == S.ToolButtonIconOnly, "the gear is an icon")
