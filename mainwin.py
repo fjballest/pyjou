@@ -100,6 +100,39 @@ class SearchEdit(QLineEdit):
 		super().keyPressEvent(ev)
 
 windows = []	# the windows made with New Window, so they are kept
+
+def gotorequest(r, first=None):
+	"""a request of another program to show a time (link.py): in the window
+	with the journal of its instrument, opening it in one if none has it"""
+	import link
+	from PySide6.QtWidgets import QApplication
+	wins = [w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w.isVisible()]
+	if first is not None and first not in wins:
+		wins.insert(0, first)
+	active = QApplication.activeWindow()
+	wins.sort(key=lambda w: w is not active)
+	for w in wins:
+		if w.journal is not None and link.matches(link.symbolof(w.journal.dir), r["names"]):
+			return w.gototrade(r)
+	d = link.journalfor(r["names"], recentjournals())
+	w = wins[0] if wins else None
+	if d is None:
+		if w is not None:
+			QMessageBox.information(w, "DayJournal", f"No journal of the recent ones has data of {r['names'][0] if r['names'] else 'that instrument'}: "
+				"open it once with File ▸ Open Journal.")
+		return False
+	if w is None or w.journal is not None:
+		if w is None:
+			w = MainWindow(d)
+			windows.append(w)
+		else:
+			w = w.newwindow()
+		if w.journal is None or os.path.realpath(w.journal.dir) != os.path.realpath(d):
+			w.openjournal(d)
+		w.show()
+	else:
+		w.openjournal(d)
+	return w.gototrade(r)
 following = False	# synced windows are being moved: they don't move others
 
 DRAGMIME = "application/x-pyjou-drag"	# a capture dragged from the list
@@ -1519,9 +1552,10 @@ class MainWindow(QMainWindow):
 			if bad and not self.datapending:
 				self.statusBar().showMessage("; ".join(bad), 10000)
 		tr = getattr(self, "tradeshown", None)
-		if tr is not None and tr["tf"] == tf and g.ok:	# a trade of the Strategy Tester, drawn as a position
+		if tr is not None and tr["tf"] in (tf, None) and g.ok:	# a trade of the Strategy Tester, drawn as a position
 			import backtest
-			ov, paint = self.dataoverlay, backtest.tradepainter(tr)
+			import link
+			ov, paint = self.dataoverlay, (link.markpainter(tr) if tr.get("mark") else backtest.tradepainter(tr))
 			def both(p, geom, ov=ov, paint=paint):
 				if ov is not None:
 					ov(p, geom)
@@ -2841,6 +2875,41 @@ class MainWindow(QMainWindow):
 			winlayout.place(x, r, scr)
 		w.raise_()
 		return w
+
+	def gototrade(self, r):
+		"""show the day of request r (link.parse) zoomed on its time, in the
+		data view, with lines at its entry and exit"""
+		if self.data is None or not len(self.data):
+			return False
+		if not self.datamode:
+			self.setdatamode(True)
+		if not self.datamode:
+			return False
+		at = int(r["at"])
+		ex = r.get("exitat")
+		info = {"tf": None, "mark": True, "at": at * 1000, "exitat": int(ex) * 1000 if ex else None,
+			"price": None, "exitprice": None, "sl": None, "tp": None,
+			"label": f"{'Long' if r.get('dir', 1) > 0 else 'Short'}" + (f" #{r['trade']}" if r.get("trade") else "")}
+		self.tradeshown = info
+		d = m15.dayof(at)
+		tf = getattr(self, "datashowntf", self.datatf)
+		if tf > 60:
+			self.setdatatf(15)
+			tf = 15
+		from dataview import Geom
+		import backtest
+		g = Geom(self.data, "d", d, tf, self.getlow() if tf < 15 else None)
+		if g.ok:
+			if info["exitat"] is None:
+				info2 = dict(info, exitat=info["at"] + 3600 * 1000)	# an hour after it, to zoom
+			else:
+				info2 = info
+			self.datazooms[("d", d, tf)] = backtest.tradeview(g, info2)
+		self.showdata(("d", d), force=True)
+		self.showNormal() if self.isMinimized() else None
+		self.raise_()
+		self.activateWindow()
+		return True
 
 	def newwindow(self, tf=None):
 		"""another window, on the same journal and image, a bit lower and to

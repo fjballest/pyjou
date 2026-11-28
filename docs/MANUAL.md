@@ -1171,6 +1171,17 @@ The same queries run from a terminal in the source folder:
 
     python3 query.py ~/u/trade/DayJournalNQ "dist week.high.day where mon is uptrend"
 
+### From RoadBook
+
+The **Journal** button of RoadBook's graphics window shows the day of its
+trade here: DayJournal finds, among the journals open and the recent ones,
+the one with data of the trade's instrument (by its name, or the other
+names RoadBook has for it: `MNQ*`, `NQ*`), opens it if it is not open,
+and shows the day in the data view, zoomed on the trade, with a dashed line
+at its entry and one at its exit. If DayJournal is not running, RoadBook
+starts it. A journal not opened lately is not found: open it once with
+File ▸ Open Journal.
+
 ## Exporting
 
 **File ▸ Export All…** (⇧⌘E) saves the captures shown in the list, as the

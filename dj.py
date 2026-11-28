@@ -1,7 +1,7 @@
 #
 # DayJournal: browse a directory of day and week chart snapshots
 #
-#	python3 dj.py [journaldir]
+#	python3 dj.py [journaldir] [--goto '{"instrument": "NASDAQ", "names": ["NQ*"], "at": 1764340200}']
 #
 # With --ocr it is the OCR process the window starts (see ocrworker.py).
 #
@@ -21,9 +21,20 @@ def main():
 	app = QApplication(sys.argv)
 	app.setApplicationName("DayJournal")
 	app.setOrganizationName("pyjou")
+	import link
+	goto = None
+	if link.GOTOFLAG in sys.argv:	# from RoadBook: a trade to show
+		k = sys.argv.index(link.GOTOFLAG)
+		goto = link.parse(sys.argv[k + 1]) if k + 1 < len(sys.argv) else None
+		del sys.argv[k:k + 2]
 	args = [a for a in sys.argv[1:] if not a.startswith("-")]
 	w = MainWindow(args[0] if args else None)
 	w.show()
+	import mainwin
+	app.gotoserver = link.serve(app, lambda r: mainwin.gotorequest(r, w))
+	if goto is not None:
+		from PySide6.QtCore import QTimer
+		QTimer.singleShot(0, lambda: mainwin.gotorequest(goto, w))
 	code = app.exec()
 	finish()
 	os._exit(code)
