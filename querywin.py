@@ -5,7 +5,7 @@
 #
 import os
 
-from PySide6.QtCore import QPointF, QRectF, QStringListModel, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, QStringListModel, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QDialog, QHBoxLayout, QHeaderView,
 	QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSplitter, QTableWidget,
@@ -20,7 +20,7 @@ ATTRWORDS = sorted(set(query.ATTRS) | {"hour", "time", "day", "session", "date",
 	"lastbearfvg", "rthog", "ndog", "nwog"} | set(query.SESSIONS) | set(query.WEEKDAYS))
 WORDS = sorted(set(query.STATS) | query.KEYWORDS | set(query.UNITS) | set(query.WEEKDAYS) | set(query.MONTHS)
 	| set(query.SESSIONS) | set(query.CONDS) | set(query.GROUPS) | set(query.GAPS)
-	| {"session", "prev", "next", "weekday", "hour", "above", "below", "inside", "consolidation", "q1", "q2", "q3", "q4"})
+	| {"session", "macro", "prev", "next", "weekday", "hour", "above", "below", "inside", "consolidation", "q1", "q2", "q3", "q4"})
 
 QUERYFILE = "queries.txt"
 BAR = "#257de0"
@@ -219,6 +219,8 @@ class QueryWindow(QDialog):
 		self.words.setWidget(self.edit.lineEdit())
 		self.words.activated[str].connect(self.complete)
 		self.edit.lineEdit().textEdited.connect(self.prompt)
+		self.edit.lineEdit().installEventFilter(self)	# Tab completes
+		self.words.popup().installEventFilter(self)
 		self.edit.setToolTip("a query: count, share, dist, avg, median, min, max or list, what, and then by, "
 			"where, in and tf; Help ▸ Manual, Queries, has it all")
 		row.addWidget(self.edit, 1)
@@ -276,7 +278,7 @@ class QueryWindow(QDialog):
 		lay.addWidget(self.summary)
 		bottom = QHBoxLayout()
 		cond = QPushButton("Conditions…")
-		cond.setToolTip("the thresholds of trend, consolidation, reversal and retrace, as parts of the range of the period, in the journal's conditions.txt")
+		cond.setToolTip("the thresholds of trend, consolidation and reversal, as parts of the range of the period, in the journal's conditions.txt")
 		cond.clicked.connect(self.conditions)
 		bottom.addWidget(cond)
 		bottom.addStretch(1)
@@ -341,15 +343,59 @@ class QueryWindow(QDialog):
 			a -= 1
 		return a, text[a:pos], a > 0 and text[a - 1] == "."
 
-	def prompt(self, _):
+	def wordlist(self, dot):
+		"""the words offered: after a dot, what things have; else the words of
+		the language and the names defined in the journal"""
+		if dot:
+			return ATTRWORDS
+		return sorted(set(WORDS) | set(self.jour.defs()))
+
+	def candidates(self):
+		"""the words the one being typed may be"""
+		a, pre, dot = self.wordat()
+		if not pre or pre[0].isdigit():
+			return []
+		return [w for w in self.wordlist(dot) if w.lower().startswith(pre.lower())]
+
+	def eventFilter(self, obj, ev):
+		if ev.type() == QEvent.Type.KeyPress and ev.key() == Qt.Key.Key_Tab \
+				and ev.modifiers() in (Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.KeypadModifier):
+			self.tab()
+			return True
+		return super().eventFilter(obj, ev)
+
+	def tab(self):
+		"""Tab: the word picked in the list offered, the only one there is, or
+		as much as all of them share, offering them"""
+		pop = self.words.popup()
+		if pop.isVisible():
+			i = pop.currentIndex()
+			word = i.data() if i.isValid() else self.words.currentCompletion()
+			pop.hide()
+			if word:
+				self.complete(word)
+			return
+		ws = self.candidates()
+		if not ws:
+			return
+		if len(ws) == 1:
+			self.complete(ws[0])
+			return
+		common = os.path.commonprefix([w.lower() for w in ws])
+		_, pre, _ = self.wordat()
+		if len(common) > len(pre):
+			self.complete(ws[0][:len(common)])
+		self.prompt(None, force=True)
+
+	def prompt(self, _, force=False):
 		"""offers the words starting as the one being typed"""
 		a, pre, dot = self.wordat()
 		if len(pre) < 1 or pre[0].isdigit():
 			self.words.popup().hide()
 			return
-		self.words.model().setStringList(ATTRWORDS if dot else WORDS)
+		self.words.model().setStringList(self.wordlist(dot))
 		self.words.setCompletionPrefix(pre)
-		if self.words.completionCount() == 0 or (self.words.completionCount() == 1 and self.words.currentCompletion() == pre):
+		if self.words.completionCount() == 0 or (not force and self.words.completionCount() == 1 and self.words.currentCompletion() == pre):
 			self.words.popup().hide()
 			return
 		r = self.edit.lineEdit().cursorRect()
@@ -375,6 +421,15 @@ class QueryWindow(QDialog):
 		if self.edit.findText(text) < 0:
 			self.edit.insertItem(0, text)
 		self.error.hide()
+		try:
+			said = self.jour.define(text)	# name := what it stands for
+		except query.QueryError as e:
+			self.error.setText(str(e))
+			self.error.show()
+			return
+		if said is not None:
+			self.summary.setText(said + ", in the journal's definitions.txt")
+			return
 		QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 		try:
 			only = self.filter()

@@ -868,8 +868,9 @@ A period is a stretch of time with candles; the query names them:
 | `mon`, `tue`, `wed`, `thu`, `fri` | that day of the week |
 | `asia`, `london`, `nyam`, `nypm` | the sessions of a day: 20:00–00:00, 02:00–05:00, 07:00–11:30, 13:30–16:00 |
 | `session` | any of those four: each session of each day is counted, in a row, and `prev session` is the one just before (London's is Asia, Asia's the NY PM of the day before) |
+| `macro` | any of the macros, as ICTlevels has them: :50 to :10 of every hour inside the London (02:00–05:00), NY AM (07:00–11:30) and NY PM (13:30–16:00) killzones, cut at their edges. Each is named by its hour (`09:00` is 08:50–09:10), for `by macro`; `prev macro` is the one before. Use `tf 5` or `tf 1`: on m15 a macro has one or two candles |
 | `h9` | an hour of the day, 09:00–10:00 (`h20` is 20:00 the evening before) |
-| `08:30-10:00` | any window of the day; `20:00-02:00` starts the evening before |
+| `08:30-10:00` | any window of the day (also `0830-1000`); `20:00-02:00` starts the evening before |
 | `prev day`, `next week`, `prev 2 day` | the period before or after (the London before is `prev london`) |
 
 All times are New York's. A dot goes into a period: `mon.asia` is the Asia
@@ -914,31 +915,40 @@ be worked out with `+ - * /` and parentheses: `day.range / prev day.range`,
 #### Conditions of a period
 
 `cond` tells what price did in the period, from its open, high, low and
-close and the order they came in; nothing before it matters. With *r* the
-range, the first that fits:
+close and which of the high and the low came first; nothing before it
+matters, and the time frame hardly does. Price goes from the open to the
+extreme it made first, then across the whole range to the other one, then
+back some to the close. With *r* the range, *a* how far the open is from
+the first extreme and *b* how far the close came back from the last one,
+the first that fits:
 
 | Condition | What price did |
 |---|---|
-| `consolidation` | closed near the open (within a quarter of *r*), up and down around it; or went back and forth across the range, wherever it closed: 4 swings of half *r* or more, with two of their lows in the lower third of the range and two of their highs in the upper third. Price that leaves the lower part and never goes back to it is not ranging, however much it swings above |
-| `upreversal` | went down first, at least 0.4 *r* below the open, then turned and closed above the open |
-| `downreversal` | went up first, at least 0.4 *r* above the open, then turned and closed below it |
-| `upretrace` | went up, then gave back at least 0.4 *r* from the high, closing still above the open |
-| `downretrace` | went down, then came back at least 0.4 *r* from the low, closing still below the open |
-| `uptrend` | closed at least 0.6 *r* above the open, near its high |
-| `downtrend` | closed at least 0.6 *r* below the open, near its low |
-| `mixed` | none of those: up or down some, without the rest |
+| `consolidation` | went against it a lot and came back a lot too (*a* and *b* at least half *r*): back and forth |
+| `upreversal` | went down first, at least half *r* from the open, then up across the range (*b* less than half *r*); or went up a little, down across the range and back up at least two thirds of *r* |
+| `downreversal` | the same, the other way |
+| `consolidation` | closed half way back or more (*b* at least half *r*): in the middle of its range |
+| `uptrend` | none of those: from near the low, the open, up across the range to near the high, the close |
+| `downtrend` | the same, down |
 
-`trend` stands for either trend, `reversal` and `retrace` for either of
-theirs. The numbers are the journal's: **Conditions…** opens its
-`conditions.txt`, which has them as parts of the range: `flat` (0.25),
-`swing` (0.5) and `swings` (4), `reversal` (0.4), `retrace` (0.4) and
-`trend` (0.6). It also has `near` (0.02) and `bounce` (0.1) for
-`rejects`, as parts of the average range of a day. A change is used by
-the next query.
+So a session that opens near its low and closes near its high is an
+uptrend, however much it went up and down in between; one that first went
+well below its open and then closed near its high is an upreversal; one
+that ends in the middle of its range is a consolidation. A period with no
+candles (a holiday) has no condition, and is left out of `dist`.
+
+`trend` stands for either trend and `reversal` for either reversal. The
+numbers are the journal's: **Conditions…** opens its `conditions.txt`,
+which has them as parts of the range: `against` (0.5, *a* for a reversal),
+`back` (0.5, *b* for a consolidation) and `reverse` (0.67, *b* for a
+reversal the other way), and `swing` (0.5), the size of the swings counted
+by `swings`. It also has `near` (0.02) and `bounce` (0.1) for `rejects`,
+as parts of the average range of a day. A change is used by the next
+query.
 
 They work on any period: `asia.cond`, `week.cond`, `h9.cond`,
-`08:30-10:00.cond`. Lower time frames see more of what price did inside
-it: on m1 a day has more swings than on m15.
+`08:30-10:00.cond`, `macro.cond`. On m1 the order of the high and the low
+is found to the minute; on m15 a short window has few candles.
 
 #### Conditions, to pick periods
 
@@ -1030,7 +1040,10 @@ week.
 
 An FVG is three candles where the third's low is above the first's high
 (bullish, the gap between them) or its high below the first's low
-(bearish). A period has them:
+(bearish). As the FVGs indicator does, it takes in the volume imbalances
+next to it: when the body of the first candle ends below the body of the
+second (a bullish one), the FVG goes down to the first's body, and when the
+third's body starts above the second's, up to the third's body. A period has them:
 
 | Write | It is |
 |---|---|
@@ -1053,6 +1066,7 @@ from the third candle of that FVG.
 |---|---|
 | `count` *period* | how many there are (with where: that pass it) |
 | `list` *period* | them, one a row; clicking one shows it in the data view |
+| `list` *period condition*, `count` *period condition* | short for where: `list day is consolidation` is `list day where day is consolidation`, `count day takes asia.low` |
 | `share` *condition* | the part of them where it holds, in % |
 | `dist` *value* | how many had each value: conditions, days, sessions, hours; numbers in ranges |
 | `avg`, `median`, `min`, `max`, `sum` *number* | of the number, over them |
@@ -1105,6 +1119,11 @@ from the third candle of that FVG.
     count day where day.rel < 0.6                     small days
     list day where day is downreversal and asia is consolidation in 2026
     list week where mon is upreversal and fri is uptrend
+    list day is consolidation in 2026                 the same, without where
+    count nyam is upreversal by weekday
+    dist macro.cond by macro tf 5                     how the macros go
+    share macro takes prev macro.high by macro tf 5
+    avg macro.range by macro tf 5
 
 With the opening gaps and FVGs:
 
@@ -1147,9 +1166,30 @@ With the opening gaps and FVGs:
     avg day.fvgs by day.cond                          FVGs in trending days and the rest
     list day where day.close inside rthog.q4 and day is uptrend in 2026
 
-The line offers words as they are typed: periods, stats and keywords, and
-after a dot what the thing before has. Pick one with the arrows and Return,
-or keep typing.
+
+#### Names
+
+A line `name := text` gives text a name, for any query after it:
+
+    premarket := 07:00-09:00
+    dist premarket.cond
+    bigday := day.range > 400
+    share nyam is uptrend where bigday
+    dipped := london takes asia.low
+    dist (when nyam takes asia.high).time where dipped tf 5
+
+The name stands for the text as it is, in parentheses when it has more than
+one word, so it can be a period, a number or a condition. The names are
+kept in the journal's `definitions.txt`, one a line, and `name :=` with
+nothing after it removes one. A word of the language (day, asia, takes…)
+can't be a name.
+
+#### Typing
+
+The line offers words as they are typed: periods, stats, keywords and the
+names defined, and after a dot what the thing before has. **Tab** takes the
+word picked in the list, completes the only word that fits, or offers the
+ones that do.
 
 #### More
 

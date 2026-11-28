@@ -40,19 +40,24 @@ UNITS = ["year", "month", "week", "day"]
 # the periods before used for the average range: consolidation is a range
 # smaller than a part of it
 HISTORY = {"year": 3, "month": 6, "week": 8, "day": 20, "window": 20}
+# the macros, as ICTlevels has them by default: :50 to :10 of every hour inside
+# the London, NY AM and NY PM killzones, cut at their edges; named by the hour
+MACROS = {}
+for _a, _b in ((2.0, 5.0), (7.0, 11.5), (13.5, 16.0)):
+	for _h in range(int(_a) - 1, int(_b) + 1):
+		_s, _e = max(_h + 50 / 60, _a), min(_h + 70 / 60, _b)
+		if _s < _e:
+			MACROS[f"{_h + 1:02d}:00"] = (_s, _e)
 SESSIONORDER = ["asia", "london", "nyam", "nypm"]
-CONDS = ["uptrend", "downtrend", "upreversal", "downreversal", "upretrace", "downretrace", "consolidation", "mixed"]
-GROUPS = {"trend": ("uptrend", "downtrend"), "reversal": ("upreversal", "downreversal"),
-	"retrace": ("upretrace", "downretrace"), "up": ("up",), "down": ("down",),
+CONDS = ["uptrend", "downtrend", "upreversal", "downreversal", "consolidation"]
+GROUPS = {"trend": ("uptrend", "downtrend"), "reversal": ("upreversal", "downreversal"), "up": ("up",), "down": ("down",),
 	"inside": ("q1", "q2", "q3", "q4"), "upper": ("q3", "q4"), "lower": ("q1", "q2")}
 # the thresholds of the conditions, which conditions.txt in the journal can change
 DEFAULTS = {
-	"flat": 0.25,		# consolidation: a close this near the open, as a part of the range
-	"swing": 0.5,		# a swing inside the period goes at least this part of the range...
-	"swings": 4,		# ...and with this many of them the period went back and forth: consolidation
-	"reversal": 0.4,	# a reversal first goes this part of the range away from the open, one way
-	"retrace": 0.4,		# a retrace gives back this part of the range from its extreme
-	"trend": 0.6,		# a trend closes this part of the range away from the open
+	"against": 0.5,		# a reversal: the open this far from the extreme price went to first, as a part of the range
+	"back": 0.5,		# a consolidation: the close this far back from the extreme price went to last
+	"reverse": 0.67,	# a reversal: the close this far back from it
+	"swing": 0.5,		# the swings of a period go at least this part of its range
 	"near": 0.02,		# a reject: coming this near a level, as a part of the average range of a day...
 	"bounce": 0.1,		# ...and then going this far away from it, without a close past it
 }
@@ -73,7 +78,7 @@ def thresholds(dir):
 			text = f.read()
 	except OSError:
 		return th
-	if not re.search(r"^\s*flat\s*=", text, re.M):
+	if not re.search(r"^\s*against\s*=", text, re.M):
 		return th	# one of the first queries, whose conditions were others
 	for line in text.splitlines():
 		line = line.split("#")[0].strip()
@@ -91,21 +96,23 @@ def writedefaults(dir):
 	p = os.path.join(dir, CONDFILE)
 	try:
 		with open(p, encoding="utf-8") as f:
-			if re.search(r"^\s*flat\s*=", f.read(), re.M):
+			if re.search(r"^\s*against\s*=", f.read(), re.M):
 				return p
 	except OSError:
 		pass	# none, or one of the first queries, with other conditions: written again
 	with open(p, "w", encoding="utf-8") as f:
 		f.write("# the thresholds of the conditions of queries (View ▸ Queries), as parts of\n"
 			"# the range of the period (its high minus its low), from what price did in it:\n"
-			"# flat: a close this near the open is a consolidation\n"
-			"# swing, swings: as many swings of this size as swings, back and forth in the\n"
-			"#	range, is a consolidation too, wherever it closes\n"
-			"# reversal: first this far away from the open one way, then a close past the open\n"
-			"#	the other way (by more than flat)\n"
-			"# retrace: a move one way that gives back this much from its extreme, closing\n"
-			"#	still on its side of the open\n"
-			"# trend: a close this far from the open\n"
+			"# price goes from the open to one extreme (the high or the low it made first),\n"
+			"#	then to the other one, then to the close:\n"
+			"# against: the open this far from the first extreme, and the close not back\n"
+			"#	much, is a reversal (down to the low, then up to the high: upreversal)\n"
+			"# back: the close this far back from the last extreme is a consolidation, and\n"
+			"#	so is against and back at once (back and forth)\n"
+			"# reverse: the close this far back from the last extreme is a reversal the\n"
+			"#	other way (up, then all the way down and most of it back: upreversal)\n"
+			"# none of those: a trend, from the first extreme to the last\n"
+			"# swing: the swings a period has (its swings) go this far\n"
 			"# near, bounce: a level is rejected when price comes this near it (or wicks\n"
 			"#	past it), closes back on its side and goes bounce away before any close\n"
 			"#	past it; both as parts of the average range of the days before\n")
@@ -221,7 +228,7 @@ class Period:
 	def date(self):
 		"""the trading day it is, or starts with"""
 		return daydate(self.key) if self.kind in ("day", "week") else (
-			daydate(self.key[0]) if self.kind in ("window", "session") else self.firstday())
+			daydate(self.key[0]) if self.kind in ("window", "session", "macro") else self.firstday())
 
 	# what it is made of
 	def open(self):
@@ -503,23 +510,37 @@ class Model:
 	def fvglist(self, p, tf, kind=None):
 		"""the FVGs made in period p on candles of tf: [Zone], in order; a
 		bullish one is a third candle whose low is above the high of the
-		first, a bearish one the other way"""
+		first, a bearish one the other way, each with the volume imbalances
+		next to it (gaps between bodies)"""
 		c = self.candles(tf)
 		key = (p.kind, p.key, c.tf)
 		if key not in self.fvgs:
 			i, j = (int(x) for x in np.searchsorted(c.wall, [p.s, p.e]))
 			out = []
 			if j - i >= 3:
-				h, l = c.h[i:j], c.l[i:j]
+				o, h, l, cl = c.o[i:j], c.h[i:j], c.l[i:j], c.c[i:j]
+				btop, bbot = np.maximum(o, cl), np.minimum(o, cl)	# the bodies
 				up = np.flatnonzero(l[2:] > h[:-2])
 				dn = np.flatnonzero(h[2:] < l[:-2])
 				for k, bull in sorted([(k, True) for k in up] + [(k, False) for k in dn]):
 					k3 = i + k + 2
 					e = int(c.wall[k3]) + c.tf * 60
+					# with the volume imbalances, as the FVGs indicator: a gap between the
+					# bodies of the first two candles or of the last two makes it larger
 					if bull:
-						out.append(Zone("fvg", h[k], l[k + 2], int(c.wall[i + k]), e, self, dir="bull"))
+						lo, hi = h[k], l[k + 2]
+						if btop[k] < bbot[k + 1]:
+							lo = btop[k]
+						if bbot[k + 2] > btop[k + 1]:
+							hi = bbot[k + 2]
+						out.append(Zone("fvg", lo, hi, int(c.wall[i + k]), e, self, dir="bull"))
 					else:
-						out.append(Zone("fvg", h[k + 2], l[k], int(c.wall[i + k]), e, self, dir="bear"))
+						lo, hi = h[k + 2], l[k]
+						if bbot[k] > btop[k + 1]:
+							hi = bbot[k]
+						if btop[k + 2] < bbot[k + 1]:
+							lo = btop[k + 2]
+						out.append(Zone("fvg", lo, hi, int(c.wall[i + k]), e, self, dir="bear"))
 			self.fvgs[key] = out
 		lst = self.fvgs[key]
 		return [z for z in lst if kind is None or z.more["dir"] == kind]
@@ -549,6 +570,11 @@ class Model:
 		a, b = SESSIONS[name]
 		return self.window(n, name, a, b, "session")
 
+	def macro(self, n, name):
+		"""the macro name (its hour, 09:00 for 08:50-09:10) of day n"""
+		a, b = MACROS[name]
+		return self.window(n, name, a, b, "macro")
+
 	def periods(self, kind):
 		"""every period of kind (year, month, week, day, session) with candles, in order"""
 		if kind not in self.lists:
@@ -563,6 +589,8 @@ class Model:
 				out = [self.year(y) for y in sorted({daydate(n).year for n in days})]
 			elif kind == "session":
 				out = [self.session(n, s) for n in days for s in SESSIONORDER]
+			elif kind == "macro":
+				out = [self.macro(n, s) for n in days for s in MACROS]
 			else:
 				raise QueryError(f"no periods {kind}")
 			self.lists[kind] = out
@@ -607,7 +635,7 @@ class Model:
 		"""the average range of the periods of p's kind before it"""
 		n = HISTORY.get(p.kind, 20)
 		rs = []
-		q = self.window(*p.key) if p.kind == "session" else p	# the same session, the days before
+		q = self.window(*p.key) if p.kind in ("session", "macro") else p	# the same session, the days before
 		for _ in range(n * 2):
 			q = self.shift(q, -1)
 			if q is None:
@@ -641,38 +669,19 @@ class Model:
 		c = self.c
 		return len(zigzag(c.h[p.i:p.j], c.l[p.i:p.j], self.th["swing"] * r))
 
-	def ranging(self, p):
-		"""whether price in p went back and forth across its range: at least
-		th["swings"] swings of th["swing"] x r, with two of their lows in the
-		lower third of the range and two of their highs in the upper third"""
-		r = self.rangeof(p)
-		if not r:
-			return False
-		c = self.c
-		h, l = c.h[p.i:p.j], c.l[p.i:p.j]
-		turns = zigzag(h, l, self.th["swing"] * r)
-		if len(turns) < self.th["swings"]:
-			return False
-		k, side = turns[-1]	# the last leg, not turned yet, ends at its extreme
-		rest = slice(k + 1, len(h))
-		if k + 1 < len(h):
-			turns = turns + [(k + 1 + int(np.argmin(l[rest])), -1) if side > 0 else (k + 1 + int(np.argmax(h[rest])), 1)]
-		lo, hi = float(l.min()), float(h.max())
-		lows = sum(1 for i, s in turns if s < 0 and l[i] <= lo + r / 3)
-		highs = sum(1 for i, s in turns if s > 0 and h[i] >= hi - r / 3)
-		return lows >= 2 and highs >= 2
-
 	def findcond(self, p):
-		"""in this order, with r the range and the thresholds th:
-		consolidation: closes within flat x r of the open, or went back
-			and forth across the range (ranging);
-		upreversal: went down first, at least reversal x r below the open,
-			then closed above it (by more than flat x r); downreversal the
-			other way;
-		upretrace: went up, then gave back at least retrace x r from the
-			high, closing above the open; downretrace the other way;
-		uptrend: closed at least trend x r above the open; downtrend below;
-		mixed: none of those"""
+		"""the condition of p from its open, high, low and close and the order
+		of its high and low: price goes from the open against the way it
+		ends (to its first extreme), across the range (to the last one), and
+		back some (to the close). With a, the part of the range from the open
+		to the first extreme, and b, back from the last one to the close:
+		consolidation: a >= against and b >= back (back and forth);
+		reversal: a >= against, the way of the move across the range
+			(down to the low first, then up: upreversal);
+		reversal the other way: b >= reverse (up first, then down and
+			most of it back up: upreversal);
+		consolidation: b >= back (closing in the middle);
+		trend: none of those, the way of the move across the range"""
 		th = self.th
 		r = self.rangeof(p)
 		if r is None:
@@ -681,23 +690,21 @@ class Model:
 			return "consolidation"
 		o, c = p.open(), p.close()
 		hi, lo = p.high(), p.low()
-		e = (c - o) / r
-		if abs(e) <= th["flat"] or self.ranging(p):
+		up = lo.k < hi.k if lo.k != hi.k else c >= o	# low first: the move across the range goes up
+		if up:
+			a, b = (o - lo.price) / r, (hi.price - c) / r
+		else:
+			a, b = (hi.price - o) / r, (c - lo.price) / r
+		way, other = ("up", "down") if up else ("down", "up")
+		if a >= th["against"] and b >= th["back"]:
 			return "consolidation"
-		rv = th["reversal"]
-		if e > 0 and lo.k < hi.k and (o - lo.price) >= rv * r:
-			return "upreversal"
-		if e < 0 and hi.k < lo.k and (hi.price - o) >= rv * r:
-			return "downreversal"
-		if e > 0 and (hi.price - c) >= th["retrace"] * r:
-			return "upretrace"
-		if e < 0 and (c - lo.price) >= th["retrace"] * r:
-			return "downretrace"
-		if e >= th["trend"]:
-			return "uptrend"
-		if e <= -th["trend"]:
-			return "downtrend"
-		return "mixed"
+		if a >= th["against"]:
+			return way + "reversal"
+		if b >= th["reverse"]:
+			return other + "reversal"
+		if b >= th["back"]:
+			return "consolidation"
+		return way + "trend"
 
 	def soup(self, i, j, side, level):
 		"""a turtle soup of level in [i, j): price takes it (above, side 1,
@@ -777,7 +784,7 @@ class Model:
 
 TOKEN = re.compile(r"""
 	(?P<ws>\s+)
-	|(?P<window>\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2})
+	|(?P<window>(?:\d{1,2}:\d{2}\s*-\s*\d{1,2}:?\d{2}|\d{1,2}:?\d{2}\s*-\s*\d{1,2}:\d{2}|\d{4}-\d{4})(?!\d))
 	|(?P<date>\d{4}-\d{2}(-\d{2})?)
 	|(?P<num>\d+(\.\d+)?)
 	|(?P<op>\.\.|>=|<=|!=|==|[<>=().,+\-*/%])
@@ -845,7 +852,11 @@ class Parser:
 		if v == "share":
 			q["what"] = self.cond()
 		elif v in ("count", "list"):
+			start = self.k
 			q["what"] = self.path() if not self.at("where", "by", "in", "tf", "on", "") else None
+			if q["what"] is not None and self.at("is", ">", "<", ">=", "<=", "=", "==", "!=", "inside", "and", "or", *VERBS):
+				self.k = start	# list day is consolidation: the condition of what is listed
+				q["where"] = self.cond()
 		else:
 			q["what"] = self.expr()
 		while self.peek()[0] != "end":
@@ -870,7 +881,7 @@ class Parser:
 
 	def key(self):
 		kind, v, _ = self.peek()
-		if v in ("weekday", "month", "monthname", "year", "quarter", "hour", "session") and self.peek(1)[1] not in (".",):
+		if v in ("weekday", "month", "monthname", "year", "quarter", "hour", "session", "macro") and self.peek(1)[1] not in (".",):
 			self.k += 1
 			return ("key", v)
 		return self.expr()
@@ -1082,7 +1093,8 @@ class Parser:
 		return ("path", base, self.attrs())
 
 def parsehour(s):
-	h, m = s.split(":")
+	"""09:30 or 0930 in hours"""
+	h, m = s.split(":") if ":" in s else (s[:-2], s[-2:])
 	return int(h) + int(m) / 60
 
 def parse(text):
@@ -1115,6 +1127,8 @@ def unitof(q):
 		return q["what"][1][1]
 	if q["among"] is not None and q["among"][1][0] == "name" and q["among"][1][1] in UNITS:
 		return q["among"][1][1]
+	if "macro" in words:
+		return "macro"
 	if "session" in words:
 		return "session"
 	if "nwog" in words and not words & ({"day", "rthog", "ndog", "window", "hour"} | set(SESSIONS)):
@@ -1145,7 +1159,7 @@ class Run:
 		days, weeks = self.only
 		if p.kind == "week":
 			return p.key in weeks
-		if p.kind in ("day", "window", "session"):
+		if p.kind in ("day", "window", "session", "macro"):
 			return p.date() and dayn(p.date()) in days
 		a, b = (p.s - m15.DAYSTART * H) // DAY, (p.e - m15.DAYSTART * H) // DAY
 		return any(a <= n <= b for n in days)
@@ -1186,10 +1200,14 @@ class Run:
 			if u.kind == "session":
 				return u
 			raise QueryError("which session? Name it (asia, london, nyam, nypm), or count sessions")
+		if name == "macro":
+			if u.kind == "macro":
+				return u
+			raise QueryError("which macro? Count macros (any macro: count macro), or say 08:50-09:10")
 		if name in UNITS:
 			if name == u.kind:
 				return u
-			if u.kind in ("window", "session") or UNITS.index(name) < UNITS.index(u.kind):
+			if u.kind in ("window", "session", "macro") or UNITS.index(name) < UNITS.index(u.kind):
 				return m.containing(u, name)
 			raise QueryError(f"which {name} of the {u.kind}? Name it, as mon or asia, or count {name}s")
 		if name in WEEKDAYS:
@@ -1207,13 +1225,13 @@ class Run:
 			h = int(m_.group(1))
 			a = h - 24 if h >= 18 else h
 			return m.window(self.dayof(u, name), name, a, a + 1)
-		raise QueryError(f"what is {name}? A period is year, month, week, day, session, mon…fri, asia, london, nyam, nypm, "
+		raise QueryError(f"what is {name}? A period is year, month, week, day, session, macro, mon…fri, asia, london, nyam, nypm, "
 			"h9 (an hour) or 08:30-10:00")
 
 	def dayof(self, u, name):
 		if u.kind == "day":
 			return u.key
-		if u.kind in ("window", "session"):
+		if u.kind in ("window", "session", "macro"):
 			return u.key[0]
 		if u.kind == "week" and name == "nwog":
 			return u.key
@@ -1241,9 +1259,9 @@ class Run:
 
 	def path(self, n, u, periodok=True):
 		_, base, attrs = n
-		if base[0] == "name" and base[1] not in UNITS + ["session"] + WEEKDAYS + list(SESSIONS) + MONTHS + list(GAPS) \
+		if base[0] == "name" and base[1] not in UNITS + ["session", "macro"] + WEEKDAYS + list(SESSIONS) + MONTHS + list(GAPS) \
 				and not re.fullmatch(r"h\d{1,2}", base[1]):
-			raise QueryError(f"what is {base[1]}? A period is year, month, week, day, session, mon…fri, asia, london, nyam, nypm, "
+			raise QueryError(f"what is {base[1]}? A period is year, month, week, day, session, macro, mon…fri, asia, london, nyam, nypm, "
 				"h9 (an hour) or 08:30-10:00")
 		v = self.period(base, u)
 		rest = list(attrs)
@@ -1428,9 +1446,9 @@ class Run:
 			d = u.date()
 			name = k[1]
 			if name == "weekday":
-				return d.strftime("%a") if u.kind in ("day", "window", "session") else None
-			if name == "session":
-				return u.name if u.kind in ("window", "session") else None
+				return d.strftime("%a") if u.kind in ("day", "window", "session", "macro") else None
+			if name in ("session", "macro"):
+				return u.name if u.kind in ("window", "session", "macro") else None
 			if name == "month":
 				return f"{d:%Y-%m}"
 			if name == "monthname":
@@ -1475,9 +1493,12 @@ class Run:
 					if not isinstance(v, Period) or v.empty():
 						continue
 			else:
-				v = self.node(q["what"], u)
+				w = q["what"]
+				v = self.node(w, u)
 				if isinstance(v, Period):
 					v = v.cond() if stat == "dist" else v.range()
+				if v is None and w[0] == "path" and w[2] and w[2][-1] in ("cond", "dir"):
+					continue	# a period with no candles (a holiday) has no condition: left out
 			rows.append((u, keys, v))
 		return Result(self, rows)
 
@@ -1696,11 +1717,78 @@ def baselabel(b):
 
 # --- the whole thing ---
 
+DEFFILE = "definitions.txt"
+DEFRE = re.compile(r"^\s*([A-Za-z_]\w*)\s*:=\s*(.*?)\s*$")
+
+def readdefs(dir):
+	"""the names defined in the journal's definitions.txt: {name: text}"""
+	out = {}
+	try:
+		with open(os.path.join(dir, DEFFILE), encoding="utf-8") as f:
+			for line in f:
+				m = DEFRE.match(line.split("#")[0])
+				if m and m.group(2):
+					out[m.group(1)] = m.group(2)
+	except OSError:
+		pass
+	return out
+
+def writedefs(dir, defs):
+	with open(os.path.join(dir, DEFFILE), "w", encoding="utf-8") as f:
+		f.write("# names for parts of queries (View ▸ Queries): name := what it stands for\n")
+		for k, v in defs.items():
+			f.write(f"{k} := {v}\n")
+
+def reserved():
+	"""the words a definition can't take as its name"""
+	return (set(STATS) | KEYWORDS | set(UNITS) | {"session", "macro", "prev", "next", "weekday", "monthname",
+		"quarter", "hour", "among"} | set(WEEKDAYS) | set(MONTHS) | set(SESSIONS) | set(CONDS) | set(GROUPS)
+		| set(GAPS) | set(ATTRS) | {"q1", "q2", "q3", "q4", "ce", "dq", "uq", "size", "settle", "time", "date", "day"})
+
+def expand(text, defs, depth=0):
+	"""text with each name defined replaced by what it stands for, in
+	parentheses when that is more than one word; names after a dot are
+	attributes and stay"""
+	if not defs or depth > 10:
+		return text
+
+	def sub(m):
+		v = defs.get(m.group(1))
+		if v is None:
+			return m.group(0)
+		v = expand(v, defs, depth + 1)
+		return f"({v})" if re.search(r"\s", v) else v
+	return re.sub(r"(?<![\w.:])([A-Za-z_]\w*)(?![\w:])", sub, text)
+
 class Journal:
 	"""the models of a journal's candles, by time frame, made once"""
 	def __init__(self, dir):
 		self.dir = dir
 		self.models = {}
+
+	def defs(self):
+		return readdefs(self.dir)
+
+	def define(self, text):
+		"""if text is a definition, name := text (or name := to remove it),
+		keep it in definitions.txt and say what was done; else None"""
+		m = DEFRE.match(text)
+		if not m:
+			return None
+		name, body = m.group(1), m.group(2)
+		if name in reserved():
+			raise QueryError(f"{name} is a word of the language: pick another name", 0)
+		defs = self.defs()
+		if not body:
+			if defs.pop(name, None) is None:
+				return f"{name} was not defined"
+			writedefs(self.dir, defs)
+			return f"{name} removed"
+		if re.search(rf"(?<![\w.:]){re.escape(name)}(?![\w:])", expand(body, defs)):
+			raise QueryError(f"{name} can't stand for something with {name} in it", 0)
+		defs[name] = body
+		writedefs(self.dir, defs)
+		return f"{name} := {body}"
 
 	def model(self, tf):
 		th = thresholds(self.dir)
@@ -1722,7 +1810,7 @@ class Journal:
 		return c
 
 	def run(self, text, tf=15, only=None):
-		q = parse(text)
+		q = parse(expand(text, self.defs()))
 		m = self.model(q["tf"] or tf)
 		return Run(m, q, only).run()
 
@@ -1736,6 +1824,11 @@ def main(argv):
 	for text in a.query:
 		print(f"> {text}")
 		try:
+			said = j.define(text)
+			if said is not None:
+				print(said)
+				print()
+				continue
 			print(j.run(text).text())
 		except QueryError as e:
 			if e.pos is not None:

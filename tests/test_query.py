@@ -101,7 +101,7 @@ check(r.rows == [[str(4 * n)]], "four sessions a day")
 r = one("share session takes prev session.low by session")
 check(dict((row[0], row[1]) for row in r.rows)["london"] == f"{100 * up / n:.0f}%", "the session before is the one before it, of any name")
 r = one("dist prev day.dir")
-check(r.n == n, "the day before")
+check(r.n == n - 1, "the day before: the first day has none, and is left out")
 try:
 	j.run("dist day.cond wher asia is up")
 	check(False, "an error")
@@ -115,7 +115,7 @@ except query.QueryError as e:
 # the thresholds in conditions.txt
 query.writedefaults(d)
 with open(os.path.join(d, query.CONDFILE), "a") as f:
-	f.write("trend = 0.999\n")
+	f.write("against = 0\nback = 2\n")	# every day a reversal
 r = one("dist day.cond")
 check("uptrend" not in [row[0] for row in r.rows], "conditions.txt changes what a trend is")
 os.remove(os.path.join(d, query.CONDFILE))
@@ -175,14 +175,54 @@ check(r.rows[0][0] == "0%", "the gaps up of the rising days are not filled")
 r = one("share day rejects asia.high")
 check(r.rows[0][0] == f"{100 * up / n:.0f}%", "the Asia high rejected when London falls from it; taken on the rising days")
 
+# the condition of what is listed, without where
+r = one("list day is uptrend")
+check(r.n == n and r.summary().startswith(f"on {n} days"), "list day is uptrend: the days that are")
+r = one("count day takes asia.low")
+check(r.rows == [[str(up)]], "count day takes asia.low")
+
+# macros: :50 to :10 inside the killzones
+r = one("count macro tf 5")
+check(r.unit == "macro" and r.rows == [[str(n * len(query.MACROS))]], "every macro of every day")
+r = one("dist macro.cond by macro tf 5")
+check([row[0] for row in r.rows][:3] == ["02:00", "03:00", "04:00"], "by macro, named by their hour")
+
+# names for parts of queries
+check(j.define("premarket := 0700-0900") == "premarket := 0700-0900" and "premarket" in j.defs(), "a definition is kept")
+r = one("dist premarket.cond")
+check(r.unit == "day" and r.n == n, "and used by its name")
+j.define("dipped := london takes asia.low")
+r = one("count day where dipped")
+check(r.rows == [[str(up)]], "a condition by name")
+try:
+	j.define("day := 3")
+	check(False, "an error")
+except query.QueryError:
+	check(True, "words of the language can't be names")
+check(j.define("dipped :=") == "dipped removed" and "dipped" not in j.defs(), "a definition removed")
+
+# FVGs with their volume imbalances
+def bars(rows):
+	t0 = days[0] * 86400 + 3 * 3600
+	return query.Model(query.Candles.fromrows(np.array([[t0 + 900 * k - m15.nyoffset(t0 + 5 * 3600), *b]
+		for k, b in enumerate(rows)], dtype=float)))
+vm = bars([(100, 103, 99, 101), (104, 112, 103.5, 111), (113, 118, 112.5, 117)])	# bodies apart: 101 < 104, 111 < 113
+z = vm.fvglist(vm.day(days[0]), None)
+check(len(z) == 1 and z[0].low == 101 and z[0].high == 113, "an FVG grows to the gaps between the bodies")
+plain = bars([(100, 103, 99, 102), (102, 112, 101, 111), (111, 118, 106, 117)])
+z = plain.fvglist(plain.day(days[0]), None)
+check(len(z) == 1 and z[0].low == 103 and z[0].high == 106, "and without them is high to low")
+
 # each condition, from what price did in the day
-shapes = {
+shapes = {	# price from the open to its first extreme, then the other one, then the close
 	"consolidation": [(-6, 100), (0, 110), (6, 90), (17, 101)],	# up, down, back near the open
-	"choppy": [(-6, 100), (-2, 110), (1, 100), (4, 110), (7, 100), (10, 110), (17, 111)],	# back and forth, closing high
+	"choppy": [(-6, 100), (-2, 110), (1, 100), (4, 110), (7, 100), (10, 110), (17, 111)],	# from its low to its high
 	"downreversal": [(-6, 100), (2, 120), (17, 85)],	# up, then down past the open
-	"upretrace": [(-6, 100), (8, 140), (17, 120)],	# up, giving back half
+	"upretrace": [(-6, 100), (8, 140), (17, 120)],	# up, giving back half: in the middle
 	"uptrend": [(-6, 100), (17, 140)],
-	"mixed": [(-6, 100), (-2, 97), (10, 110), (17, 107)],	# up some, not near its high
+	"mixed": [(-6, 100), (-2, 97), (10, 110), (17, 107)],	# up, from near its low to near its high
+	"late upreversal": [(-6, 100), (-2, 104), (6, 70), (17, 98)],	# up a bit, down all the way, most of it back
+	"back and forth": [(-6, 100), (-2, 70), (6, 110), (17, 88)],	# down, up, half back
 	"swinging up": [(-6, 100), (0, 150), (3, 124), (6, 150), (9, 124), (12, 150), (17, 149)],	# swings, never back low
 }
 crows = []
@@ -196,7 +236,8 @@ for n, turns in zip(cdays, shapes.values()):
 cm = query.Model(query.Candles.fromrows(np.array(crows)))
 got = [cm.cond(cm.day(n)) for n in cdays]
 print(got)
-want = ["consolidation", "consolidation", "downreversal", "upretrace", "uptrend", "mixed", "uptrend"]
+want = ["consolidation", "uptrend", "downreversal", "consolidation", "uptrend", "uptrend", "upreversal",
+	"consolidation", "uptrend"]
 check(got == want, "the conditions from what price did: " + ", ".join(shapes))
 check(cm.swings(cm.day(cdays[1])) >= 4 and cm.swings(cm.day(cdays[4])) == 1, "swings counts the back and forth")
 
@@ -241,10 +282,23 @@ le = qw.edit.lineEdit()
 le.setText("")
 le.setFocus()
 from PySide6.QtTest import QTest
+from PySide6.QtCore import Qt
 QTest.keyClicks(le, "dist day.c")
 app.processEvents()
 check(qw.words.completionCount() >= 2 and qw.words.popup().isVisible(), "the line offers words as they are typed")
 qw.complete("cond")
+le.setText("dist day.cond wher")
+le.setCursorPosition(len(le.text()))
+qw.words.popup().hide()
+QTest.keyClick(le, Qt.Key.Key_Tab)
+check(le.text() == "dist day.cond where", "Tab completes the only word there is")
+le.setText("dist day.cond where asia is up")
+le.setCursorPosition(len(le.text()))
+QTest.keyClick(le, Qt.Key.Key_Tab)
+check(qw.words.popup().isVisible() and le.text().endswith(" up"), "and offers them when there are more (up, upreversal…)")
+QTest.keyClick(le, Qt.Key.Key_Tab)
+check(not qw.words.popup().isVisible() and le.text() == "dist day.cond where asia is up", "Tab again takes the one picked")
+le.setText("dist day.cond")
 check(le.text() == "dist day.cond", "and puts the one picked in place")
 QTest.keyClicks(le, " whe")
 qw.complete("where")
