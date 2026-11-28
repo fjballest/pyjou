@@ -888,6 +888,7 @@ After the period, a dot and what you want of it:
 | Write | It is |
 |---|---|
 | `open`, `close`, `high`, `low`, `mid` | prices: its first and last, its highest and lowest, half way |
+| `ce`, `dq`, `uq` | half way (as `mid`), a quarter of the way up, three quarters |
 | `range` | high minus low |
 | `move` | close minus open |
 | `dir` | `up` or `down`: close above or below the open |
@@ -953,6 +954,8 @@ period:
 | `nyam above london.mid`, `day below prev day.close` | price went past any level |
 | `day closes above asia.high` | a candle closed past it |
 | `day soups asia.low` | a turtle soup: price went below Asia's low, a candle closed back above it, and price did not go below the low of that take again in the day |
+| `nyam touches rthog.ce` | a candle traded at the level, from either side |
+| `asia.high inside prev day`, `day.close inside rthog.q4` | the price is within a period's range, a gap, an FVG or a quarter of one |
 | `day takes asia.low then asia.high` | first one, later the other |
 
 `takes` goes above a high and below a low; `soups` is a take that failed:
@@ -976,6 +979,63 @@ Conditions join with `and`, `or`, `not` and parentheses:
 `.session`, `.day`: `(when day takes asia.low).session` is the session in
 which the Asia low went; a day it didn't is counted as `none`.
 
+#### Opening gaps
+
+The gaps ICTlevels draws, worked out from the candles (nothing of
+TradingView is needed):
+
+| Write | The gap between |
+|---|---|
+| `rthog` | the close at 16:15 of the day before (the last candle before it) and the open at 09:30 |
+| `ndog` | the close before 17:00 of the day before and the open at 18:00; there is none on Mondays |
+| `nwog` | Friday's close before 17:00 and the open of the week, Sunday 18:00 |
+
+They are of the day being counted: `rthog`, `prev day.rthog`,
+`mon.rthog`, `week.nwog`. A query about `nwog` alone counts weeks. A gap
+has:
+
+| Write | It is |
+|---|---|
+| `high`, `low` | its top and bottom |
+| `ce` | half way, the consequent encroachment |
+| `dq`, `uq` | a quarter and three quarters of the way up |
+| `q1`, `q2`, `q3`, `q4` | its quarters, from the bottom: zones of their own, with `high`, `low` and `ce` |
+| `settle`, `open` | the close it starts from and the open it goes to |
+| `dir` | `up` when the open is above the close, `down` below |
+| `size` | high minus low |
+| `start` | when it was made, with `.hour`, `.time`… |
+
+A price followed by a gap says where it is in it: `above`, `q4` (the top
+quarter) down to `q1`, or `below`. So `dist day.close.rthog` is where
+days close, from the day's gap, and `nyam.open.rthog is above` picks
+mornings opening over it. `inside` stands for any of the quarters,
+`upper` for q3 and q4, `lower` for q1 and q2.
+
+A level of a gap is looked for after the gap is made: `day touches
+rthog.ce` looks from 09:30, `day takes nwog.high` from the open of the
+week.
+
+#### Fair value gaps
+
+An FVG is three candles where the third's low is above the first's high
+(bullish, the gap between them) or its high below the first's low
+(bearish). A period has them:
+
+| Write | It is |
+|---|---|
+| `fvg` | the first FVG made in the period |
+| `lastfvg` | the last |
+| `bullfvg`, `bearfvg`, `lastbullfvg`, `lastbearfvg` | of one kind only |
+| `fvgs`, `bullfvgs`, `bearfvgs` | how many there are |
+
+They have `high`, `low`, `ce`, `dq`, `uq`, `q1`…`q4`, `size`, `start` and
+`dir` (`bull` or `bear`), as gaps do. A number after the name is the time
+frame they are found in, whatever the query's: `fvg5` on m5, `fvg1` on m1,
+`fvgh1` on h1; with none, the query's. So `london.lastbullfvg5.ce` is the
+half way of the last bullish m5 FVG of London, and `nyam touches
+london.lastbullfvg5.ce` asks if New York's morning came back to it, looking
+from the third candle of that FVG.
+
 #### Stats
 
 | Stat | It gives |
@@ -997,9 +1057,9 @@ which the Asia low went; a day it didn't is counted as `none`.
   day.high.session`, `by mon.dir`.
 - **in** `2025`, `2025-03`, `2025-03-14`, `2024-03..2025-06`, `last 6
   months` (or days, weeks, years).
-- **tf** `5`, `tf m1`, `tf h1` (or `on m5`): the candles the query uses,
+- **tf** `5`, `tf m1`, `tf m2`, `tf h1` (or `on m5`): the candles the query uses,
   made from the lowest time frame kept in the journal that fits (m1 makes
-  m3 and m5; m15 makes h1). The box by **Run** sets it when the query has
+  m2, m3 and m5; m15 makes h1). The box by **Run** sets it when the query has
   no tf. Highs, lows, their times and what was taken are found in those
   candles. The data under m15 often starts later, and only the periods it
   has are counted.
@@ -1034,6 +1094,37 @@ which the Asia low went; a day it didn't is counted as `none`.
     count day where day.rel < 0.6                     small days
     list day where day is downreversal and asia is consolidation in 2026
     list week where mon is upreversal and fri is uptrend
+
+With the opening gaps and FVGs:
+
+    dist rthog.dir                                    gaps up and down
+    avg rthog.size by weekday                         how big the 09:30 gap is
+    dist day.close.rthog                              where days close, from their gap
+    dist day.close.rthog where rthog.dir is up
+    share nyam touches rthog.ce                       the gap's half way, filled in the morning
+    dist (when day touches rthog.ce).time tf 5        and when
+    share nyam touches rthog.ce where nyam.open.rthog is above
+    share day takes rthog.low where rthog.dir is up   the gap up filled all the way
+    share asia.high inside rthog                      Asia's high within the gap
+    share day closes above rthog.uq by weekday
+    dist nyam.high.rthog where nyam is uptrend        where a rising morning tops
+    avg ndog.size by weekday
+    share day touches ndog.ce where ndog.size > 10
+    dist week.close.nwog                              where weeks close, from theirs
+    share week touches nwog.ce by year
+    share mon takes nwog.high then nwog.low
+    share rthog.dir is up where prev day.rthog.dir is up
+    avg nyam.fvgs5                                    how many m5 FVGs in the morning
+    dist nyam.fvg5.dir where asia is consolidation    the kind of the first one
+    share nyam touches london.lastbullfvg5.ce tf 5    back to London's last bullish FVG
+    share nyam takes london.lastbearfvg.high
+    dist (when nypm touches nyam.lastfvg5.ce).hour tf 5
+    avg day.fvgs by day.cond                          FVGs in trending days and the rest
+    list day where day.close inside rthog.q4 and day is uptrend in 2026
+
+The line offers words as they are typed: periods, stats and keywords, and
+after a dot what the thing before has. Pick one with the arrows and Return,
+or keep typing.
 
 #### More
 

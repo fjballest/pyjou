@@ -5,14 +5,22 @@
 #
 import os
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, QStringListModel, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QHBoxLayout, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QDialog, QHBoxLayout, QHeaderView,
 	QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSplitter, QTableWidget,
 	QTableWidgetItem, QToolTip, QVBoxLayout, QWidget)
 
 import m15
 import query
+
+# the words the line offers as they are typed
+ATTRWORDS = sorted(set(query.ATTRS) | {"hour", "time", "day", "session", "date", "minute", "ce", "dq", "uq",
+	"size", "settle", "q1", "q2", "q3", "q4", "fvg", "fvgs", "bullfvg", "bearfvg", "lastfvg", "lastbullfvg",
+	"lastbearfvg", "rthog", "ndog", "nwog"} | set(query.SESSIONS) | set(query.WEEKDAYS))
+WORDS = sorted(set(query.STATS) | query.KEYWORDS | set(query.UNITS) | set(query.WEEKDAYS) | set(query.MONTHS)
+	| set(query.SESSIONS) | set(query.CONDS) | set(query.GROUPS) | set(query.GAPS)
+	| {"session", "prev", "next", "weekday", "hour", "above", "below", "inside", "consolidation", "q1", "q2", "q3", "q4"})
 
 QUERYFILE = "queries.txt"
 BAR = "#257de0"
@@ -26,6 +34,10 @@ EXAMPLES = [
 	("Turtle soups of the Asia low", "share day soups asia.low by weekday tf 5"),
 	("Hour of the day's high", "dist day.high.hour"),
 	("NY AM range by weekday", "avg nyam.range by weekday in last 12 months"),
+	("Where days close, from the RTH gap", "dist day.close.rthog"),
+	("RTH gap CE filled in the morning", "share nyam touches rthog.ce by weekday"),
+	("NWOG CE touched in the week", "share week touches nwog.ce by year"),
+	("Back to London's last bull FVG", "share nyam touches london.lastbullfvg5.ce tf 5"),
 ]
 
 def readqueries(dir):
@@ -196,16 +208,24 @@ class QueryWindow(QDialog):
 		self.edit.setEditable(True)
 		self.edit.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
 		self.edit.lineEdit().setPlaceholderText("dist week.high.day where mon is uptrend")
-		self.edit.lineEdit().returnPressed.connect(self.run)
+		self.edit.lineEdit().returnPressed.connect(self.enter)
+		self.edit.setCompleter(None)
+		self.words = QCompleter(self)
+		self.words.setModel(QStringListModel(WORDS, self.words))
+		self.words.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+		self.words.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+		self.words.setWidget(self.edit.lineEdit())
+		self.words.activated[str].connect(self.complete)
+		self.edit.lineEdit().textEdited.connect(self.prompt)
 		self.edit.setToolTip("a query: count, share, dist, avg, median, min, max or list, what, and then by, "
 			"where, in and tf; Help ▸ Manual, Queries, has it all")
 		row.addWidget(self.edit, 1)
 		self.tfbox = QComboBox()
 		self.tfbox.setToolTip("the time frame of the candles, when the query says no tf: highs, lows and "
 			"what was taken are found in it")
-		for tf in [1, 3, 5, 15, 30, 60]:
+		for tf in [1, 2, 3, 5, 15, 30, 60]:
 			self.tfbox.addItem(m15.tfname(tf), tf)
-		self.tfbox.setCurrentIndex(3)
+		self.tfbox.setCurrentIndex(4)
 		row.addWidget(self.tfbox)
 		runb = QPushButton("Run")
 		runb.setDefault(True)
@@ -309,6 +329,42 @@ class QueryWindow(QDialog):
 	def filter(self):
 		w = self.win
 		return w.filtered() if hasattr(w, "filtered") else None
+
+	def wordat(self):
+		"""the word being typed: (start, prefix, after a dot)"""
+		le = self.edit.lineEdit()
+		text, pos = le.text(), le.cursorPosition()
+		a = pos
+		while a > 0 and (text[a - 1].isalnum() or text[a - 1] in "_:"):
+			a -= 1
+		return a, text[a:pos], a > 0 and text[a - 1] == "."
+
+	def prompt(self, _):
+		"""offers the words starting as the one being typed"""
+		a, pre, dot = self.wordat()
+		if len(pre) < 1 or pre[0].isdigit():
+			self.words.popup().hide()
+			return
+		self.words.model().setStringList(ATTRWORDS if dot else WORDS)
+		self.words.setCompletionPrefix(pre)
+		if self.words.completionCount() == 0 or (self.words.completionCount() == 1 and self.words.currentCompletion() == pre):
+			self.words.popup().hide()
+			return
+		r = self.edit.lineEdit().cursorRect()
+		r.setWidth(self.words.popup().sizeHintForColumn(0) + self.words.popup().verticalScrollBar().sizeHint().width() + 8)
+		self.words.complete(r)
+
+	def complete(self, word):
+		le = self.edit.lineEdit()
+		a, pre, _ = self.wordat()
+		text, pos = le.text(), le.cursorPosition()
+		le.setText(text[:a] + word + text[pos:])
+		le.setCursorPosition(a + len(word))
+
+	def enter(self):
+		if self.words.popup().isVisible():
+			return	# the completer takes it
+		self.run()
 
 	def run(self):
 		text = self.edit.currentText().strip()

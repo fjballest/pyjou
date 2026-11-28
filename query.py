@@ -43,7 +43,8 @@ HISTORY = {"year": 3, "month": 6, "week": 8, "day": 20, "window": 20}
 SESSIONORDER = ["asia", "london", "nyam", "nypm"]
 CONDS = ["uptrend", "downtrend", "upreversal", "downreversal", "upretrace", "downretrace", "consolidation", "mixed"]
 GROUPS = {"trend": ("uptrend", "downtrend"), "reversal": ("upreversal", "downreversal"),
-	"retrace": ("upretrace", "downretrace"), "up": ("up",), "down": ("down",)}
+	"retrace": ("upretrace", "downretrace"), "up": ("up",), "down": ("down",),
+	"inside": ("q1", "q2", "q3", "q4"), "upper": ("q3", "q4"), "lower": ("q1", "q2")}
 # the thresholds of the conditions, which conditions.txt in the journal can change
 DEFAULTS = {
 	"flat": 0.25,		# consolidation: a close this near the open, as a part of the range
@@ -241,6 +242,12 @@ class Period:
 			return None
 		return float(self.m.c.h[self.i:self.j].max() - self.m.c.l[self.i:self.j].min())
 
+	def quarter(self, f):
+		if self.empty():
+			return None
+		lo, hi = float(self.m.c.l[self.i:self.j].min()), float(self.m.c.h[self.i:self.j].max())
+		return lo + f * (hi - lo)
+
 	def mid(self):
 		if self.empty():
 			return None
@@ -271,7 +278,8 @@ class Period:
 		return Time(self.i, self.m) if not self.empty() else None
 
 ATTRS = {"open": Period.open, "close": Period.close, "high": Period.high, "low": Period.low,
-	"range": Period.range, "mid": Period.mid, "dir": Period.dir, "cond": Period.cond, "move": Period.move,
+	"range": Period.range, "mid": Period.mid, "dir": Period.dir, "cond": Period.cond, "move": Period.move, "ce": Period.mid,
+	"dq": lambda p: p.quarter(0.25), "uq": lambda p: p.quarter(0.75),
 	"swings": Period.swings, "rel": Period.rel, "start": Period.time}
 
 class Hour(int):
@@ -345,19 +353,171 @@ def show(v):
 		return "none"
 	if isinstance(v, Extreme):
 		return m15.price(v.price)
+	if isinstance(v, Zone):
+		return repr(v)
 	if isinstance(v, float):
 		return m15.price(round(v, 2))
 	return str(v)
 
+class Zone:
+	"""a range of prices: an opening gap (rthog, ndog, nwog), an FVG, or a
+	quadrant of one; s and e, the wall times it is from (e, when it was
+	made: what takes it is looked for after)"""
+	def __init__(self, kind, low, high, s, e, model, **more):
+		self.kind, self.low, self.high, self.s, self.e, self.m = kind, float(low), float(high), s, e, model
+		self.more = more
+
+	def __repr__(self):
+		return f"{m15.price(self.low)}–{m15.price(self.high)}"
+
+	def at(self, f):
+		return self.low + f * (self.high - self.low)
+
+	def quadrant(self, k):
+		a, b = self.at((k - 1) / 4), self.at(k / 4)
+		return Zone(f"{self.kind} q{k}", a, b, self.s, self.e, self.m)
+
+	def where(self, x):
+		"""where price x is: above, q4 (the top quarter)…q1, or below"""
+		if x is None:
+			return None
+		if x > self.high:
+			return "above"
+		if x < self.low:
+			return "below"
+		if self.high <= self.low:
+			return "q2"
+		return f"q{min(4, int((x - self.low) / (self.high - self.low) * 4) + 1)}"
+
+	def attr(self, a):
+		if a == "high":
+			return self.high
+		if a == "low":
+			return self.low
+		if a in ("ce", "mid"):
+			return self.at(0.5)
+		if a == "dq":
+			return self.at(0.25)
+		if a == "uq":
+			return self.at(0.75)
+		if a in ("size", "range"):
+			return self.high - self.low
+		if a in ("q1", "q2", "q3", "q4"):
+			return self.quadrant(int(a[1]))
+		if a in self.more:
+			return self.more[a]
+		if a == "start":
+			k = int(np.searchsorted(self.m.c.wall, self.e)) - 1
+			return Time(max(0, k), self.m)
+		raise QueryError(f"a {self.kind} has no {a}: it has high, low, ce, dq, uq, q1…q4, size, start"
+			+ "".join(", " + k for k in self.more))
+
+GAPS = ("rthog", "ndog", "nwog")
+RTHCLOSE, RTHOPEN = 16.25, 9.5	# the settlement and the open of the regular session, hours of the day
+FVGRE = re.compile(r"(last)?(bull|bear)?fvg(s)?(?:_?(m?\d+|h\d+))?$")
+
+def fvgname(a):
+	"""(last, kind, count, tf) of an fvg attribute, or None: fvg, bullfvg,
+	lastbearfvg, fvg5, fvgh1, fvgs15 (how many)"""
+	m = FVGRE.match(a)
+	if not m:
+		return None
+	tf = m.group(4)
+	if tf:
+		tf = int(tf[1:]) * 60 if tf[0] == "h" else int(tf.lstrip("m"))
+	return bool(m.group(1)), m.group(2), bool(m.group(3)), tf
+
 # --- the model: periods of the candles and their conditions ---
 
 class Model:
-	def __init__(self, candles, th=None):
+	def __init__(self, candles, th=None, loader=None):
 		self.c = candles
 		self.th = th or dict(DEFAULTS)
 		self.conds = {}
 		self.lists = {}
 		self.ranges = {}
+		self.gaps = {}
+		self.fvgs = {}
+		self.loader = loader	# the candles of another time frame: loader(tf)
+
+	def candles(self, tf):
+		if tf is None or tf == self.c.tf:
+			return self.c
+		if self.loader is None:
+			raise QueryError(f"no {m15.tfname(tf)} candles here")
+		return self.loader(tf)
+
+	def fine(self):
+		"""candles of 15 minutes or less, where the opening gaps are found"""
+		return self.c if self.c.tf <= 15 else self.candles(15)
+
+	# opening gaps, as ICTlevels finds them
+	def gap(self, kind, n):
+		"""the opening gap kind of trading day n (of the week of n, for
+		nwog), or None: rthog from the close at 16:15 of the day before to
+		the open at 09:30; ndog from the close before 17:00 the day before to
+		the open at 18:00 (none on Mondays: that is the nwog); nwog from
+		Friday's close to the open of the week"""
+		if kind == "nwog":
+			n = n - (n + 3) % 7
+		key = (kind, n)
+		if key not in self.gaps:
+			self.gaps[key] = self.findgap(kind, n)
+		return self.gaps[key]
+
+	def findgap(self, kind, n):
+		c = self.fine()
+		i = c.dayindex.get(n)
+		if kind == "nwog" and i is None:	# the week's first day with candles
+			i = next((c.dayindex[x] for x in range(n, n + 5) if x in c.dayindex), None)
+			if i is None:
+				return None
+			n = c.days[i]
+		if i is None or i == 0:
+			return None
+		prev = c.days[i - 1]
+		monday = (n + 3) % 7 == 0 or n - prev > 1
+		if kind == "ndog" and monday:
+			return None
+		if kind == "nwog" and not monday:
+			return None
+		if kind == "rthog":
+			end, start = prev * DAY + RTHCLOSE * H, n * DAY + RTHOPEN * H
+		else:
+			end, start = prev * DAY + m15.DAYEND * H, n * DAY + m15.DAYSTART * H
+		k = int(np.searchsorted(c.wall, end)) - 1	# the last candle before the close
+		o = int(np.searchsorted(c.wall, start))	# the first after the open
+		if k < 0 or o >= len(c.wall) or c.dayno[k] != prev or c.dayno[o] != n:
+			return None
+		settle, op = float(c.c[k]), float(c.o[o])
+		e = int(c.wall[o])
+		return Zone(kind, min(settle, op), max(settle, op), int(c.wall[k]), e, self,
+			settle=settle, open=op, dir="up" if op >= settle else "down")
+
+	# fair value gaps
+	def fvglist(self, p, tf, kind=None):
+		"""the FVGs made in period p on candles of tf: [Zone], in order; a
+		bullish one is a third candle whose low is above the high of the
+		first, a bearish one the other way"""
+		c = self.candles(tf)
+		key = (p.kind, p.key, c.tf)
+		if key not in self.fvgs:
+			i, j = (int(x) for x in np.searchsorted(c.wall, [p.s, p.e]))
+			out = []
+			if j - i >= 3:
+				h, l = c.h[i:j], c.l[i:j]
+				up = np.flatnonzero(l[2:] > h[:-2])
+				dn = np.flatnonzero(h[2:] < l[:-2])
+				for k, bull in sorted([(k, True) for k in up] + [(k, False) for k in dn]):
+					k3 = i + k + 2
+					e = int(c.wall[k3]) + c.tf * 60
+					if bull:
+						out.append(Zone("fvg", h[k], l[k + 2], int(c.wall[i + k]), e, self, dir="bull"))
+					else:
+						out.append(Zone("fvg", h[k + 2], l[k], int(c.wall[i + k]), e, self, dir="bear"))
+			self.fvgs[key] = out
+		lst = self.fvgs[key]
+		return [z for z in lst if kind is None or z.more["dir"] == kind]
 
 	# the periods
 	def day(self, n):
@@ -535,11 +695,13 @@ class Model:
 
 	def first(self, i, j, side, level, close=False):
 		"""the first candle in [i, j) going above (side 1) or below (-1)
-		level (closing past it, with close), or None"""
+		level (closing past it, with close), or trading at it (side 0), or None"""
 		if j <= i or level is None:
 			return None
 		c = self.c
-		if close:
+		if side == 0:
+			a = (c.l[i:j] <= level) & (c.h[i:j] >= level)
+		elif close:
 			a = c.c[i:j] > level if side > 0 else c.c[i:j] < level
 		else:
 			a = c.h[i:j] > level if side > 0 else c.l[i:j] < level
@@ -573,8 +735,8 @@ def tokens(text):
 	return out
 
 KEYWORDS = {"by", "where", "in", "tf", "on", "and", "or", "not", "is", "then", "when", "takes", "above",
-	"below", "closes", "among", "last", "soups"}
-VERBS = {"takes", "above", "below", "closes", "soups"}
+	"below", "closes", "among", "last", "soups", "touches", "inside"}
+VERBS = {"takes", "above", "below", "closes", "soups", "touches"}
 
 # the tree: tuples
 #	("num", x)  ("name", word)  ("path", base, [attrs])  base: ("unit", kind) ("rel", k, base) ("window", name, a, b)
@@ -720,7 +882,7 @@ class Parser:
 			try:
 				c = self.cond()
 				self.need(")")
-				if not self.at("is", ">", "<", ">=", "<=", "=", "==", "!=", "+", "-", "*", "/", ".", *VERBS):
+				if not self.at("is", ">", "<", ">=", "<=", "=", "==", "!=", "+", "-", "*", "/", ".", "inside", *VERBS):
 					return c
 			except QueryError:
 				pass
@@ -736,6 +898,8 @@ class Parser:
 		for op in (">=", "<=", "!=", "==", "=", ">", "<"):
 			if self.take(op):
 				return ("cmp", "==" if op == "=" else op, a, self.expr())
+		if self.take("inside"):
+			return ("inside", a, self.expr())
 		if self.at(*VERBS):
 			return self.seq(a)
 		if self.at("then"):
@@ -743,17 +907,17 @@ class Parser:
 		return ("true", a)
 
 	def verb(self):
-		"""takes, soups, above, below, closes above, closes below: (verb, close)"""
+		"""takes, soups, touches, above, below, closes above, closes below: (verb, close)"""
 		if self.take("closes"):
 			if self.take("above"):
 				return "above", True
 			if self.take("below"):
 				return "below", True
 			self.fail("closes above or below")
-		for v in ("takes", "soups", "above", "below"):
+		for v in ("takes", "soups", "touches", "above", "below"):
 			if self.take(v):
 				return v, False
-		self.fail("expected takes, soups, above or below")
+		self.fail("expected takes, soups, touches, above or below")
 
 	def seq(self, scope, target=None):
 		"""scope takes x then y then scope2 above z: events, one after the other"""
@@ -888,7 +1052,9 @@ def unitof(q):
 		return q["among"][1][1]
 	if "session" in words:
 		return "session"
-	if words & (set(SESSIONS) | {"window", "hour"}):
+	if "nwog" in words and not words & ({"day", "rthog", "ndog", "window", "hour"} | set(SESSIONS)):
+		return "week" if not words & {"month", "year"} else ("month" if "month" in words else "year")
+	if words & (set(SESSIONS) | {"window", "hour", "rthog", "ndog"}):
 		# a session named as mon.asia keeps to the week
 		if "day" in words or not words & set(WEEKDAYS):
 			return "day"
@@ -947,6 +1113,10 @@ class Run:
 			d = self.dayof(u, name)
 			return m.window(d, name, a, b) if d is not None else None
 		name = base[1]
+		if name in GAPS:
+			if name == "nwog" and u.kind in ("week", "month", "year"):
+				return m.gap(name, (u if u.kind == "week" else m.containing(u, "week")).key)
+			return m.gap(name, self.dayof(u, name))
 		if name == "session":
 			if u.kind == "session":
 				return u
@@ -980,6 +1150,8 @@ class Run:
 			return u.key
 		if u.kind in ("window", "session"):
 			return u.key[0]
+		if u.kind == "week" and name == "nwog":
+			return u.key
 		raise QueryError(f"{name} of which day? Count days, or say mon.{name}")
 
 	def node(self, n, u, scope=None):
@@ -999,28 +1171,40 @@ class Run:
 			return self.path(n, u)
 		if t == "when":
 			tm = self.seq(n[1], u)
-			return self.attrs(tm, n[2]) if tm is not None else None
+			return self.attrs(tm, n[2], u) if tm is not None else None
 		raise QueryError("a value was expected")
 
 	def path(self, n, u, periodok=True):
 		_, base, attrs = n
-		if base[0] == "name" and base[1] not in UNITS + ["session"] + WEEKDAYS + list(SESSIONS) + MONTHS \
+		if base[0] == "name" and base[1] not in UNITS + ["session"] + WEEKDAYS + list(SESSIONS) + MONTHS + list(GAPS) \
 				and not re.fullmatch(r"h\d{1,2}", base[1]):
 			raise QueryError(f"what is {base[1]}? A period is year, month, week, day, session, mon…fri, asia, london, nyam, nypm, "
 				"h9 (an hour) or 08:30-10:00")
 		v = self.period(base, u)
 		rest = list(attrs)
 		# a.b.c: periods inside periods, then what they are
-		while v is not None and rest and isinstance(v, Period) and rest[0] not in ATTRS:
+		while v is not None and rest and isinstance(v, Period) and rest[0] not in ATTRS and not fvgname(rest[0]):
 			v = self.period(("name", rest.pop(0)), v)
 		if v is None:
 			return None
-		return self.attrs(v, rest)
+		return self.attrs(v, rest, u)
 
-	def attrs(self, v, names):
+	def attrs(self, v, names, u=None):
 		for a in names:
 			if v is None:
 				return None
+			if a in GAPS and not isinstance(v, (Period, Zone)) and num(v) is not None:
+				g = self.m.gap(a, self.dayof(u, a)) if u is not None else None	# where the price is, in the gap
+				v = g.where(num(v)) if g is not None else None
+				continue
+			if isinstance(v, Zone):
+				v = v.attr(a)
+				continue
+			if isinstance(v, Period) and fvgname(a):
+				last, kind, count, tf = fvgname(a)
+				lst = self.m.fvglist(v, tf, kind)
+				v = len(lst) if count else ((lst[-1] if last else lst[0]) if lst else None)
+				continue
 			if isinstance(v, Period):
 				if a not in ATTRS:
 					raise QueryError(f"a period has no {a}: it has {', '.join(ATTRS)}")
@@ -1067,6 +1251,16 @@ class Run:
 				raise QueryError(f"can't compare {show(x)} and {show(y)}")
 		if t == "seq":
 			return self.seq(n, u) is not None
+		if t == "inside":
+			x, z = num(self.node(n[1], u)), self.node(n[2], u)
+			if isinstance(z, Period):
+				r = z.high(), z.low()
+				z = None if r[0] is None else Zone(z.name, r[1].price, r[0].price, z.s, z.e, self.m)
+			if x is None or z is None:
+				return False
+			if not isinstance(z, Zone):
+				raise QueryError("inside what? a period, a gap, an FVG or a quadrant: inside rthog.q4")
+			return z.low <= x <= z.high
 		if t == "true":
 			v = self.node(n[1], u)
 			if isinstance(v, Period):
@@ -1102,6 +1296,8 @@ class Run:
 					raise QueryError(f"{verb} is for a high or a low (day {verb} asia.low); "
 						"for other levels say above or below")
 				side = 1 if last == "high" else -1
+			elif verb == "touches":
+				side = 0
 			else:
 				side = 1 if verb == "above" else -1
 			i = p.i
@@ -1123,11 +1319,10 @@ class Run:
 		"""the period a level comes from (asia for asia.low), or None"""
 		if n[0] != "path":
 			return None
-		v = self.period(n[1], u)
-		rest = list(n[2])
-		while v is not None and rest and isinstance(v, Period) and rest[0] not in ATTRS:
-			v = self.period(("name", rest.pop(0)), v)
-		return v if isinstance(v, Period) else None
+		if n[2] and n[2][-1] in ("high", "low", "ce", "mid", "dq", "uq", "open", "close", "settle"):
+			v = self.path(("path", n[1], n[2][:-1]), u)	# what the level is of
+			return v if isinstance(v, (Period, Zone)) else None
+		return None
 
 	def keyof(self, k, u):
 		if k[0] == "key":
@@ -1409,8 +1604,17 @@ class Journal:
 			c = m.c if m is not None else Candles(self.dir, tf)
 			if not len(c.t):
 				raise QueryError(f"no {m15.tfname(tf)} data in the journal")
-			m = self.models[tf] = Model(c, th)
+			m = self.models[tf] = Model(c, th, self.candles)
 		return m
+
+	def candles(self, tf):
+		"""the candles of tf, made once"""
+		m = self.models.get(tf)
+		if m is not None:
+			return m.c
+		c = Candles(self.dir, tf)
+		self.models[tf] = Model(c, thresholds(self.dir), self.candles)
+		return c
 
 	def run(self, text, tf=15, only=None):
 		q = parse(text)

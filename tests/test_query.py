@@ -120,6 +120,32 @@ os.remove(os.path.join(d, query.CONDFILE))
 r = j.run("count day", only=({days[0], days[1]}, set()))
 check(r.rows == [["2"]], "only the days the list leaves")
 
+# opening gaps and FVGs
+m = j.model(15)
+g = m.gap("rthog", days[3])
+c = m.c
+k = int(np.searchsorted(c.wall, days[2] * 86400 + 16.25 * 3600)) - 1
+o = int(np.searchsorted(c.wall, days[3] * 86400 + 9.5 * 3600))
+check(g is not None and g.more["settle"] == c.c[k] and g.more["open"] == c.o[o] and g.more["dir"] == "up",
+	"the rthog: the close at 16:15 the day before to the open at 09:30")
+check(abs(g.attr("ce") - (g.low + g.high) / 2) < 1e-9 and g.attr("q4").low == g.attr("uq"), "its ce and quadrants")
+check(m.gap("ndog", days[0 + 5]) is None and m.gap("nwog", days[5]) is not None and m.gap("ndog", days[6]) is not None,
+	"no ndog on Mondays: that is the nwog")
+r = one("dist day.close.rthog")
+check(dict((row[0], row[1]) for row in r.rows).get("above") == n - 1, "price above the gap")
+r = one("count day where asia.high inside day and not asia.low inside prev day")
+check(r.rows == [[str(n)]], "inside a period")
+r = one("share nyam touches rthog.ce")
+check(r.rows[0][0] == "0%", "the gap's ce is not touched after it is made: price is far above")
+r = one("avg day.fvgs")
+check(float(r.rows[0][0]) > 10, "FVGs of a day")
+r = one("dist nyam.lastfvg.dir")
+check(dict((row[0], row[1]) for row in r.rows).get("bull", 0) > 0, "the last FVG and its kind")
+r = one("avg nyam.fvgs5")
+check(float(r.rows[0][0]) > 0 and 5 in j.models, "FVGs of another time frame")
+r = one("share nyam touches nyam.fvg.ce")
+check(r.n == n, "and their levels")
+
 # each condition, from what price did in the day
 shapes = {
 	"consolidation": [(-6, 100), (0, 110), (6, 90), (17, 101)],	# up, down, back near the open
@@ -180,6 +206,20 @@ querywin.writequeries(d, [("asia", "share day takes asia.low then asia.high")])
 qw.fillsaved()
 check(qw.saved.count() == 1 and querywin.readqueries(d) == [("asia", "share day takes asia.low then asia.high")],
 	"queries saved in the journal")
+check(qw.tfbox.itemText(1) == "m2", "m2 is a time frame of the window")
+le = qw.edit.lineEdit()
+le.setText("")
+le.setFocus()
+from PySide6.QtTest import QTest
+QTest.keyClicks(le, "dist day.c")
+app.processEvents()
+check(qw.words.completionCount() >= 2 and qw.words.popup().isVisible(), "the line offers words as they are typed")
+qw.complete("cond")
+check(le.text() == "dist day.cond", "and puts the one picked in place")
+QTest.keyClicks(le, " whe")
+qw.complete("where")
+check(le.text() == "dist day.cond where", "keywords too")
+qw.words.popup().hide()
 qw.edit.setEditText("list day where day takes asia.low")
 qw.run()
 qw.showperiod(0)
