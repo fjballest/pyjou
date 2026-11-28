@@ -60,3 +60,16 @@ check(db.hideact.text() == "Show" and key(db.hideact) != shown, "the eye changes
 win.view.togglehidden()
 app.processEvents()
 check(db.hideact.text() == "Hide" and key(db.hideact) == shown, "and back")
+
+# the drawing tools have icons too, and follow the style
+tools = list(db.toolacts.values())
+check(all(not a.icon().isNull() for a in tools) and not db.detachact.icon().isNull(), "each drawing tool has an icon")
+check(len({key(a).bits().tobytes() for a in tools}) == len(tools), "all different")
+win.styleacts["icons"].trigger()
+check(all(style(db, a) == S.ToolButtonIconOnly for a in tools), "icons only for the tools")
+win.styleacts["text"].trigger()
+check(all(style(db, a) == S.ToolButtonTextOnly for a in tools) and db.toolacts["line"].text() == "Line",
+	"text only, with their plain names")
+win.styleacts["both"].trigger()
+check(all(style(db, a) == S.ToolButtonTextBesideIcon for a in tools)
+	and style(db, db.detachact) == S.ToolButtonIconOnly, "both, and detach keeps to its icon")

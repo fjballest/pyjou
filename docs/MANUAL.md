@@ -325,7 +325,10 @@ They are saved with the image.
 
 **View ▸ Toolbar** shows the buttons of the toolbars with their icons and
 text, their icons only, or their text only, in every window; the choice is
-remembered. A button without an icon keeps its text. The gear at the end of
+remembered. It applies to the drawing tools too, each with its own icon (an
+arrow pointer for **Select**, a pencil, a line, an arrow, a circle, a
+rectangle, a T and the Fibonacci levels). A button without an icon keeps
+its text. The gear at the end of
 the toolbar is a menu with **Swing Times**, **Strategy Tester**, **Match
 Day** and **Match Week**. In the drawing tools, **Copy** (two sheets) copies
 the image with its drawings, and the eye hides the drawings; it is struck
@@ -458,9 +461,9 @@ ones saved for lines, arrows and circles. The one it has is checked, and
 picking another changes it to that one (and the others of its kind
 selected with it), in one **Undo** step. The bar keeps what it draws next.
 
-The **⧉** button at the start of the drawing buttons detaches them as a
+The **Detach** button (a window with an arrow out of it) at the start of the drawing buttons detaches them as a
 small floating bar that stays on top of every window, so you can keep it
-where it suits you. Click **⧉** again, or close the bar, to put it back.
+where it suits you. Click it again, or close the bar, to put it back.
 
 **Select** (the usual tool) clicks a drawing to select it, drags it to move
 it, and Del or **Delete** removes the ones selected. Shift-click selects

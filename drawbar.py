@@ -21,15 +21,15 @@ COLORS = (("Red", "#e53935"), ("Green", "#2e7d32"), ("Blue", "#1e63d6"), ("Orang
 WIDTHS = (1.0, 2.0, 3.0, 5.0, 8.0)
 TEXTSIZES = (10, 12, 14, 16, 18, 22, 28, 36)
 TOOLS = (
-	("select", "↖ Select", "S", "select, move and delete drawings; drag the image to move around"),
-	("pencil", "✎ Pencil", "P", "draw free hand"),
-	("line", "╱ Line", "L", "draw a line; shift keeps it horizontal or vertical"),
-	("arrow", "➚ Arrow", "A", "draw an arrow; shift keeps it horizontal or vertical"),
-	("circle", "◯ Circle", "C", "draw a circle or ellipse"),
-	("rect", "▭ Rect", "R", "draw a rectangle; double click one for its fill, middle line and label. "
+	("select", "Select", "S", "select, move and delete drawings; drag the image to move around"),
+	("pencil", "Pencil", "P", "draw free hand"),
+	("line", "Line", "L", "draw a line; shift keeps it horizontal or vertical"),
+	("arrow", "Arrow", "A", "draw an arrow; shift keeps it horizontal or vertical"),
+	("circle", "Circle", "C", "draw a circle or ellipse"),
+	("rect", "Rect", "R", "draw a rectangle; double click one for its fill, middle line and label. "
 		"The menu picks a kind of rectangle (BRK, FVG...)"),
-	("text", "T Text", "T", "write a text box; double click one to edit it"),
-	("fib", "≡ Fib", "F", "draw Fibonacci levels: from the first point (1) to the second (0), then click "
+	("text", "Text", "T", "write a text box; double click one to edit it"),
+	("fib", "Fib", "F", "draw Fibonacci levels: from the first point (1) to the second (0), then click "
 		"where the lines end, or double click on the second point to take them to the right edge; "
 		"the right button drops it. The menu picks the levels"),
 )
@@ -496,7 +496,8 @@ def lineswatch(d, kind):
 
 def glyph(kind, color):
 	"""a drawn icon: "undo" and "redo" (a curved arrow), "delete" (a bin), "zoomin",
-	"zoomout", "realsize" and "fit" (a magnifier), "copy", "eye", "eyeoff", "gear" """
+	"zoomout", "realsize" and "fit" (a magnifier), "copy", "eye", "eyeoff", "gear", the drawing tools ("select", "pencil", "line", "arrow",
+	"circle", "rect", "text", "fib") and "detach" """
 	pm = QPixmap(36, 36)
 	pm.setDevicePixelRatio(2)
 	pm.fill(Qt.GlobalColor.transparent)
@@ -565,6 +566,53 @@ def glyph(kind, color):
 		path.closeSubpath()
 		p.drawPath(path)
 		p.drawEllipse(QPointF(9, 9), 2.2, 2.2)
+	elif kind == "select":	# the mouse pointer
+		path = QPainterPath()
+		for i, (x, y) in enumerate(((5, 2.5), (5, 14.5), (8, 11.5), (10.2, 16), (12.2, 15), (10, 10.6), (14, 10.6))):
+			path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
+		path.closeSubpath()
+		p.drawPath(path)
+	elif kind == "pencil":	# slanted, with its tip at the bottom left
+		p.translate(9, 9)
+		p.rotate(-45)
+		p.drawRect(QRectF(-3.5, -2.2, 9.5, 4.4))
+		p.drawLine(QPointF(3.6, -2.2), QPointF(3.6, 2.2))
+		path = QPainterPath()
+		path.moveTo(-3.5, -2.2)
+		path.lineTo(-7.5, 0)
+		path.lineTo(-3.5, 2.2)
+		p.drawPath(path)
+	elif kind == "line":	# with its two ends
+		p.drawLine(QPointF(4, 14), QPointF(14, 4))
+		p.setBrush(color)
+		for x, y in ((4, 14), (14, 4)):
+			p.drawEllipse(QPointF(x, y), 1.4, 1.4)
+	elif kind == "arrow":
+		p.drawLine(QPointF(4, 14), QPointF(14, 4))
+		p.drawLine(QPointF(14, 4), QPointF(8.5, 4.5))
+		p.drawLine(QPointF(14, 4), QPointF(13.5, 9.5))
+	elif kind == "circle":
+		p.drawEllipse(QPointF(9, 9), 6.5, 5.5)
+	elif kind == "rect":
+		p.drawRect(QRectF(3, 4.5, 12, 9))
+	elif kind == "text":	# a T
+		pen.setWidthF(2)
+		pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+		p.setPen(pen)
+		p.drawLine(QPointF(4, 4), QPointF(14, 4))
+		p.drawLine(QPointF(9, 4), QPointF(9, 15))
+	elif kind == "fib":	# levels, from a swing
+		for y in (3.5, 7.7, 10.3, 14.5):
+			p.drawLine(QPointF(7, y), QPointF(16, y))
+		thin = QPen(pen)
+		thin.setWidthF(1.1)
+		p.setPen(thin)
+		p.drawLine(QPointF(2.5, 14.5), QPointF(5.5, 3.5))
+	elif kind == "detach":	# a window out of another
+		p.drawRect(QRectF(2.5, 6.5, 9, 9))
+		p.drawLine(QPointF(7.5, 10.5), QPointF(15, 3))
+		p.drawLine(QPointF(15, 3), QPointF(10.5, 3))
+		p.drawLine(QPointF(15, 3), QPointF(15, 7.5))
 	else:
 		p.drawLine(QPointF(3.5, 5), QPointF(14.5, 5))
 		p.drawLine(QPointF(7, 5), QPointF(7.5, 3))
@@ -615,7 +663,7 @@ class DrawBar(QToolBar):
 		self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
 		self.floating = None	# the FloatBar while it is detached
 		self.home = None		# where it goes back: the QMainWindow or the layout, and where in it
-		self.detachact = QAction("⧉", self)
+		self.detachact = QAction(glyph("detach", self.palette().color(QPalette.ColorRole.ButtonText)), "Detach", self)
 		self.detachact.setCheckable(True)
 		self.detachact.setToolTip("detach the drawing tools as a floating bar that stays on top; "
 			"click again, or close it, to put it back")
@@ -625,7 +673,7 @@ class DrawBar(QToolBar):
 		group.setExclusive(True)
 		self.toolacts = {}
 		for tool, text, key, tip in TOOLS:
-			a = QAction(text, self)
+			a = QAction(glyph(tool, self.palette().color(QPalette.ColorRole.ButtonText)), text, self)
 			a.setCheckable(True)
 			a.setToolTip(f"{tip} ({key} on the image)")
 			a.triggered.connect(lambda _=False, t=tool: self.view.settool(t))
@@ -1058,7 +1106,7 @@ class DrawBar(QToolBar):
 		"""show the buttons with their icons and text, their icons only, or
 		their text only; a button without an icon keeps its text, and undo,
 		redo and delete keep to their icons unless it is text only"""
-		compact = (self.undoact, self.redoact, self.delact)
+		compact = (self.undoact, self.redoact, self.delact, self.detachact)
 		applystyle(self, style, compact)
 
 	def detach(self):
