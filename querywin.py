@@ -366,15 +366,15 @@ class QueryWindow(QDialog):
 
 	def tab(self):
 		"""Tab: the word picked in the list offered, the only one there is, or
-		as much as all of them share, offering them"""
+		as much as all of them share, offering them; with several and none
+		picked, it only shows them"""
 		pop = self.words.popup()
 		if pop.isVisible():
 			i = pop.currentIndex()
-			word = i.data() if i.isValid() else self.words.currentCompletion()
-			pop.hide()
-			if word:
-				self.complete(word)
-			return
+			if i.isValid() and pop.selectionModel().isSelected(i):
+				pop.hide()
+				self.complete(i.data())
+				return
 		ws = self.candidates()
 		if not ws:
 			return
