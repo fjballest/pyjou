@@ -53,6 +53,8 @@ DEFAULTS = {
 	"reversal": 0.4,	# a reversal first goes this part of the range away from the open, one way
 	"retrace": 0.4,		# a retrace gives back this part of the range from its extreme
 	"trend": 0.6,		# a trend closes this part of the range away from the open
+	"near": 0.02,		# a reject: coming this near a level, as a part of the average range of a day...
+	"bounce": 0.1,		# ...and then going this far away from it, without a close past it
 }
 CONDFILE = "conditions.txt"
 STATS = ["count", "share", "dist", "avg", "median", "min", "max", "sum", "list"]
@@ -103,7 +105,10 @@ def writedefaults(dir):
 			"#	the other way (by more than flat)\n"
 			"# retrace: a move one way that gives back this much from its extreme, closing\n"
 			"#	still on its side of the open\n"
-			"# trend: a close this far from the open\n")
+			"# trend: a close this far from the open\n"
+			"# near, bounce: a level is rejected when price comes this near it (or wicks\n"
+			"#	past it), closes back on its side and goes bounce away before any close\n"
+			"#	past it; both as parts of the average range of the days before\n")
 		for k, v in DEFAULTS.items():
 			f.write(f"{k} = {v:g}\n")
 	return p
@@ -693,6 +698,45 @@ class Model:
 			ok = back + 1 >= j or c.l[back + 1:j].min() >= ext
 		return back if ok else None
 
+	def reject(self, i, j, level, near, bounce):
+		"""price comes to level in [i, j) from the side it is on at i,
+		within near of it or wicking past, with no close past it, and then
+		goes bounce away from it before any close past it: the candle that
+		came to it, or None"""
+		if j <= i or level is None:
+			return None
+		c = self.c
+		ref = c.c[i - 1] if i > 0 else c.o[i]
+		if ref == level:
+			ref = c.o[i]
+		side = 1 if ref > level else -1	# above it: a support tested from above
+		if side > 0:
+			at = np.flatnonzero(c.l[i:j] <= level + near)
+			past = np.flatnonzero(c.c[i:j] < level)
+			away = c.h[i:j] >= level + bounce
+		else:
+			at = np.flatnonzero(c.h[i:j] >= level - near)
+			past = np.flatnonzero(c.c[i:j] > level)
+			away = c.l[i:j] <= level - bounce
+		if not len(at):
+			return None
+		k = int(at[0])
+		end = int(past[0]) if len(past) else j - i	# the first close past it ends the reject
+		if end <= k:
+			return None
+		go = np.flatnonzero(away[k + 1:end])
+		return i + k if len(go) else None
+
+	def dayrange(self, p):
+		"""the average range of the days before p's"""
+		if p.kind == "day":
+			d = p
+		elif p.j > p.i:
+			d = self.day(int(self.c.dayno[p.i]))
+		else:
+			return None
+		return self.avgrange(d) or self.rangeof(d)
+
 	def first(self, i, j, side, level, close=False):
 		"""the first candle in [i, j) going above (side 1) or below (-1)
 		level (closing past it, with close), or trading at it (side 0), or None"""
@@ -735,8 +779,8 @@ def tokens(text):
 	return out
 
 KEYWORDS = {"by", "where", "in", "tf", "on", "and", "or", "not", "is", "then", "when", "takes", "above",
-	"below", "closes", "among", "last", "soups", "touches", "inside"}
-VERBS = {"takes", "above", "below", "closes", "soups", "touches"}
+	"below", "closes", "among", "last", "soups", "touches", "inside", "rejects", "fills"}
+VERBS = {"takes", "above", "below", "closes", "soups", "touches", "rejects", "fills"}
 
 # the tree: tuples
 #	("num", x)  ("name", word)  ("path", base, [attrs])  base: ("unit", kind) ("rel", k, base) ("window", name, a, b)
@@ -914,10 +958,10 @@ class Parser:
 			if self.take("below"):
 				return "below", True
 			self.fail("closes above or below")
-		for v in ("takes", "soups", "touches", "above", "below"):
+		for v in ("takes", "soups", "touches", "rejects", "fills", "above", "below"):
 			if self.take(v):
 				return v, False
-		self.fail("expected takes, soups, touches, above or below")
+		self.fail("expected takes, soups, touches, rejects, fills, above or below")
 
 	def seq(self, scope, target=None):
 		"""scope takes x then y then scope2 above z: events, one after the other"""
@@ -1034,7 +1078,7 @@ def wordsof(node, out=None):
 			out.add(node[1])
 		if node[0] == "window":
 			out.add("window")
-		for x in node[1:]:
+		for x in (node[1:] if isinstance(node[0], str) else node):	# a step of a then starts with its period
 			wordsof(x, out)
 	elif isinstance(node, list):
 		for x in node:
@@ -1286,6 +1330,12 @@ class Run:
 			if not isinstance(p, Period):
 				raise QueryError("what takes a level is a period: day takes asia.low")
 			lv = self.node(target, u)
+			if verb == "fills":
+				k = self.fill(p, lv, after)
+				if k is None:
+					return None
+				after = k
+				continue
 			level = num(lv)
 			if level is None:
 				return None
@@ -1296,7 +1346,7 @@ class Run:
 					raise QueryError(f"{verb} is for a high or a low (day {verb} asia.low); "
 						"for other levels say above or below")
 				side = 1 if last == "high" else -1
-			elif verb == "touches":
+			elif verb in ("touches", "rejects"):
 				side = 0
 			else:
 				side = 1 if verb == "above" else -1
@@ -1308,12 +1358,40 @@ class Run:
 				i = max(i, after + 1)
 			if verb == "soups":
 				k = self.m.soup(i, p.j, side, level)
+			elif verb == "rejects":
+				r = self.m.dayrange(p)
+				if not r:
+					return None
+				th = self.m.th
+				k = self.m.reject(i, p.j, level, th["near"] * r, th["bounce"] * r)
 			else:
 				k = self.m.first(i, p.j, side, level, close)
 			if k is None:
 				return None
 			after = k
 		return Time(after, self.m)
+
+	def fill(self, p, z, after):
+		"""the candle of p that fills zone z (after candle after): trades
+		to its far side, the low of a gap up or a bullish FVG, the high of a
+		gap down or a bearish one; a quadrant from the side price is on"""
+		if z is None:
+			return None
+		if not isinstance(z, Zone):
+			raise QueryError("fills is for a gap or an FVG, or a quarter of one: nyam fills rthog, day fills nyam.fvg5")
+		c = self.m.c
+		i = max(p.i, int(np.searchsorted(c.wall, z.e)))
+		if after is not None:
+			i = max(i, after + 1)
+		if i >= p.j:
+			return None
+		d = z.more.get("dir")
+		if d is None:	# a quarter: from where price is
+			ref = c.c[i - 1] if i > 0 else c.o[i]
+			d = "up" if ref >= z.attr("ce") else "down"
+		if d in ("up", "bull"):
+			return self.m.first(i, p.j, -1, z.low + 1e-9) if c.l[i:p.j].min() <= z.low else None
+		return self.m.first(i, p.j, 1, z.high - 1e-9) if c.h[i:p.j].max() >= z.high else None
 
 	def source(self, n, u):
 		"""the period a level comes from (asia for asia.low), or None"""

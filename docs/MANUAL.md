@@ -932,7 +932,9 @@ range, the first that fits:
 theirs. The numbers are the journal's: **Conditions…** opens its
 `conditions.txt`, which has them as parts of the range: `flat` (0.25),
 `swing` (0.5) and `swings` (4), `reversal` (0.4), `retrace` (0.4) and
-`trend` (0.6). A change is used by the next query.
+`trend` (0.6). It also has `near` (0.02) and `bounce` (0.1) for
+`rejects`, as parts of the average range of a day. A change is used by
+the next query.
 
 They work on any period: `asia.cond`, `week.cond`, `h9.cond`,
 `08:30-10:00.cond`. Lower time frames see more of what price did inside
@@ -955,8 +957,17 @@ period:
 | `day closes above asia.high` | a candle closed past it |
 | `day soups asia.low` | a turtle soup: price went below Asia's low, a candle closed back above it, and price did not go below the low of that take again in the day |
 | `nyam touches rthog.ce` | a candle traded at the level, from either side |
+| `day fills rthog`, `nyam fills london.lastfvg5` | price traded all the way across a gap or an FVG after it was made: down to the low of a gap up or a bullish FVG, up to the high of a gap down or a bearish one; a quarter (`fills rthog.q4`) is crossed from the side price is on |
+| `nyam rejects rthog.ce`, `day rejects prev day.high` | price came to the level, wicking past it or stopping very near it, did not close past it, and then went away from it (a bounce) before any close past it |
 | `asia.high inside prev day`, `day.close inside rthog.q4` | the price is within a period's range, a gap, an FVG or a quarter of one |
 | `day takes asia.low then asia.high` | first one, later the other |
+
+`rejects` works out the side from where price is when the search starts:
+above the level it is a support tested from above, below it a resistance.
+"Very near" is 0.02 of the average range of the days before (`near` in
+`conditions.txt`) and the bounce 0.1 of it (`bounce`); on NQ, with days of
+about 550 points in 2026, some 11 and 55 points. The time of a reject, for `(when
+…)` and `then`, is the candle that came to the level.
 
 `takes` goes above a high and below a low; `soups` is a take that failed:
 price went past the level, closed back on the other side, and never went
@@ -1104,6 +1115,20 @@ With the opening gaps and FVGs:
     share nyam touches rthog.ce                       the gap's half way, filled in the morning
     dist (when day touches rthog.ce).time tf 5        and when
     share nyam touches rthog.ce where nyam.open.rthog is above
+    share day fills rthog                             the gap filled, all of it
+    share nyam fills rthog by weekday
+    dist (when day fills rthog).hour tf 5             and when
+    share day fills rthog where rthog.size > 100      the big ones
+    share week fills nwog by year
+    share nypm fills nyam.lastbullfvg5 tf 5           the morning's last bullish FVG, filled after noon
+    share day touches rthog.ce where not day fills rthog
+    share nyam rejects rthog.ce then fills rthog
+    share nyam rejects rthog.ce by weekday            the gap's half way held
+    dist (when nyam rejects rthog.ce).time tf 5
+    share nyam rejects prev day.high tf 5             the day before's high, rejected
+    share nyam rejects asia.high then takes asia.low tf 5
+    share week rejects nwog.ce by year
+    share nyam rejects london.lastbullfvg5.ce tf 5    London's last bullish FVG held
     share day takes rthog.low where rthog.dir is up   the gap up filled all the way
     share asia.high inside rthog                      Asia's high within the gap
     share day closes above rthog.uq by weekday

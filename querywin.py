@@ -38,6 +38,8 @@ EXAMPLES = [
 	("RTH gap CE filled in the morning", "share nyam touches rthog.ce by weekday"),
 	("NWOG CE touched in the week", "share week touches nwog.ce by year"),
 	("Back to London's last bull FVG", "share nyam touches london.lastbullfvg5.ce tf 5"),
+	("RTH gap CE rejected", "share nyam rejects rthog.ce by weekday"),
+	("RTH gap filled", "share day fills rthog by weekday"),
 ]
 
 def readqueries(dir):

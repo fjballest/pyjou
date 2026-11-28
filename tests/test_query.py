@@ -146,6 +146,32 @@ check(float(r.rows[0][0]) > 0 and 5 in j.models, "FVGs of another time frame")
 r = one("share nyam touches nyam.fvg.ce")
 check(r.n == n, "and their levels")
 
+# rejects: to a level, or a wick past it, and away without a close past it
+def candles(bars):
+	t0 = days[0] * 86400 + 3 * 3600
+	return query.Model(query.Candles.fromrows(np.array([[t0 + 900 * k - m15.nyoffset(t0 + 5 * 3600), *b]
+		for k, b in enumerate(bars)], dtype=float)))
+wick = candles([(110, 111, 105, 106), (106, 107, 99, 102), (102, 108, 101, 107), (107, 113, 106, 112)])
+check(wick.reject(0, 4, 100, 1, 10) == 1, "a wick through the level, closing back, and away: a reject")
+near = candles([(110, 111, 105, 106), (106, 107, 100.5, 102), (102, 108, 101, 107), (107, 113, 106, 112)])
+check(near.reject(0, 4, 100, 1, 10) == 1 and near.reject(0, 4, 100, 0.2, 10) is None, "near it is a reject too; farther, not")
+through = candles([(110, 111, 105, 106), (106, 107, 98, 99), (99, 108, 98, 107), (107, 113, 106, 112)])
+check(through.reject(0, 4, 100, 1, 10) is None, "a close past it is no reject")
+nobounce = candles([(110, 111, 105, 106), (106, 107, 99, 102), (102, 105, 101, 104), (104, 106, 103, 105)])
+check(nobounce.reject(0, 4, 100, 1, 10) is None, "nor is staying by it")
+under = candles([(90, 95, 89, 94), (94, 101, 93, 96), (96, 97, 88, 89)])
+check(under.reject(0, 3, 100, 1, 10) == 1, "and from below, a resistance")
+z = query.Zone("fvg", 100, 104, 0, 0, wick, dir="bull")
+run = query.Run(wick, query.Parser("count day").query())
+p = wick.day(days[0])
+check(run.fill(p, z, None) == 1, "a bullish FVG is filled when price trades down to its low")
+check(query.Run(nobounce, query.Parser("count day").query()).fill(p, query.Zone("fvg", 98, 104, 0, 0, nobounce, dir="bull"), None) is None,
+	"and not before")
+r = one("share day fills rthog")
+check(r.rows[0][0] == "0%", "the gaps up of the rising days are not filled")
+r = one("share day rejects asia.high")
+check(r.rows[0][0] == f"{100 * up / n:.0f}%", "the Asia high rejected when London falls from it; taken on the rising days")
+
 # each condition, from what price did in the day
 shapes = {
 	"consolidation": [(-6, 100), (0, 110), (6, 90), (17, 101)],	# up, down, back near the open
