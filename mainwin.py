@@ -49,6 +49,8 @@ SAVEDELAY = 800		# ms after the last key before notes are saved
 SEARCHTIP = ("<p>Show the images whose tags or notes have these words, ignoring case.</p>"
 	"<p>Words one after another must all be there, <b>|</b> means or, <b>!</b> means not, "
 	"and parentheses group: <code>(a b) | !(c d)</code>.</p>"
+	"<p>Starting with <b>?</b> it is a query, run with Return in View ▸ Queries: "
+	"<code>? share day takes asia.low</code>.</p>"
 	"<p>A final lowercase s is optional (EQL finds EQLs) and <b>*</b> matches any letters "
 	"within a word (EQ*). Esc empties the search.</p>"
 	"<p>A word also finds its aliases, kept in the journal's aliases.txt (Edit ▸ Aliases…): "
@@ -1043,7 +1045,7 @@ class MainWindow(QMainWindow):
 		self.searchbox.setClearButtonEnabled(True)
 		self.searchbox.setToolTip(SEARCHTIP)
 		self.searchbox.textChanged.connect(self.searchchanged)
-		self.searchbox.returnPressed.connect(self.applysearch)
+		self.searchbox.returnPressed.connect(self.searchenter)
 		self.daysbox = QCheckBox("Days")
 		self.weeksbox = QCheckBox("Weeks")
 		for b in (self.daysbox, self.weeksbox):
@@ -3023,6 +3025,11 @@ class MainWindow(QMainWindow):
 
 	# ---- search and list ----
 	def searchchanged(self, text):
+		if text.lstrip().startswith("?"):	# a query, run with Return
+			self.searchtimer.stop()
+			self.searchbox.setStyleSheet("")
+			self.searchbox.setToolTip("<p>Return runs the query after the <b>?</b> in View ▸ Queries.</p>")
+			return
 		err = Search.error(text, self.aliases())
 		self.searchbox.setStyleSheet("QLineEdit { color: #c62828; }" if err else "")
 		self.searchbox.setToolTip(f"<p><b>{html.escape(err)}</b></p>{SEARCHTIP}" if err else SEARCHTIP)
@@ -3067,10 +3074,30 @@ class MainWindow(QMainWindow):
 		self.searchchanged(self.searchbox.text())
 		self.applysearch()
 
+	def searchenter(self):
+		text = self.searchbox.text().strip()
+		if text.startswith("?"):
+			self.askquery(text[1:].strip())
+		else:
+			self.applysearch()
+
+	def askquery(self, text):
+		"""run query text in View ▸ Queries, with the search shown before"""
+		if not text:
+			return
+		self.queries()
+		w = getattr(self, "querywin", None)
+		if w is None or not isValid(w) or not w.isVisible():
+			return
+		w.edit.setEditText(text)
+		w.run()
+
 	def applysearch(self, keep=True):
 		if self.journal is None:
 			return
 		text = self.searchbox.text().strip()
+		if text.startswith("?"):
+			return	# a query, not a search: the last search stays
 		try:
 			self.search = Search(text, self.aliases())
 		except ValueError:

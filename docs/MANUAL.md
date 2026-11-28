@@ -1153,6 +1153,10 @@ or keep typing.
 
 #### More
 
+A query can also be typed in the search box of the main window, after a
+**?**: `? share day takes asia.low` and Return runs it here, leaving the
+search as it was (and the days it leaves still count).
+
 A wrong query turns red, saying what was expected and where. With a search
 in the list, only the days and weeks it leaves count, as in Swing Times:
 search `CPI` to ask about CPI days. The text below the chart says how many
