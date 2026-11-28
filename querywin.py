@@ -23,6 +23,7 @@ EXAMPLES = [
 	("Consolidating weekdays", "share day is consolidation by weekday"),
 	("Asia low, then its high", "share day takes asia.low then asia.high by weekday tf 5"),
 	("When the Asia low goes", "dist (when day takes asia.low).session tf 5"),
+	("Turtle soups of the Asia low", "share day soups asia.low by weekday tf 5"),
 	("Hour of the day's high", "dist day.high.hour"),
 	("NY AM range by weekday", "avg nyam.range by weekday in last 12 months"),
 ]

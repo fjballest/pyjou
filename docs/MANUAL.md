@@ -950,10 +950,14 @@ period:
 | `nyam takes prev day.high` | in New York's morning, price went above the day before's high |
 | `nyam above london.mid`, `day below prev day.close` | price went past any level |
 | `day closes above asia.high` | a candle closed past it |
+| `day soups asia.low` | a turtle soup: price went below Asia's low, a candle closed back above it, and price did not go below the low of that take again in the day |
 | `day takes asia.low then asia.high` | first one, later the other |
 
-`takes` goes above a high and below a low; `above` and `below` take any
-level. A level of a period is looked for after that period ends: `day takes
+`takes` goes above a high and below a low; `soups` is a take that failed:
+price went past the level, closed back on the other side, and never went
+past what it reached again (the first take of the level is the one that
+counts; the soup happens when it closes back). `above` and `below` take
+any level. A level of a period is looked for after that period ends: `day takes
 asia.low` looks from 00:00, when Asia is over. `then` puts things one after
 another, each after the candle of the one before: `day takes asia.low then
 asia.high` is the Asia low taken first and its high later, the same day;
@@ -1011,6 +1015,8 @@ which the Asia low went; a day it didn't is counted as `none`.
     share day takes asia.low then asia.high tf 5      took Asia's low, then its high
     share day takes asia.high then asia.low by weekday tf 5
     dist (when day takes asia.low).session tf 5       when Asia's low goes
+    share day soups asia.low by weekday tf 5          turtle soups of the Asia low
+    dist (when day soups prev day.high).session tf 5  when the day before's high is souped
     dist (when nyam takes london.high).time tf 1 where london is uptrend
     share nyam takes london.high where asia is consolidation and london is uptrend
     share day closes above prev day.high by weekday

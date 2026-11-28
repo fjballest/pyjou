@@ -13,6 +13,7 @@
 #	dist day.cond by month in 2025
 #	share day is consolidation by weekday
 #	share day takes asia.low then asia.high tf 5
+#	share day soups asia.high by weekday tf 5
 #	dist (when day takes asia.low).session
 #
 # Times are New York's, as in m15.py: a trading day from 18:00 the day
@@ -503,6 +504,26 @@ class Model:
 			return "downtrend"
 		return "mixed"
 
+	def soup(self, i, j, side, level):
+		"""a turtle soup of level in [i, j): price takes it (above, side 1,
+		or below, -1), a candle then closes back on the other side, and
+		price does not go past the extreme of that take again before j.
+		The candle that closed back, or None"""
+		k = self.first(i, j, side, level)
+		if k is None:
+			return None
+		c = self.c
+		back = self.first(k, j, -side, level, close=True)	# the close back, maybe on the candle that took it
+		if back is None:
+			return None
+		if side > 0:
+			ext = c.h[k:back + 1].max()
+			ok = back + 1 >= j or c.h[back + 1:j].max() <= ext
+		else:
+			ext = c.l[k:back + 1].min()
+			ok = back + 1 >= j or c.l[back + 1:j].min() >= ext
+		return back if ok else None
+
 	def first(self, i, j, side, level, close=False):
 		"""the first candle in [i, j) going above (side 1) or below (-1)
 		level (closing past it, with close), or None"""
@@ -543,8 +564,8 @@ def tokens(text):
 	return out
 
 KEYWORDS = {"by", "where", "in", "tf", "on", "and", "or", "not", "is", "then", "when", "takes", "above",
-	"below", "closes", "among", "last"}
-VERBS = {"takes", "above", "below", "closes"}
+	"below", "closes", "among", "last", "soups"}
+VERBS = {"takes", "above", "below", "closes", "soups"}
 
 # the tree: tuples
 #	("num", x)  ("name", word)  ("path", base, [attrs])  base: ("unit", kind) ("rel", k, base) ("window", name, a, b)
@@ -713,17 +734,17 @@ class Parser:
 		return ("true", a)
 
 	def verb(self):
-		"""takes, above, below, closes above, closes below: (verb, close)"""
+		"""takes, soups, above, below, closes above, closes below: (verb, close)"""
 		if self.take("closes"):
 			if self.take("above"):
 				return "above", True
 			if self.take("below"):
 				return "below", True
 			self.fail("closes above or below")
-		for v in ("takes", "above", "below"):
+		for v in ("takes", "soups", "above", "below"):
 			if self.take(v):
 				return v, False
-		self.fail("expected takes, above or below")
+		self.fail("expected takes, soups, above or below")
 
 	def seq(self, scope, target=None):
 		"""scope takes x then y then scope2 above z: events, one after the other"""
@@ -1060,10 +1081,10 @@ class Run:
 			if level is None:
 				return None
 			side = 0
-			if verb == "takes":
+			if verb in ("takes", "soups"):
 				last = target[2][-1] if target[0] == "path" and target[2] else None
 				if last not in ("high", "low"):
-					raise QueryError("takes is for a high or a low (day takes asia.low); "
+					raise QueryError(f"{verb} is for a high or a low (day {verb} asia.low); "
 						"for other levels say above or below")
 				side = 1 if last == "high" else -1
 			else:
@@ -1074,7 +1095,10 @@ class Run:
 				i = max(i, int(np.searchsorted(self.m.c.wall, src.e)))
 			if after is not None:
 				i = max(i, after + 1)
-			k = self.m.first(i, p.j, side, level, close)
+			if verb == "soups":
+				k = self.m.soup(i, p.j, side, level)
+			else:
+				k = self.m.first(i, p.j, side, level, close)
 			if k is None:
 				return None
 			after = k
