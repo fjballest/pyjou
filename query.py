@@ -1429,8 +1429,12 @@ class Run:
 		q = self.q
 		stat = q["stat"]
 		rows = []	# (unit, keys, value)
+		self.total = 0	# the periods with candles, before the list's search and where
 		for u in self.units():
-			if u.empty() or not self.kept(u):
+			if u.empty():
+				continue
+			self.total += 1
+			if not self.kept(u):
 				continue
 			if q["among"] is not None:
 				a = self.path(q["among"], u)
@@ -1564,9 +1568,11 @@ class Result:
 	def summary(self):
 		c = self.run.m.c
 		tf = m15.tfname(c.tf)
+		tot = getattr(self.run, "total", self.n)
 		if not self.periods:
-			return f"no {self.unit}s ({tf})"
-		return f"on {self.n} {self.unit}{'s' if self.n != 1 else ''}, {self.periods[0].date():%y-%m-%d} to " \
+			return f"no {self.unit}s of {tot} ({tf})" if tot else f"no {self.unit}s ({tf})"
+		of = f" of {tot}" if tot != self.n else ""
+		return f"on {self.n}{of} {self.unit}{'s' if self.n != 1 or of else ''}, {self.periods[0].date():%y-%m-%d} to " \
 			f"{self.periods[-1].date():%y-%m-%d} ({tf})"
 
 def fmt(stat, v):

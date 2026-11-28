@@ -1157,7 +1157,8 @@ A wrong query turns red, saying what was expected and where. With a search
 in the list, only the days and weeks it leaves count, as in Swing Times:
 search `CPI` to ask about CPI days. The text below the chart says how many
 periods were counted and from when to when: a share of five weeks says
-little.
+little. When **where** or a search leaves only some of them, it says how
+many of how many: "on 60 of 256 weeks".
 
 **Save…** keeps a query with a name in the journal's `queries.txt`
 (`name: query` a line); the list shows examples until there is one.
