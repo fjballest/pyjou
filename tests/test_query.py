@@ -183,6 +183,7 @@ shapes = {
 	"upretrace": [(-6, 100), (8, 140), (17, 120)],	# up, giving back half
 	"uptrend": [(-6, 100), (17, 140)],
 	"mixed": [(-6, 100), (-2, 97), (10, 110), (17, 107)],	# up some, not near its high
+	"swinging up": [(-6, 100), (0, 150), (3, 124), (6, 150), (9, 124), (12, 150), (17, 149)],	# swings, never back low
 }
 crows = []
 cdays = days[:len(shapes)]
@@ -195,7 +196,7 @@ for n, turns in zip(cdays, shapes.values()):
 cm = query.Model(query.Candles.fromrows(np.array(crows)))
 got = [cm.cond(cm.day(n)) for n in cdays]
 print(got)
-want = ["consolidation", "consolidation", "downreversal", "upretrace", "uptrend", "mixed"]
+want = ["consolidation", "consolidation", "downreversal", "upretrace", "uptrend", "mixed", "uptrend"]
 check(got == want, "the conditions from what price did: " + ", ".join(shapes))
 check(cm.swings(cm.day(cdays[1])) >= 4 and cm.swings(cm.day(cdays[4])) == 1, "swings counts the back and forth")
 

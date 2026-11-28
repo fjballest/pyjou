@@ -919,7 +919,7 @@ range, the first that fits:
 
 | Condition | What price did |
 |---|---|
-| `consolidation` | closed near the open (within a quarter of *r*), up and down around it; or went back and forth across the range (4 swings of half *r* or more), wherever it closed |
+| `consolidation` | closed near the open (within a quarter of *r*), up and down around it; or went back and forth across the range, wherever it closed: 4 swings of half *r* or more, with two of their lows in the lower third of the range and two of their highs in the upper third. Price that leaves the lower part and never goes back to it is not ranging, however much it swings above |
 | `upreversal` | went down first, at least 0.4 *r* below the open, then turned and closed above the open |
 | `downreversal` | went up first, at least 0.4 *r* above the open, then turned and closed below it |
 | `upretrace` | went up, then gave back at least 0.4 *r* from the high, closing still above the open |

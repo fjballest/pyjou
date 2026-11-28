@@ -641,10 +641,31 @@ class Model:
 		c = self.c
 		return len(zigzag(c.h[p.i:p.j], c.l[p.i:p.j], self.th["swing"] * r))
 
+	def ranging(self, p):
+		"""whether price in p went back and forth across its range: at least
+		th["swings"] swings of th["swing"] x r, with two of their lows in the
+		lower third of the range and two of their highs in the upper third"""
+		r = self.rangeof(p)
+		if not r:
+			return False
+		c = self.c
+		h, l = c.h[p.i:p.j], c.l[p.i:p.j]
+		turns = zigzag(h, l, self.th["swing"] * r)
+		if len(turns) < self.th["swings"]:
+			return False
+		k, side = turns[-1]	# the last leg, not turned yet, ends at its extreme
+		rest = slice(k + 1, len(h))
+		if k + 1 < len(h):
+			turns = turns + [(k + 1 + int(np.argmin(l[rest])), -1) if side > 0 else (k + 1 + int(np.argmax(h[rest])), 1)]
+		lo, hi = float(l.min()), float(h.max())
+		lows = sum(1 for i, s in turns if s < 0 and l[i] <= lo + r / 3)
+		highs = sum(1 for i, s in turns if s > 0 and h[i] >= hi - r / 3)
+		return lows >= 2 and highs >= 2
+
 	def findcond(self, p):
 		"""in this order, with r the range and the thresholds th:
-		consolidation: closes within flat x r of the open, or made swings
-			swings of swing x r, back and forth;
+		consolidation: closes within flat x r of the open, or went back
+			and forth across the range (ranging);
 		upreversal: went down first, at least reversal x r below the open,
 			then closed above it (by more than flat x r); downreversal the
 			other way;
@@ -661,7 +682,7 @@ class Model:
 		o, c = p.open(), p.close()
 		hi, lo = p.high(), p.low()
 		e = (c - o) / r
-		if abs(e) <= th["flat"] or self.swings(p) >= th["swings"]:
+		if abs(e) <= th["flat"] or self.ranging(p):
 			return "consolidation"
 		rv = th["reversal"]
 		if e > 0 and lo.k < hi.k and (o - lo.price) >= rv * r:
