@@ -272,8 +272,9 @@ Searching, the arrows and the calendar move through the images listed.
 
 ## The image
 
-**Fit** fits the image in the window, **Real Size** shows it at its size,
-and **Zoom +**/**Zoom −** zoom. On a trackpad, a double tap with two
+**Fit** (a magnifier with a double arrow) fits the image in the window,
+**Real Size** (a magnifier with =) shows it at its size, and **Zoom +**/**Zoom
+−** (a magnifier with + or −) zoom. On a trackpad, a double tap with two
 fingers zooms in, zooms in again, and fits again, keeping the point tapped
 in place, and pinching zooms in and out. Drag to move around. **View ▸ Open
 in Preview** opens it with the system viewer, with the drawings shown on
@@ -321,6 +322,14 @@ side of the image scales the whole image instead. Esc, or the right button,
 cancels. The drawings on the chart scaled, above the line, move and scale
 with it, so they stay on the same prices; the others stay where they are.
 They are saved with the image.
+
+**View ▸ Toolbar** shows the buttons of the toolbars with their icons and
+text, their icons only, or their text only, in every window; the choice is
+remembered. A button without an icon keeps its text. The gear at the end of
+the toolbar is a menu with **Swing Times**, **Strategy Tester**, **Match
+Day** and **Match Week**. In the drawing tools, **Copy** (two sheets) copies
+the image with its drawings, and the eye hides the drawings; it is struck
+out while they are hidden, and a click shows them again.
 
 The **List** and **Notes** buttons, at the left of the toolbar (**View ▸ Show List**, ⇧⌘L, and **View ▸
 Show Notes**, ⇧⌘N) hide and show the panel on the left (the search, the

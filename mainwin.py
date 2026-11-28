@@ -13,7 +13,7 @@ import zipfile
 
 from PySide6.QtCore import QDate, QEvent, QFileSystemWatcher, QMimeData, QPoint, QPointF, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import (
-	QAction, QBrush, QColor, QCursor, QDesktopServices, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
+	QAction, QActionGroup, QBrush, QColor, QCursor, QDesktopServices, QDrag, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPolygonF, QTextCharFormat
 )
 from PySide6.QtWidgets import (
 	QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -26,7 +26,7 @@ from capture import IMAGEEXTS, CaptureDialog, injournal, isimage, safecopy, save
 from journal import Journal, defaultjournals, setdrawing, groupkeys, tradedir, weekno
 from ocrworker import startocr
 from search import Search
-from drawbar import DrawBar
+from drawbar import DrawBar, applystyle, glyph
 from viewer import ImageView, renderfile
 from weekprof import Profiles, dayprofile, matches, partial, similarity
 from weekedit import ProfileEditor
@@ -771,6 +771,9 @@ class MainWindow(QMainWindow):
 			QKeySequence.StandardKey.ZoomIn, "zoom in")
 		self.zoomoutact = self.mkaction("Zoom −", lambda: self.view.zoom(0.8), None,
 			QKeySequence.StandardKey.ZoomOut, "zoom out")
+		fg = self.palette().color(QPalette.ColorRole.ButtonText)
+		for a, kind in ((self.fitact, "fit"), (self.realact, "realsize"), (self.zoominact, "zoomin"), (self.zoomoutact, "zoomout")):
+			a.setIcon(glyph(kind, fg))
 		self.osviewact = self.mkaction("Open in Preview", self.osview, None, "Ctrl+Shift+O",
 			"open the image with the system viewer")
 		self.retagact = self.mkaction("Read Tags Again", self.retag, None, "Ctrl+T",
@@ -908,7 +911,38 @@ class MainWindow(QMainWindow):
 		tb.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			tb.addAction(a)
+		tb.addSeparator()
+		self.toolsmenu = QMenu("Tools", self)	# the gear: the tools on the data and the profiles
+		for a in (self.swingact, self.testeract, self.matchdayact, self.matchact):
+			self.toolsmenu.addAction(a)
+		self.toolsact = QAction(glyph("gear", self.palette().color(QPalette.ColorRole.ButtonText)), "Tools", self)
+		self.toolsact.setToolTip("Swing Times, Strategy Tester, Match Day and Match Week")
+		self.toolsact.setMenu(self.toolsmenu)
+		tb.addAction(self.toolsact)
+		w = tb.widgetForAction(self.toolsact)
+		if w is not None:
+			w.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+		self.journaltb = tb
 		self.addToolBar(tb)
+		self.setbuttonstyle(self.buttonstyle())
+
+	@staticmethod
+	def buttonstyle():
+		"""how the toolbars show their buttons: "both" (icons and text), "icons" or "text" """
+		st = settings().value("buttonstyle", "both")
+		return st if st in ("both", "icons", "text") else "both"
+
+	def setbuttonstyle(self, style, save=False):
+		"""show the buttons of the toolbars with icons and text, icons only or text only"""
+		if save:	# every window
+			settings().setValue("buttonstyle", style)
+			for w in QApplication.topLevelWidgets():
+				if isinstance(w, MainWindow) and w is not self:
+					w.setbuttonstyle(style)
+		applystyle(self.journaltb, style, (self.toolsact,))
+		self.drawbar.setbuttonstyle(style)
+		for a in getattr(self, "styleacts", {}).values():
+			a.setChecked(a.data() == style)
 
 	def mkmenus(self):
 		mb = self.menuBar()
@@ -967,6 +1001,18 @@ class MainWindow(QMainWindow):
 		v.addAction(self.profileact)
 		v.addAction(self.swingact)
 		v.addAction(self.testeract)
+		v.addSeparator()
+		bm = v.addMenu("Tool&bar")
+		grp = QActionGroup(self)
+		self.styleacts = {}
+		for st, text in (("both", "Icons and Text"), ("icons", "Icons Only"), ("text", "Text Only")):
+			a = bm.addAction(text)
+			a.setCheckable(True)
+			a.setData(st)
+			a.setChecked(st == self.buttonstyle())
+			grp.addAction(a)
+			a.triggered.connect(lambda _=False, st=st: self.setbuttonstyle(st, save=True))
+			self.styleacts[st] = a
 		v.addSeparator()
 		for a in (self.fitact, self.realact, self.zoominact, self.zoomoutact):
 			v.addAction(a)

@@ -25,7 +25,7 @@ pylg, and uses easyocr for the OCR.
 | `weekedit.py` | `ProfileEditor`: adjusting a week profile on its image, with event filters on the view |
 | `m15.py` | `Data`: the m15 candles of the journal, imported from CSV and kept in files of at most `MAXFILE` bytes named after their first day (`storeof`, `Data.write`), their trading days and weeks in New York time, profiles and sessions. No widgets |
 | `dataview.py` | `Geom` (where a chart puts times and prices), `render` (the chart of a day or week from the candles) and `DataPanel`, the list of the data view; `MainWindow.setdatamode` and `showdata` switch to it |
-| `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo and delete as icons drawn by `glyph`), and `IndMenu`, the Ind menu of the data view |
+| `drawbar.py` | `DrawBar`: the toolbar for an `ImageView` (tools, color, width, undo, redo, delete, copy and the eye of Hide as icons drawn by `glyph`, which also draws the magnifiers of the zoom and the gear), `applystyle` (View ▸ Toolbar), and `IndMenu`, the Ind menu of the data view |
 | `news.py` | `News`: the FOMC, CPI, PPI and NFP days, built in and fetched, and the holidays, reckoned from their rules and fetched |
 | `indicators.py` | the Pine scripts imported and found in other folders, which are on, their inputs, the background `Runner` and its cache of runs, `overlay` (what they draw on a chart), the settings dialog |
 | `pine/` | the Pine interpreter: `parse.py`, `compile.py` (to Python), `runtime.py` (series, built-ins, drawing objects), `feed.py` (bars of every time frame from the journal's data), `draw.py` (a run painted on a chart), `strategy.py` (the broker of strategies) |
@@ -428,7 +428,7 @@ for t in tests/test_*.py; do QT_QPA_PLATFORM=offscreen python3 $t || echo FAILED
 Each file is a script that prints `ok` and what it checked, and exits with
 an error at the first check that fails. `test_journal`, `test_drawing`,
 `test_capture`, `test_clip`, `test_panels`, `test_window`, `test_layout`
-and `test_weekprof` are the captures; `test_m15`, `test_periods`,
+`test_weekprof` and `test_toolbar` are the captures and the toolbars; `test_m15`, `test_periods`,
 `test_scale`, `test_v3`, `test_v33` and `test_fill` the data view;
 `test_news` and `test_holidays` the news and holidays; `test_pine`,
 `test_indmenu` and `test_quit` the indicators; `test_patterns` the swing

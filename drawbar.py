@@ -3,8 +3,9 @@
 # redo and delete. Shared by DayJournal and pylg's graphics window.
 #
 import json
+import math
 
-from PySide6.QtCore import QPointF, QSettings, QSize, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
 	QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLayout,
@@ -494,7 +495,8 @@ def lineswatch(d, kind):
 	return QIcon(pm)
 
 def glyph(kind, color):
-	"""a drawn icon: "undo" and "redo" (a curved arrow), "delete" (a bin)"""
+	"""a drawn icon: "undo" and "redo" (a curved arrow), "delete" (a bin), "zoomin",
+	"zoomout", "realsize" and "fit" (a magnifier), "copy", "eye", "eyeoff", "gear" """
 	pm = QPixmap(36, 36)
 	pm.setDevicePixelRatio(2)
 	pm.fill(Qt.GlobalColor.transparent)
@@ -516,6 +518,53 @@ def glyph(kind, color):
 		p.drawPath(path)
 		p.drawLine(QPointF(4.5, 7), QPointF(7.5, 4))
 		p.drawLine(QPointF(4.5, 7), QPointF(7.5, 10))
+	elif kind in ("zoomin", "zoomout", "realsize", "fit"):	# a magnifier, with +, -, = or a double arrow
+		p.drawEllipse(QPointF(7.5, 7.5), 5, 5)
+		p.drawLine(QPointF(11.2, 11.2), QPointF(15.5, 15.5))
+		if kind in ("zoomin", "zoomout"):
+			p.drawLine(QPointF(5.2, 7.5), QPointF(9.8, 7.5))
+		if kind == "zoomin":
+			p.drawLine(QPointF(7.5, 5.2), QPointF(7.5, 9.8))
+		if kind == "realsize":
+			p.drawLine(QPointF(5.3, 6.4), QPointF(9.7, 6.4))
+			p.drawLine(QPointF(5.3, 8.6), QPointF(9.7, 8.6))
+		if kind == "fit":
+			p.drawLine(QPointF(5, 7.5), QPointF(10, 7.5))
+			for x, d in ((5, 1), (10, -1)):
+				p.drawLine(QPointF(x, 7.5), QPointF(x + 1.6*d, 6))
+				p.drawLine(QPointF(x, 7.5), QPointF(x + 1.6*d, 9))
+	elif kind == "copy":	# two sheets
+		p.drawRoundedRect(QRectF(6.5, 6, 8, 10), 1.2, 1.2)
+		path = QPainterPath()
+		path.moveTo(4, 12.5)
+		path.lineTo(3.5, 12.5)
+		path.lineTo(3.5, 2.5)
+		path.lineTo(11, 2.5)
+		path.lineTo(11, 4)
+		p.drawPath(path)
+	elif kind in ("eye", "eyeoff"):	# the drawings shown, or hidden (struck out)
+		path = QPainterPath()
+		path.moveTo(2, 9)
+		path.quadTo(9, 1.5, 16, 9)
+		path.quadTo(9, 16.5, 2, 9)
+		p.drawPath(path)
+		p.drawEllipse(QPointF(9, 9), 2.4, 2.4)
+		if kind == "eyeoff":
+			p.drawLine(QPointF(3.5, 15.5), QPointF(14.5, 2.5))
+	elif kind == "gear":
+		path = QPainterPath()
+		for i in range(16):	# 8 teeth
+			a = i * math.pi / 8
+			r = 7 if i % 2 == 0 else 5.2
+			for da in (-0.17, 0.17):
+				pt = QPointF(9 + r * math.cos(a + da), 9 + r * math.sin(a + da))
+				if path.elementCount() == 0:
+					path.moveTo(pt)
+				else:
+					path.lineTo(pt)
+		path.closeSubpath()
+		p.drawPath(path)
+		p.drawEllipse(QPointF(9, 9), 2.2, 2.2)
 	else:
 		p.drawLine(QPointF(3.5, 5), QPointF(14.5, 5))
 		p.drawLine(QPointF(7, 5), QPointF(7.5, 3))
@@ -531,6 +580,27 @@ def glyph(kind, color):
 			p.drawLine(QPointF(x, 7.5), QPointF(x, 12.5))
 	p.end()
 	return QIcon(pm)
+
+STYLES = {"both": Qt.ToolButtonStyle.ToolButtonTextBesideIcon, "icons": Qt.ToolButtonStyle.ToolButtonIconOnly,
+	"text": Qt.ToolButtonStyle.ToolButtonTextOnly}
+
+def applystyle(tb, style, compact=()):
+	"""set the buttons of toolbar tb to style ("both", "icons" or "text"):
+	those without an icon show their text whatever the style, and those of
+	the actions in compact only their icon unless it is "text" """
+	for a in tb.actions():
+		w = tb.widgetForAction(a)
+		if not isinstance(w, QToolButton) or w.defaultAction() is None:
+			continue	# a button of its own, like the color, keeps its look
+		a = w.defaultAction()	# Open's, with its menu, is another action's
+		if a.icon().isNull():
+			w.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+		elif not a.iconText():	# an icon and no text, like the color
+			w.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+		elif style != "text" and a in compact:
+			w.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+		else:
+			w.setToolButtonStyle(STYLES.get(style, STYLES["both"]))
 
 def colorswatch(c):
 	pm = QPixmap(14, 14)
@@ -640,6 +710,7 @@ class DrawBar(QToolBar):
 		self.copyimgact.setShortcut(QKeySequence("Ctrl+Shift+C"))
 		self.copyimgact.triggered.connect(self.copyimage)
 		self.addAction(self.copyimgact)
+		self.copyimgact.setIcon(glyph("copy", self.palette().color(QPalette.ColorRole.ButtonText)))
 		# the crosshair is always on; Hide hides all the drawings, and Show brings them back
 		view.setcrosshair(True)
 		view.fibform = self.fibform	# a double click on a fib changes its levels
@@ -651,6 +722,7 @@ class DrawBar(QToolBar):
 		self.hideact.triggered.connect(view.togglehidden)
 		view.hiddenchanged.connect(self.hiddenchanged)
 		self.addAction(self.hideact)
+		self.hiddenchanged(False)	# its eye
 		view.scene().selectionChanged.connect(self.selchanged)
 		self.setcolor(view.color, apply=False)
 		self.selchanged()
@@ -663,6 +735,7 @@ class DrawBar(QToolBar):
 
 	def hiddenchanged(self, hidden):
 		self.hideact.setText("Show" if hidden else "Hide")
+		self.hideact.setIcon(glyph("eyeoff" if hidden else "eye", self.palette().color(QPalette.ColorRole.ButtonText)))
 		self.hideact.setToolTip("show the drawings again (H on the image)" if hidden else
 			"hide all the drawings, to see the image as it is (H on the image); they are kept, and drawing shows them again")
 
@@ -980,6 +1053,13 @@ class DrawBar(QToolBar):
 		if m.isEmpty():
 			x = m.addAction(f"No saved {SHAPENAMES[kind].lower()}s: double click it to save its look")
 			x.setEnabled(False)
+
+	def setbuttonstyle(self, style):
+		"""show the buttons with their icons and text, their icons only, or
+		their text only; a button without an icon keeps its text, and undo,
+		redo and delete keep to their icons unless it is text only"""
+		compact = (self.undoact, self.redoact, self.delact)
+		applystyle(self, style, compact)
 
 	def detach(self):
 		"""move the bar to a window of its own that stays on top"""
