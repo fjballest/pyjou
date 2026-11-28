@@ -4,14 +4,46 @@
 
 Still in alpha. Just born for personal use. Provided AS-IS.
 
-DayJournal browses a day journal: a directory with snapshots of day and
-week charts. It reads the text written in each image with OCR and uses the
-words as tags, so the images can be searched. Each image can have notes of
-its own, kept in a `.txt` file next to it, and drawings on it. See the
-[user manual](docs/MANUAL.md) and the [design notes](docs/DESIGN.md); there
-are PDFs of both in `docs`.
+DayJournal is a trading journal for two kinds of material:
 
-What it does:
+- **Captures**: snapshots of day and week charts, read with OCR so their
+  text becomes tags to search, with notes and drawings of their own.
+- **Data**: the market's candles, imported as CSV files exported from
+  TradingView (m15, and m1, m3 or m5 for lower time frames). With them it
+  draws charts of any day or week in time frames from m1 to monthly, runs
+  Pine indicators and strategies on them, and answers questions about the
+  data in a small query language that knows ICT levels and concepts:
+  sessions and killzones, macros, the RTHOG, NDOG and NWOG opening gaps
+  and their quadrants, FVGs with their volume imbalances, highs and lows
+  taken, turtle soups, rejections and fills.
+
+See the [user manual](docs/MANUAL.md) and the [design notes](docs/DESIGN.md);
+there are PDFs of both in `docs`.
+
+What it does with the data:
+
+- **Charts** (View ▸ Data View): each week and day of the data, from its
+  candles, in m1, m2, m3, m5, m15, m30, h1, h4, daily, weekly or monthly,
+  with the Asia, London, NY AM and NY PM sessions, the week's profile, news
+  days, and drawings kept per chart. More windows can show the same day in
+  other time frames, synced.
+- **Indicators and strategies**: Pine scripts imported from TradingView
+  (ICTlevels, FVGs…) drawn on the charts, and the Strategy Tester, which
+  runs a Pine strategy on the data and shows its trades on the charts.
+- **Queries** (View ▸ Queries, or `?` in the search box): one line asks a
+  question and gets a table and a chart, for example
+  `share day takes asia.low then asia.high by weekday tf 5`,
+  `dist (when week fills nwog).day`, `share nyam rejects rthog.ce`,
+  `list day is consolidation`. Periods (years to hours, sessions, macros,
+  any window of the day), their conditions (trend, reversal, consolidation,
+  from what price did in them), levels and gaps, names for parts of
+  queries, and lower time frames to find what came first to the minute.
+- **Swing Times**: when swings and retracements tend to start, by time of
+  day, hour of the week and day of the month.
+- **RoadBook**: its Journal button shows the day of a trade here, at its
+  entry and exit.
+
+What it does with the captures:
 
 - Lists the captures by year, month and week (each group can be collapsed),
   with a calendar, and goes through them with the arrow keys.
@@ -59,6 +91,11 @@ on the same day:
 
 ![Indicators](screenshots/indicators.png)
 
+View ▸ Queries on NQ data from 2022: the days that took the Asia low and
+then its high, by weekday, found on m5 candles:
+
+![Queries](screenshots/queries.png)
+
 ## Running
 
 It needs Python 3.12 or later (the releases are built with 3.14) and
@@ -90,6 +127,10 @@ makes `dist/DayJournal.app` on macOS. The GitHub workflow
 | `dayYYMMDD….txt` | the notes for the image with the same name |
 | `dayYYMMDD….drw` | what is drawn on the image with the same name (JSON) |
 | `.pyjou-tags.json` | the text read from each image, so OCR runs once per image |
+| `MNQ-YYMMDD.m15.csv.gz` | the m15 candles imported, by the day of their first one (`.m1.`, `.m5.`… for lower time frames) |
+| `aliases.txt` | the aliases of words for searching |
+| `conditions.txt` | the thresholds of the trend, reversal and consolidation conditions of queries |
+| `queries.txt`, `definitions.txt` | the queries saved, and the names defined with `:=` |
 
 ## Source
 
@@ -106,7 +147,15 @@ makes `dist/DayJournal.app` on macOS. The GitHub workflow
 | `viewer.py` | the image view: zoom, the drawing tools and their dialogs (shared with rb) |
 | `drawing.py` | the shapes drawn, their undo commands and their JSON form (shared with rb) |
 | `drawbar.py` | the drawing buttons, their menus and the floating bar (shared with rb) |
+| `m15.py` | the candles of the journal: importing CSV files, time frames, sessions, New York time |
+| `dataview.py` | the data view: the list of weeks and days and their charts |
+| `indicators.py`, `pine/` | Pine indicators on the charts: a Pine interpreter and its drawings |
+| `backtest.py` | the Strategy Tester |
+| `patterns.py` | Swing Times |
+| `query.py`, `querywin.py` | the query language and its window; `python3 query.py journal 'query'` from a terminal |
+| `link.py` | what RoadBook asks DayJournal to show |
+| `weekprof.py`, `weekedit.py` | the week profiles found in captures, and adjusting them |
+| `news.py` | the days with US news (FOMC, CPI, PPI, NFP) |
 
-Tests: `QT_QPA_PLATFORM=offscreen python3 tests/test_journal.py`, and the
-same for `test_drawing.py`, `test_capture.py` and `test_panels.py` (the OCR
-is faked, so they run without easyocr).
+Tests: `for t in tests/test_*.py; do QT_QPA_PLATFORM=offscreen python3 $t; done`
+(the OCR is faked, so they run without easyocr).
