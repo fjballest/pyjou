@@ -516,8 +516,8 @@ only the days, and **+**/**−**, **m** and **w** open and close the groups as i
 the list of captures: the swings that frame it, as in the week profiles. Picking
 one draws its candles where the capture goes, in New York time: a week from
 Sunday 18:00 to Friday 17:00 with its days, a day from 18:00 the day before
-to 17:00 with its Asia (20:00–00:00), London (02:00–05:00) and NY AM
-(07:00–11:30) sessions, the times of the ICTlevels indicator, as boxes from their high to their low. The profile
+to 17:00 with its Asia (20:00–00:00), London (02:00–05:00), NY AM
+(07:00–11:30) and NY PM (13:30–16:00) sessions, the times of the ICTlevels indicator, as boxes from their high to their low. The profile
 is drawn over the candles, and the notes area says the open, high, low,
 close and range, and each session's range. Previous, Next, First, Last and
 Week (day ⇄ its week) move through the data, and the calendar goes to a day.
@@ -641,8 +641,8 @@ toolbar opens a new window in another time frame, on the same chart: this
 window and those it opened so are then laid out together, this one on the
 left half and the others on the right, when the screen has room.
 
-**View ▸ Session Rectangles**, on by default, draws the Asia, London and NY
-AM sessions of the days as rectangles; turned off, the charts show the
+**View ▸ Session Rectangles**, on by default, draws the Asia, London, NY AM and NY
+PM sessions of the days as rectangles; turned off, the charts show the
 candles alone (or the sessions the indicators draw).
 
 ### News days
@@ -867,6 +867,7 @@ A period is a stretch of time with candles; the query names them:
 | `year`, `month`, `week`, `day` | a year, a month, a week (Sunday 18:00 to Friday 17:00), a trading day (18:00 the day before to 17:00) |
 | `mon`, `tue`, `wed`, `thu`, `fri` | that day of the week |
 | `asia`, `london`, `nyam`, `nypm` | the sessions of a day: 20:00–00:00, 02:00–05:00, 07:00–11:30, 13:30–16:00 |
+| `session` | any of those four: each session of each day is counted, in a row, and `prev session` is the one just before (London's is Asia, Asia's the NY PM of the day before) |
 | `h9` | an hour of the day, 09:00–10:00 (`h20` is 20:00 the evening before) |
 | `08:30-10:00` | any window of the day; `20:00-02:00` starts the evening before |
 | `prev day`, `next week`, `prev 2 day` | the period before or after (the London before is `prev london`) |
@@ -876,7 +877,8 @@ of Monday, `week.fri` the week's Friday.
 
 **What is counted** is the smallest of the periods named: a query about
 `asia` or `london` counts days (the Asia of each day), one about `mon`
-counts weeks, one about `week` alone counts weeks. `count day`, `list week`
+counts weeks, one about `week` alone counts weeks, and one about `session`
+counts sessions. `count day`, `list week`
 and `among week` say it outright.
 
 #### What a period has
@@ -990,7 +992,8 @@ which the Asia low went; a day it didn't is counted as `none`.
   those only.
 - **by** *key* makes a row for each value of the key; **by** *key*, *key* a
   grid. Keys: `weekday`, `month` (2025-03), `monthname` (Mar, for seasons
-  across years), `year`, `quarter`, or any value: `by asia.cond`, `by
+  across years), `year`, `quarter`, `session` (its name, when counting
+  sessions), or any value: `by asia.cond`, `by
   day.high.session`, `by mon.dir`.
 - **in** `2025`, `2025-03`, `2025-03-14`, `2024-03..2025-06`, `last 6
   months` (or days, weeks, years).
@@ -1025,6 +1028,9 @@ which the Asia low went; a day it didn't is counted as `none`.
     avg nyam.range by weekday in last 6 months
     avg day.range / prev day.range by weekday
     dist day.swings tf 5                              how much days go back and forth
+    dist session.cond by session                      every session, by its name
+    share session takes prev session.high by session tf 5
+    avg session.range by session, weekday
     count day where day.rel < 0.6                     small days
     list day where day is downreversal and asia is consolidation in 2026
     list week where mon is upreversal and fri is uptrend

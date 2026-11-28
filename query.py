@@ -40,6 +40,7 @@ UNITS = ["year", "month", "week", "day"]
 # the periods before used for the average range: consolidation is a range
 # smaller than a part of it
 HISTORY = {"year": 3, "month": 6, "week": 8, "day": 20, "window": 20}
+SESSIONORDER = ["asia", "london", "nyam", "nypm"]
 CONDS = ["uptrend", "downtrend", "upreversal", "downreversal", "upretrace", "downretrace", "consolidation", "mixed"]
 GROUPS = {"trend": ("uptrend", "downtrend"), "reversal": ("upreversal", "downreversal"),
 	"retrace": ("upretrace", "downretrace"), "up": ("up",), "down": ("down",)}
@@ -214,7 +215,7 @@ class Period:
 	def date(self):
 		"""the trading day it is, or starts with"""
 		return daydate(self.key) if self.kind in ("day", "week") else (
-			daydate(self.key[0]) if self.kind == "window" else self.firstday())
+			daydate(self.key[0]) if self.kind in ("window", "session") else self.firstday())
 
 	# what it is made of
 	def open(self):
@@ -374,11 +375,17 @@ class Model:
 		first, last = dayn(date(y, 1, 1)), dayn(date(y, 12, 31))
 		return Period(self, "year", y, first * DAY + m15.DAYSTART * H, last * DAY + m15.DAYEND * H, "year")
 
-	def window(self, n, name, a, b):
-		return Period(self, "window", (n, name, a, b), int(n * DAY + a * H), int(n * DAY + b * H), name)
+	def window(self, n, name, a, b, kind="window"):
+		return Period(self, kind, (n, name, a, b), int(n * DAY + a * H), int(n * DAY + b * H), name)
+
+	def session(self, n, name):
+		"""the session name of day n, as one of the sessions in a row (prev
+		session is the one before it, whatever its name)"""
+		a, b = SESSIONS[name]
+		return self.window(n, name, a, b, "session")
 
 	def periods(self, kind):
-		"""every period of kind (year, month, week, day) with candles, in order"""
+		"""every period of kind (year, month, week, day, session) with candles, in order"""
 		if kind not in self.lists:
 			days = self.c.days
 			if kind == "day":
@@ -389,6 +396,8 @@ class Model:
 				out = [self.month(*k) for k in sorted({(daydate(n).year, daydate(n).month) for n in days})]
 			elif kind == "year":
 				out = [self.year(y) for y in sorted({daydate(n).year for n in days})]
+			elif kind == "session":
+				out = [self.session(n, s) for n in days for s in SESSIONORDER]
 			else:
 				raise QueryError(f"no periods {kind}")
 			self.lists[kind] = out
@@ -433,7 +442,7 @@ class Model:
 		"""the average range of the periods of p's kind before it"""
 		n = HISTORY.get(p.kind, 20)
 		rs = []
-		q = p
+		q = self.window(*p.key) if p.kind == "session" else p	# the same session, the days before
 		for _ in range(n * 2):
 			q = self.shift(q, -1)
 			if q is None:
@@ -634,7 +643,7 @@ class Parser:
 
 	def key(self):
 		kind, v, _ = self.peek()
-		if v in ("weekday", "month", "monthname", "year", "quarter", "hour") and self.peek(1)[1] not in (".",):
+		if v in ("weekday", "month", "monthname", "year", "quarter", "hour", "session") and self.peek(1)[1] not in (".",):
 			self.k += 1
 			return ("key", v)
 		return self.expr()
@@ -877,6 +886,8 @@ def unitof(q):
 		return q["what"][1][1]
 	if q["among"] is not None and q["among"][1][0] == "name" and q["among"][1][1] in UNITS:
 		return q["among"][1][1]
+	if "session" in words:
+		return "session"
 	if words & (set(SESSIONS) | {"window", "hour"}):
 		# a session named as mon.asia keeps to the week
 		if "day" in words or not words & set(WEEKDAYS):
@@ -903,7 +914,7 @@ class Run:
 		days, weeks = self.only
 		if p.kind == "week":
 			return p.key in weeks
-		if p.kind in ("day", "window"):
+		if p.kind in ("day", "window", "session"):
 			return p.date() and dayn(p.date()) in days
 		a, b = (p.s - m15.DAYSTART * H) // DAY, (p.e - m15.DAYSTART * H) // DAY
 		return any(a <= n <= b for n in days)
@@ -936,10 +947,14 @@ class Run:
 			d = self.dayof(u, name)
 			return m.window(d, name, a, b) if d is not None else None
 		name = base[1]
+		if name == "session":
+			if u.kind == "session":
+				return u
+			raise QueryError("which session? Name it (asia, london, nyam, nypm), or count sessions")
 		if name in UNITS:
 			if name == u.kind:
 				return u
-			if UNITS.index(name) < UNITS.index(u.kind) or u.kind == "window":
+			if u.kind in ("window", "session") or UNITS.index(name) < UNITS.index(u.kind):
 				return m.containing(u, name)
 			raise QueryError(f"which {name} of the {u.kind}? Name it, as mon or asia, or count {name}s")
 		if name in WEEKDAYS:
@@ -957,13 +972,13 @@ class Run:
 			h = int(m_.group(1))
 			a = h - 24 if h >= 18 else h
 			return m.window(self.dayof(u, name), name, a, a + 1)
-		raise QueryError(f"what is {name}? A period is year, month, week, day, mon…fri, asia, london, nyam, nypm, "
+		raise QueryError(f"what is {name}? A period is year, month, week, day, session, mon…fri, asia, london, nyam, nypm, "
 			"h9 (an hour) or 08:30-10:00")
 
 	def dayof(self, u, name):
 		if u.kind == "day":
 			return u.key
-		if u.kind == "window":
+		if u.kind in ("window", "session"):
 			return u.key[0]
 		raise QueryError(f"{name} of which day? Count days, or say mon.{name}")
 
@@ -989,9 +1004,9 @@ class Run:
 
 	def path(self, n, u, periodok=True):
 		_, base, attrs = n
-		if base[0] == "name" and base[1] not in UNITS + WEEKDAYS + list(SESSIONS) + MONTHS \
+		if base[0] == "name" and base[1] not in UNITS + ["session"] + WEEKDAYS + list(SESSIONS) + MONTHS \
 				and not re.fullmatch(r"h\d{1,2}", base[1]):
-			raise QueryError(f"what is {base[1]}? A period is year, month, week, day, mon…fri, asia, london, nyam, nypm, "
+			raise QueryError(f"what is {base[1]}? A period is year, month, week, day, session, mon…fri, asia, london, nyam, nypm, "
 				"h9 (an hour) or 08:30-10:00")
 		v = self.period(base, u)
 		rest = list(attrs)
@@ -1119,7 +1134,9 @@ class Run:
 			d = u.date()
 			name = k[1]
 			if name == "weekday":
-				return d.strftime("%a") if u.kind in ("day", "window") else None
+				return d.strftime("%a") if u.kind in ("day", "window", "session") else None
+			if name == "session":
+				return u.name if u.kind in ("window", "session") else None
 			if name == "month":
 				return f"{d:%Y-%m}"
 			if name == "monthname":

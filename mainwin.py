@@ -842,7 +842,7 @@ class MainWindow(QMainWindow):
 			self.askdelact.isChecked()), None, None, "ask before deleting a capture")
 		self.askdelact.setCheckable(True)
 		self.sessionsact = self.mkaction("&Session Rectangles", lambda: self.setsessions(self.sessionsact.isChecked()), None, None,
-			"Draw the Asia, London and NY AM sessions of the days of the data as rectangles")
+			"Draw the Asia, London, NY AM and NY PM sessions of the days of the data as rectangles")
 		self.sessionsact.setCheckable(True)
 		dataview.SHOWSESSIONS = settings().value("datasessions", True) not in (False, "false")
 		self.sessionsact.setChecked(dataview.SHOWSESSIONS)
