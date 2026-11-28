@@ -427,7 +427,7 @@ for t in tests/test_*.py; do QT_QPA_PLATFORM=offscreen python3 $t || echo FAILED
 
 Each file is a script that prints `ok` and what it checked, and exits with
 an error at the first check that fails. `test_journal`, `test_drawing`,
-`test_capture`, `test_clip`, `test_panels`, `test_window`, `test_layout`
+`test_capture`, `test_clip`, `test_panels`, `test_window`, `test_layout`,
 `test_weekprof` and `test_toolbar` are the captures and the toolbars; `test_m15`, `test_periods`,
 `test_scale`, `test_v3`, `test_v33` and `test_fill` the data view;
 `test_news` and `test_holidays` the news and holidays; `test_pine`,
